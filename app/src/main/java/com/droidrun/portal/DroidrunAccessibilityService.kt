@@ -44,6 +44,7 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
     private val isProcessing = AtomicBoolean(false)
     private var lastUpdateTime = 0L
     private var currentPackageName: String = ""
+    private var currentActivityName: String = ""
     private val visibleElements = mutableListOf<ElementNode>()
 
     override fun onCreate() {
@@ -98,16 +99,27 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val eventPackage = event?.packageName?.toString() ?: ""
-        
+        val eventClassName = event?.className?.toString() ?: ""
+
         // Detect package changes
         if (eventPackage.isNotEmpty() && eventPackage != currentPackageName && currentPackageName.isNotEmpty()) {
             resetOverlayState()
         }
-        
+
         if (eventPackage.isNotEmpty()) {
             currentPackageName = eventPackage
         }
-        
+
+        // Capture activity name from TYPE_WINDOW_STATE_CHANGED events
+        // These events typically indicate navigation to a new activity/screen
+        if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            if (eventClassName.isNotEmpty() && !eventClassName.startsWith("android.")) {
+                // Filter out Android system dialogs and only keep app activities
+                currentActivityName = eventClassName
+                Log.d(TAG, "Activity changed: $currentActivityName")
+            }
+        }
+
         // Trigger update on relevant events
         when (event?.eventType) {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
@@ -448,7 +460,7 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
         val currentPackage = rootInActiveWindow?.packageName?.toString()
         val appName = getAppName(currentPackage)
 
-        return PhoneState(focusedNode, keyboardVisible, currentPackage, appName, isEditable)
+        return PhoneState(focusedNode, keyboardVisible, currentPackage, appName, isEditable, currentActivityName)
     }
 
     private fun detectKeyboardVisibility(): Boolean {

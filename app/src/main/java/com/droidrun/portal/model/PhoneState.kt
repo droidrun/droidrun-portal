@@ -7,5 +7,6 @@ data class PhoneState (
     val keyboardVisible: Boolean,
     val packageName: String?,
     val appName: String?,
-    val isEditable: Boolean
+    val isEditable: Boolean,
+    val activityName: String?
 )

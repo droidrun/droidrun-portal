@@ -34,15 +34,17 @@ class DroidrunContentProvider : ContentProvider() {
         private const val STATE = 5
         private const val OVERLAY_OFFSET = 6
         private const val PACKAGES = 7
+        private const val A11Y_TREE_FULL = 8
 
         private val uriMatcher = UriMatcher(UriMatcher.NO_MATCH).apply {
             addURI(AUTHORITY, "a11y_tree", A11Y_TREE)
+            addURI(AUTHORITY, "a11y_tree_full", A11Y_TREE_FULL)
             addURI(AUTHORITY, "phone_state", PHONE_STATE)
             addURI(AUTHORITY, "ping", PING)
             addURI(AUTHORITY, "keyboard/*", KEYBOARD_ACTIONS)
             addURI(AUTHORITY, "state", STATE)
             addURI(AUTHORITY, "overlay_offset", OVERLAY_OFFSET)
-            addURI(AUTHORITY, "packages", PACKAGES) // <-- new endpoint
+            addURI(AUTHORITY, "packages", PACKAGES)
         }
     }
 
@@ -63,6 +65,7 @@ class DroidrunContentProvider : ContentProvider() {
         try {
             val result = when (uriMatcher.match(uri)) {
                 A11Y_TREE -> getAccessibilityTree()
+                A11Y_TREE_FULL -> getAccessibilityTreeFull()
                 PHONE_STATE -> getPhoneState()
                 PING -> createSuccessResponse("pong")
                 STATE -> getCombinedState()
@@ -158,6 +161,21 @@ class DroidrunContentProvider : ContentProvider() {
         }
     }
 
+    private fun getAccessibilityTreeFull(): String {
+        val accessibilityService = DroidrunAccessibilityService.getInstance()
+            ?: return createErrorResponse("Accessibility service not available")
+        return try {
+            val rootNode = accessibilityService.rootInActiveWindow
+                ?: return createErrorResponse("No active window available")
+
+            val fullTree = AccessibilityTreeBuilder.buildFullAccessibilityTreeJson(rootNode)
+            createSuccessResponse(fullTree.toString())
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to get full accessibility tree", e)
+            createErrorResponse("Failed to get full accessibility tree: ${e.message}")
+        }
+    }
+
     private fun buildElementNodeJson(element: ElementNode): JSONObject {
         return JSONObject().apply {
             put("index", element.overlayIndex)
@@ -192,6 +210,7 @@ class DroidrunContentProvider : ContentProvider() {
         JSONObject().apply {
             put("currentApp", phoneState.appName)
             put("packageName", phoneState.packageName)
+            put("activityName", phoneState.activityName ?: "")
             put("keyboardVisible", phoneState.keyboardVisible)
             put("isEditable", phoneState.isEditable)
             put("focusedElement", JSONObject().apply {
