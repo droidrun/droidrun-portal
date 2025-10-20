@@ -1,3 +1,4 @@
+// TODO: use unified functions with content provider
 package com.droidrun.portal
 
 import android.util.Log
@@ -186,6 +187,10 @@ class SocketServer(private val accessibilityService: DroidrunAccessibilityServic
             path.startsWith("/screenshot") -> {
                 Log.d(TAG, "Processing /screenshot request")
                 getScreenshot(path)
+            }
+            path.startsWith("/packages") -> {
+                Log.d(TAG, "Processing /packages request")
+                getInstalledPackages()
             }
             else -> {
                 Log.w(TAG, "Unknown endpoint requested: $path")
@@ -460,6 +465,64 @@ class SocketServer(private val accessibilityService: DroidrunAccessibilityServic
         } catch (e: Exception) {
             Log.e(TAG, "Failed to get screenshot", e)
             createErrorResponse("Failed to get screenshot: ${e.message}")
+        }
+    }
+
+    private fun getInstalledPackages(): String {
+        val pm = accessibilityService.packageManager
+
+        return try {
+            val mainIntent = android.content.Intent(android.content.Intent.ACTION_MAIN, null).apply {
+                addCategory(android.content.Intent.CATEGORY_LAUNCHER)
+            }
+
+            val resolvedApps: List<android.content.pm.ResolveInfo> = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                pm.queryIntentActivities(mainIntent, android.content.pm.PackageManager.ResolveInfoFlags.of(0L))
+            } else {
+                @Suppress("DEPRECATION")
+                pm.queryIntentActivities(mainIntent, 0)
+            }
+
+            val arr = org.json.JSONArray()
+
+            for (resolveInfo in resolvedApps) {
+                val pkgInfo = try {
+                    pm.getPackageInfo(resolveInfo.activityInfo.packageName, 0)
+                } catch (e: android.content.pm.PackageManager.NameNotFoundException) {
+                    continue
+                }
+
+                val appInfo = resolveInfo.activityInfo.applicationInfo
+                val obj = JSONObject()
+
+                obj.put("packageName", pkgInfo.packageName)
+                obj.put("label", resolveInfo.loadLabel(pm).toString())
+                obj.put("versionName", pkgInfo.versionName ?: JSONObject.NULL)
+
+                val versionCode = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                    pkgInfo.longVersionCode
+                } else {
+                    @Suppress("DEPRECATION")
+                    pkgInfo.versionCode.toLong()
+                }
+                obj.put("versionCode", versionCode)
+
+                val isSystem = (appInfo.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0
+                obj.put("isSystemApp", isSystem)
+
+                arr.put(obj)
+            }
+
+            val root = JSONObject()
+            root.put("status", "success")
+            root.put("count", arr.length())
+            root.put("packages", arr)
+
+            root.toString()
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to enumerate launchable apps", e)
+            createErrorResponse("Failed to enumerate launchable apps: ${e.message}")
         }
     }
 
