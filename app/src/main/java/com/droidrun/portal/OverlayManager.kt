@@ -17,12 +17,13 @@ import android.view.View
 import java.util.concurrent.atomic.AtomicBoolean
 import android.os.Build
 import android.view.WindowInsets
+import java.util.concurrent.CopyOnWriteArrayList
 
 class OverlayManager(private val context: Context) {
     private val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
     private var overlayView: OverlayView? = null
     private val handler = Handler(Looper.getMainLooper())
-    private val elementRects = mutableListOf<ElementInfo>()
+    private val elementRects = CopyOnWriteArrayList<ElementInfo>()
     private var isOverlayVisible = false
     private var isDrawingEnabled = true // Flag to temporarily disable drawing
     private var positionCorrectionOffset = 0 // Default correction offset
@@ -373,8 +374,8 @@ class OverlayManager(private val context: Context) {
                 }
                 
                 // Create a local copy to prevent concurrent modification
-                val elementsToDraw = ArrayList(elementRects)
-                
+                val elementsToDraw = elementRects
+
                 // Sort elements by depth for drawing order
                 val sortedElements = elementsToDraw.sortedBy { it.depth }
                 

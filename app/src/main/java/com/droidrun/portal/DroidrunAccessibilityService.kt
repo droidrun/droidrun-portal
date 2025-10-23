@@ -69,15 +69,11 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
         overlayManager.showOverlay()
         instance = this
 
-        // Configure accessibility service
         serviceInfo = AccessibilityServiceInfo().apply {
-            // Listen to all events
             eventTypes = AccessibilityEvent.TYPES_ALL_MASK
 
-            // Monitor all packages
             packageNames = null
 
-            // Set feedback type
             feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
 
             // Set flags for better access
@@ -91,13 +87,10 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
             }
         }
 
-        // Apply loaded configuration
         applyConfiguration()
 
-        // Start periodic updates
         startPeriodicUpdates()
         
-        // Start socket server if enabled
         startSocketServerIfEnabled()
 
         Log.d(TAG, "Accessibility service connected and configured")
@@ -120,7 +113,7 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
             AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
             AccessibilityEvent.TYPE_VIEW_SCROLLED -> {
-                // Let the periodic runnable handle updates
+                overlayManager.clearElements()
             }
         }
     }
@@ -188,6 +181,12 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
         }
     }
 
+    private fun applyAutoOffset() {
+        val autoOffset = overlayManager.calculateAutoOffset()
+        configManager.overlayOffset = autoOffset
+        overlayManager.setPositionOffsetY(autoOffset)
+    }
+
     private fun resetOverlayState() {
         try {
             overlayManager.clearElements()
@@ -220,18 +219,9 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
                     overlayManager.hideOverlay()
                 }
 
-                // Apply offset: auto or manual
-                val offsetToApply = if (config.autoOffsetEnabled) {
-                    val autoOffset = overlayManager.calculateAutoOffset()
-                    // Save the calculated auto offset back to ConfigManager
-                    // so MainActivity can read the correct value
-                    configManager.overlayOffset = autoOffset
-                    autoOffset
-                } else {
-                    config.overlayOffset
-                }
-                
-                overlayManager.setPositionOffsetY(offsetToApply)
+                if (config.autoOffsetEnabled) applyAutoOffset()
+                else overlayManager.setPositionOffsetY(config.overlayOffset)
+
             } catch (e: Exception) {
                 Log.e(TAG, "Error applying configuration: ${e.message}", e)
             }
@@ -296,11 +286,7 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
             // Only recalculate when enabling auto-offset
             if (enabled) {
                 mainHandler.post {
-                    val autoOffset = overlayManager.calculateAutoOffset()
-                    // Save the calculated auto offset back to ConfigManager
-                    // so MainActivity can read the correct value
-                    configManager.overlayOffset = autoOffset
-                    overlayManager.setPositionOffsetY(autoOffset)
+                    applyAutoOffset()
                 }
             }
 
@@ -319,15 +305,18 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
 
     private fun getVisibleElementsInternal(): MutableList<ElementNode> {
         val elements = mutableListOf<ElementNode>()
-        val indexCounter = IndexCounter(1) // Start indexing from 1
+        val indexCounter = IndexCounter(1)
 
         val rootNode = rootInActiveWindow ?: return elements
-        val rootElement = findAllVisibleElements(rootNode, 0, null, indexCounter)
-        rootElement?.let {
-            collectRootElements(it, elements)
+        try {
+            val rootElement = findAllVisibleElements(rootNode, 0, null, indexCounter)
+            rootElement?.let {
+                collectRootElements(it, elements)
+            }
+        } finally {
+            rootNode.recycle()
         }
 
-        // Store the elements for cleanup later
         synchronized(visibleElements) {
             clearElementList()
             visibleElements.addAll(elements)
@@ -405,8 +394,11 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
             // Recursively process children
             for (i in 0 until node.childCount) {
                 val childNode = node.getChild(i) ?: continue
-                val childElement = findAllVisibleElements(childNode, windowLayer, currentElement, indexCounter)
-                // Children are already added to currentElement via parent?.addChild() call above
+                try {
+                    findAllVisibleElements(childNode, windowLayer, currentElement, indexCounter)
+                } finally {
+                    childNode.recycle()
+                }
             }
 
             return currentElement
