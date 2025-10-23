@@ -69,15 +69,11 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
         overlayManager.showOverlay()
         instance = this
 
-        // Configure accessibility service
         serviceInfo = AccessibilityServiceInfo().apply {
-            // Listen to all events
             eventTypes = AccessibilityEvent.TYPES_ALL_MASK
 
-            // Monitor all packages
             packageNames = null
 
-            // Set feedback type
             feedbackType = AccessibilityServiceInfo.FEEDBACK_GENERIC
 
             // Set flags for better access
@@ -91,13 +87,10 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
             }
         }
 
-        // Apply loaded configuration
         applyConfiguration()
 
-        // Start periodic updates
         startPeriodicUpdates()
         
-        // Start socket server if enabled
         startSocketServerIfEnabled()
 
         Log.d(TAG, "Accessibility service connected and configured")
@@ -120,7 +113,7 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
             AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
             AccessibilityEvent.TYPE_VIEW_SCROLLED -> {
-                // Let the periodic runnable handle updates
+                overlayManager.clearElements()
             }
         }
     }
@@ -186,6 +179,12 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
         } finally {
             isProcessing.set(false)
         }
+    }
+
+    private fun applyAutoOffset() {
+        val autoOffset = overlayManager.calculateAutoOffset()
+        configManager.overlayOffset = autoOffset
+        overlayManager.setPositionOffsetY(autoOffset)
     }
 
     private fun resetOverlayState() {
@@ -338,15 +337,18 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
 
     private fun getVisibleElementsInternal(): MutableList<ElementNode> {
         val elements = mutableListOf<ElementNode>()
-        val indexCounter = IndexCounter(1) // Start indexing from 1
+        val indexCounter = IndexCounter(1)
 
         val rootNode = rootInActiveWindow ?: return elements
-        val rootElement = findAllVisibleElements(rootNode, 0, null, indexCounter)
-        rootElement?.let {
-            collectRootElements(it, elements)
+        try {
+            val rootElement = findAllVisibleElements(rootNode, 0, null, indexCounter)
+            rootElement?.let {
+                collectRootElements(it, elements)
+            }
+        } finally {
+            rootNode.recycle()
         }
 
-        // Store the elements for cleanup later
         synchronized(visibleElements) {
             clearElementList()
             visibleElements.addAll(elements)
@@ -424,8 +426,11 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
             // Recursively process children
             for (i in 0 until node.childCount) {
                 val childNode = node.getChild(i) ?: continue
-                val childElement = findAllVisibleElements(childNode, windowLayer, currentElement, indexCounter)
-                // Children are already added to currentElement via parent?.addChild() call above
+                try {
+                    findAllVisibleElements(childNode, windowLayer, currentElement, indexCounter)
+                } finally {
+                    childNode.recycle()
+                }
             }
 
             return currentElement
