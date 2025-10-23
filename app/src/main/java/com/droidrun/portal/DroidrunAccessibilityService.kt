@@ -219,9 +219,29 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
                     overlayManager.hideOverlay()
                 }
 
-                if (config.autoOffsetEnabled) applyAutoOffset()
-                else overlayManager.setPositionOffsetY(config.overlayOffset)
-
+                // Apply offset: auto or manual
+                val offsetToApply = if (config.autoOffsetEnabled) {
+                    // Only calculate auto offset if it hasn't been calculated before
+                    if (!config.autoOffsetCalculated) {
+                        val autoOffset = overlayManager.calculateAutoOffset()
+                        // Save the calculated auto offset back to ConfigManager
+                        // so MainActivity can read the correct value
+                        configManager.overlayOffset = autoOffset
+                        // Mark that auto offset has been calculated
+                        configManager.autoOffsetCalculated = true
+                        Log.d(TAG, "Auto offset calculated for the first time: $autoOffset")
+                        autoOffset
+                    } else {
+                        // Use the previously calculated/saved offset
+                        val savedOffset = config.overlayOffset
+                        Log.d(TAG, "Using previously calculated auto offset: $savedOffset")
+                        savedOffset
+                    }
+                } else {
+                    config.overlayOffset
+                }
+                
+                overlayManager.setPositionOffsetY(offsetToApply)
             } catch (e: Exception) {
                 Log.e(TAG, "Error applying configuration: ${e.message}", e)
             }
@@ -279,6 +299,11 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
                 // When disabling auto-offset, save the current applied offset
                 // as the manual offset so it persists across restarts
                 configManager.overlayOffset = overlayManager.getPositionOffsetY()
+                // Reset the calculated flag so it will recalculate if re-enabled
+                configManager.autoOffsetCalculated = false
+            } else {
+                // When enabling, reset the calculated flag to trigger recalculation
+                configManager.autoOffsetCalculated = false
             }
 
             configManager.autoOffsetEnabled = enabled
@@ -286,7 +311,14 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
             // Only recalculate when enabling auto-offset
             if (enabled) {
                 mainHandler.post {
-                    applyAutoOffset()
+                    val autoOffset = overlayManager.calculateAutoOffset()
+                    // Save the calculated auto offset back to ConfigManager
+                    // so MainActivity can read the correct value
+                    configManager.overlayOffset = autoOffset
+                    // Mark that auto offset has been calculated
+                    configManager.autoOffsetCalculated = true
+                    overlayManager.setPositionOffsetY(autoOffset)
+                    Log.d(TAG, "Auto offset recalculated: $autoOffset")
                 }
             }
 

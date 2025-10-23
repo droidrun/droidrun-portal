@@ -14,6 +14,7 @@ class ConfigManager private constructor(private val context: Context) {
         private const val KEY_OVERLAY_VISIBLE = "overlay_visible"
         private const val KEY_OVERLAY_OFFSET = "overlay_offset"
         private const val KEY_AUTO_OFFSET_ENABLED = "auto_offset_enabled"
+        private const val KEY_AUTO_OFFSET_CALCULATED = "auto_offset_calculated"
         private const val KEY_SOCKET_SERVER_ENABLED = "socket_server_enabled"
         private const val KEY_SOCKET_SERVER_PORT = "socket_server_port"
         private const val DEFAULT_OFFSET = 0
@@ -50,6 +51,13 @@ class ConfigManager private constructor(private val context: Context) {
         get() = sharedPrefs.getBoolean(KEY_AUTO_OFFSET_ENABLED, true)
         set(value) {
             sharedPrefs.edit().putBoolean(KEY_AUTO_OFFSET_ENABLED, value).apply()
+        }
+
+    // Track if auto offset has been calculated before
+    var autoOffsetCalculated: Boolean
+        get() = sharedPrefs.getBoolean(KEY_AUTO_OFFSET_CALCULATED, false)
+        set(value) {
+            sharedPrefs.edit().putBoolean(KEY_AUTO_OFFSET_CALCULATED, value).apply()
         }
 
     // Socket server enabled
@@ -156,6 +164,7 @@ class ConfigManager private constructor(private val context: Context) {
         val overlayVisible: Boolean,
         val overlayOffset: Int,
         val autoOffsetEnabled: Boolean,
+        val autoOffsetCalculated: Boolean,
         val socketServerEnabled: Boolean,
         val socketServerPort: Int
     )
@@ -165,6 +174,7 @@ class ConfigManager private constructor(private val context: Context) {
             overlayVisible = overlayVisible,
             overlayOffset = overlayOffset,
             autoOffsetEnabled = autoOffsetEnabled,
+            autoOffsetCalculated = autoOffsetCalculated,
             socketServerEnabled = socketServerEnabled,
             socketServerPort = socketServerPort
         )
