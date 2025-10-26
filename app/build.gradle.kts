@@ -11,8 +11,8 @@ android {
         applicationId = "com.droidrun.portal"
         minSdk = 30
         targetSdk = 34
-        versionCode = 41
-        versionName = "0.4.1"
+        versionCode = 42
+        versionName = "0.4.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
