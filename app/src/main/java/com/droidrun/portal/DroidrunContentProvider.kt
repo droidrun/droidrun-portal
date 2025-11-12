@@ -59,24 +59,24 @@ class DroidrunContentProvider : ContentProvider() {
         sortOrder: String?
     ): Cursor? {
         val cursor = MatrixCursor(arrayOf("result"))
-        
+
         try {
             val result = when (uriMatcher.match(uri)) {
-                A11Y_TREE -> getAccessibilityTree()
+                A11Y_TREE -> getAccessibilityTree(uri)
                 PHONE_STATE -> getPhoneState()
                 PING -> createSuccessResponse("pong")
-                STATE -> getCombinedState()
+                STATE -> getCombinedState(uri)
                 PACKAGES -> getInstalledPackagesJson()
                 else -> createErrorResponse("Unknown endpoint: ${uri.path}")
             }
-            
+
             cursor.addRow(arrayOf(result))
-            
+
         } catch (e: Exception) {
             Log.e(TAG, "Query execution failed", e)
             cursor.addRow(arrayOf(createErrorResponse("Execution failed: ${e.message}")))
         }
-        
+
         return cursor
     }
 
@@ -142,13 +142,15 @@ class DroidrunContentProvider : ContentProvider() {
         }
     }
 
-    private fun getAccessibilityTree(): String {
+    private fun getAccessibilityTree(uri: Uri): String {
         val accessibilityService = DroidrunAccessibilityService.getInstance()
             ?: return createErrorResponse("Accessibility service not available")
         return try {
+            // Check if detailed output is requested
+            val detailed = uri.getQueryParameter("detailed")?.toBoolean() ?: false
 
             val treeJson = accessibilityService.getVisibleElements().map { element ->
-                buildElementNodeJson(element)
+                buildElementNodeJson(element, detailed)
             }
 
             createSuccessResponse(treeJson.toString())
@@ -158,7 +160,7 @@ class DroidrunContentProvider : ContentProvider() {
         }
     }
 
-    private fun buildElementNodeJson(element: ElementNode): JSONObject {
+    private fun buildElementNodeJson(element: ElementNode, detailed: Boolean = false): JSONObject {
         return JSONObject().apply {
             put("index", element.overlayIndex)
             put("resourceId", element.nodeInfo.viewIdResourceName ?: "")
@@ -166,10 +168,28 @@ class DroidrunContentProvider : ContentProvider() {
             put("text", element.text)
             put("bounds", "${element.rect.left}, ${element.rect.top}, ${element.rect.right}, ${element.rect.bottom}")
 
+            // Add detailed properties if requested
+            if (detailed) {
+                put("isClickable", element.nodeInfo.isClickable)
+                put("isFocusable", element.nodeInfo.isFocusable)
+                put("isFocused", element.nodeInfo.isFocused)
+                put("isAccessibilityFocused", element.nodeInfo.isAccessibilityFocused)
+                put("isEnabled", element.nodeInfo.isEnabled)
+                put("isCheckable", element.nodeInfo.isCheckable)
+                put("isChecked", element.nodeInfo.isChecked)
+                put("isSelected", element.nodeInfo.isSelected)
+                put("isScrollable", element.nodeInfo.isScrollable)
+                put("isEditable", element.nodeInfo.isEditable)
+                put("isLongClickable", element.nodeInfo.isLongClickable)
+                put("isPassword", element.nodeInfo.isPassword)
+                put("contentDescription", element.nodeInfo.contentDescription?.toString() ?: "")
+                put("packageName", element.nodeInfo.packageName?.toString() ?: "")
+            }
+
             // Recursively build children JSON
             val childrenArray = org.json.JSONArray()
             element.children.forEach { child ->
-                childrenArray.put(buildElementNodeJson(child))
+                childrenArray.put(buildElementNodeJson(child, detailed))
             }
             put("children", childrenArray)
         }
@@ -203,25 +223,28 @@ class DroidrunContentProvider : ContentProvider() {
             )
         }
 
-    private fun getCombinedState(): String {
+    private fun getCombinedState(uri: Uri): String {
         val accessibilityService = DroidrunAccessibilityService.getInstance()
             ?: return createErrorResponse("Accessibility service not available")
-        
+
         return try {
+            // Check if detailed output is requested
+            val detailed = uri.getQueryParameter("detailed")?.toBoolean() ?: false
+
             // Get accessibility tree
             val treeJson = accessibilityService.getVisibleElements().map { element ->
-                buildElementNodeJson(element)
+                buildElementNodeJson(element, detailed)
             }
-            
+
             // Get phone state
             val phoneStateJson = buildPhoneStateJson(accessibilityService.getPhoneState())
-            
+
             // Combine both in a single response
             val combinedState = JSONObject().apply {
                 put("a11y_tree", org.json.JSONArray(treeJson))
                 put("phone_state", phoneStateJson)
             }
-            
+
             createSuccessResponse(combinedState.toString())
         } catch (e: Exception) {
             Log.e(TAG, "Failed to get combined state", e)
