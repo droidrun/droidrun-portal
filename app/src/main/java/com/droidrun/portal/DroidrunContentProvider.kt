@@ -36,6 +36,7 @@ class DroidrunContentProvider : ContentProvider() {
         private const val PACKAGES = 7
         private const val A11Y_TREE_FULL = 8
         private const val VERSION = 9
+        private const val STATE_FULL = 10
 
         private val uriMatcher = UriMatcher(UriMatcher.NO_MATCH).apply {
             addURI(AUTHORITY, "a11y_tree", A11Y_TREE)
@@ -44,6 +45,7 @@ class DroidrunContentProvider : ContentProvider() {
             addURI(AUTHORITY, "ping", PING)
             addURI(AUTHORITY, "keyboard/*", KEYBOARD_ACTIONS)
             addURI(AUTHORITY, "state", STATE)
+            addURI(AUTHORITY, "state_full", STATE_FULL)
             addURI(AUTHORITY, "overlay_offset", OVERLAY_OFFSET)
             addURI(AUTHORITY, "packages", PACKAGES)
             addURI(AUTHORITY, "version", VERSION)
@@ -71,6 +73,7 @@ class DroidrunContentProvider : ContentProvider() {
                 PHONE_STATE -> getPhoneState()
                 PING -> createSuccessResponse("pong")
                 STATE -> getCombinedState()
+                STATE_FULL -> getCombinedStateFull()
                 PACKAGES -> getInstalledPackagesJson()
                 VERSION -> getVersion()
                 else -> createErrorResponse("Unknown endpoint: ${uri.path}")
@@ -230,6 +233,29 @@ class DroidrunContentProvider : ContentProvider() {
             ?: return createErrorResponse("Accessibility service not available")
 
         return try {
+            val treeJson = accessibilityService.getVisibleElements().map { element ->
+                buildElementNodeJson(element)
+            }
+
+            val phoneStateJson = buildPhoneStateJson(accessibilityService.getPhoneState())
+
+            val combinedState = JSONObject().apply {
+                put("a11y_tree", org.json.JSONArray(treeJson))
+                put("phone_state", phoneStateJson)
+            }
+
+            createSuccessResponse(combinedState.toString())
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to get combined state", e)
+            createErrorResponse("Failed to get combined state: ${e.message}")
+        }
+    }
+
+    private fun getCombinedStateFull(): String {
+        val accessibilityService = DroidrunAccessibilityService.getInstance()
+            ?: return createErrorResponse("Accessibility service not available")
+
+        return try {
             val rootNode = accessibilityService.rootInActiveWindow
                 ?: return createErrorResponse("No active window available")
 
@@ -245,8 +271,8 @@ class DroidrunContentProvider : ContentProvider() {
 
             createSuccessResponse(combinedState.toString())
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to get combined state", e)
-            createErrorResponse("Failed to get combined state: ${e.message}")
+            Log.e(TAG, "Failed to get combined state full", e)
+            createErrorResponse("Failed to get combined state full: ${e.message}")
         }
     }
 

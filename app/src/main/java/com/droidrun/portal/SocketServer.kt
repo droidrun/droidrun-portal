@@ -176,6 +176,10 @@ class SocketServer(private val accessibilityService: DroidrunAccessibilityServic
                 Log.d(TAG, "Processing /phone_state request")
                 getPhoneState()
             }
+            path.startsWith("/state_full") -> {
+                Log.d(TAG, "Processing /state_full request")
+                getCombinedStateFull()
+            }
             path.startsWith("/state") -> {
                 Log.d(TAG, "Processing /state request")
                 getCombinedState()
@@ -410,6 +414,26 @@ class SocketServer(private val accessibilityService: DroidrunAccessibilityServic
 
     private fun getCombinedState(): String {
         return try {
+            val treeJson = accessibilityService.getVisibleElements().map { element ->
+                buildElementNodeJson(element)
+            }
+
+            val phoneStateJson = buildPhoneStateJson(accessibilityService.getPhoneState())
+
+            val combinedState = JSONObject().apply {
+                put("a11y_tree", org.json.JSONArray(treeJson))
+                put("phone_state", phoneStateJson)
+            }
+
+            createSuccessResponse(combinedState.toString())
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to get combined state", e)
+            createErrorResponse("Failed to get combined state: ${e.message}")
+        }
+    }
+
+    private fun getCombinedStateFull(): String {
+        return try {
             val rootNode = accessibilityService.rootInActiveWindow
                 ?: return createErrorResponse("No active window available")
 
@@ -425,8 +449,8 @@ class SocketServer(private val accessibilityService: DroidrunAccessibilityServic
 
             createSuccessResponse(combinedState.toString())
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to get combined state", e)
-            createErrorResponse("Failed to get combined state: ${e.message}")
+            Log.e(TAG, "Failed to get combined state full", e)
+            createErrorResponse("Failed to get combined state full: ${e.message}")
         }
     }
 
