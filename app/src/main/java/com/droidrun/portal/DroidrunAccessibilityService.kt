@@ -492,6 +492,32 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
         fun getNext(): Int = current++
     }
 
+    fun getDeviceContext(): org.json.JSONObject {
+        return org.json.JSONObject().apply {
+            // Screen dimensions
+            put("screen_bounds", org.json.JSONObject().apply {
+                put("width", screenBounds.width())
+                put("height", screenBounds.height())
+            })
+
+            // Filtering parameters
+            put("filtering_params", org.json.JSONObject().apply {
+                put("min_element_size", MIN_ELEMENT_SIZE)
+                put("overlay_offset", getOverlayOffset())
+            })
+
+            // Display metrics
+            val metrics = resources.displayMetrics
+            put("display_metrics", org.json.JSONObject().apply {
+                put("density", metrics.density)
+                put("densityDpi", metrics.densityDpi)
+                put("scaledDensity", metrics.scaledDensity)
+                put("widthPixels", metrics.widthPixels)
+                put("heightPixels", metrics.heightPixels)
+            })
+        }
+    }
+
     // Socket server management methods
     private fun startSocketServerIfEnabled() {
         if (configManager.socketServerEnabled) {

@@ -18,7 +18,7 @@ object AccessibilityTreeBuilder {
      * @return JSONObject containing all extractable node information
      */
     fun buildFullAccessibilityTreeJson(node: AccessibilityNodeInfo): JSONObject {
-        return JSONObject().apply {
+        val result = JSONObject().apply {
             // Basic identification
             put("resourceId", node.viewIdResourceName ?: "")
             put("className", node.className?.toString() ?: "")
@@ -270,5 +270,8 @@ object AccessibilityTreeBuilder {
             }
             put("children", childrenArray)
         }
+
+        node.recycle()
+        return result
     }
 }

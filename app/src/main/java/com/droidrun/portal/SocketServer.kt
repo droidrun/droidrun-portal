@@ -184,6 +184,10 @@ class SocketServer(private val accessibilityService: DroidrunAccessibilityServic
                 Log.d(TAG, "Processing /ping request")
                 createSuccessResponse("pong")
             }
+            path.startsWith("/version") -> {
+                Log.d(TAG, "Processing /version request")
+                getVersion()
+            }
             path.startsWith("/screenshot") -> {
                 Log.d(TAG, "Processing /screenshot request")
                 getScreenshot(path)
@@ -406,20 +410,19 @@ class SocketServer(private val accessibilityService: DroidrunAccessibilityServic
 
     private fun getCombinedState(): String {
         return try {
-            // Get accessibility tree
-            val treeJson = accessibilityService.getVisibleElements().map { element ->
-                buildElementNodeJson(element)
-            }
-            
-            // Get phone state
+            val rootNode = accessibilityService.rootInActiveWindow
+                ?: return createErrorResponse("No active window available")
+
+            val fullTree = AccessibilityTreeBuilder.buildFullAccessibilityTreeJson(rootNode)
             val phoneStateJson = buildPhoneStateJson(accessibilityService.getPhoneState())
-            
-            // Combine both in a single response
+            val deviceContext = accessibilityService.getDeviceContext()
+
             val combinedState = JSONObject().apply {
-                put("a11y_tree", org.json.JSONArray(treeJson))
+                put("a11y_tree", fullTree)
                 put("phone_state", phoneStateJson)
+                put("device_context", deviceContext)
             }
-            
+
             createSuccessResponse(combinedState.toString())
         } catch (e: Exception) {
             Log.e(TAG, "Failed to get combined state", e)
@@ -543,6 +546,17 @@ class SocketServer(private val accessibilityService: DroidrunAccessibilityServic
         }
     }
 
+
+    private fun getVersion(): String {
+        return try {
+            val versionName = accessibilityService.packageManager
+                .getPackageInfo(accessibilityService.packageName, 0).versionName
+            createSuccessResponse(versionName)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to get version", e)
+            createErrorResponse("Failed to get version: ${e.message}")
+        }
+    }
 
     private fun buildPhoneStateJson(phoneState: com.droidrun.portal.model.PhoneState) =
         JSONObject().apply {

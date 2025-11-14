@@ -500,6 +500,36 @@
                             android:textSize="13sp"
                             android:fontFamily="monospace"
                             android:paddingStart="16dp"
+                            android:layout_marginBottom="4dp" />
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="/a11y_tree_full"
+                            android:textColor="@color/text_gray_light"
+                            android:textSize="13sp"
+                            android:fontFamily="monospace"
+                            android:paddingStart="16dp"
+                            android:layout_marginBottom="4dp" />
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="/packages"
+                            android:textColor="@color/text_gray_light"
+                            android:textSize="13sp"
+                            android:fontFamily="monospace"
+                            android:paddingStart="16dp"
+                            android:layout_marginBottom="4dp" />
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="/screenshot"
+                            android:textColor="@color/text_gray_light"
+                            android:textSize="13sp"
+                            android:fontFamily="monospace"
+                            android:paddingStart="16dp"
                             android:layout_marginBottom="16dp" />
 
                         <!-- POST Endpoints -->

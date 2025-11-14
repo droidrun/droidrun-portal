@@ -35,6 +35,7 @@ class DroidrunContentProvider : ContentProvider() {
         private const val OVERLAY_OFFSET = 6
         private const val PACKAGES = 7
         private const val A11Y_TREE_FULL = 8
+        private const val VERSION = 9
 
         private val uriMatcher = UriMatcher(UriMatcher.NO_MATCH).apply {
             addURI(AUTHORITY, "a11y_tree", A11Y_TREE)
@@ -45,6 +46,7 @@ class DroidrunContentProvider : ContentProvider() {
             addURI(AUTHORITY, "state", STATE)
             addURI(AUTHORITY, "overlay_offset", OVERLAY_OFFSET)
             addURI(AUTHORITY, "packages", PACKAGES)
+            addURI(AUTHORITY, "version", VERSION)
         }
     }
 
@@ -70,6 +72,7 @@ class DroidrunContentProvider : ContentProvider() {
                 PING -> createSuccessResponse("pong")
                 STATE -> getCombinedState()
                 PACKAGES -> getInstalledPackagesJson()
+                VERSION -> getVersion()
                 else -> createErrorResponse("Unknown endpoint: ${uri.path}")
             }
             
@@ -225,26 +228,36 @@ class DroidrunContentProvider : ContentProvider() {
     private fun getCombinedState(): String {
         val accessibilityService = DroidrunAccessibilityService.getInstance()
             ?: return createErrorResponse("Accessibility service not available")
-        
+
         return try {
-            // Get accessibility tree
-            val treeJson = accessibilityService.getVisibleElements().map { element ->
-                buildElementNodeJson(element)
-            }
-            
-            // Get phone state
+            val rootNode = accessibilityService.rootInActiveWindow
+                ?: return createErrorResponse("No active window available")
+
+            val fullTree = AccessibilityTreeBuilder.buildFullAccessibilityTreeJson(rootNode)
             val phoneStateJson = buildPhoneStateJson(accessibilityService.getPhoneState())
-            
-            // Combine both in a single response
+            val deviceContext = accessibilityService.getDeviceContext()
+
             val combinedState = JSONObject().apply {
-                put("a11y_tree", org.json.JSONArray(treeJson))
+                put("a11y_tree", fullTree)
                 put("phone_state", phoneStateJson)
+                put("device_context", deviceContext)
             }
-            
+
             createSuccessResponse(combinedState.toString())
         } catch (e: Exception) {
             Log.e(TAG, "Failed to get combined state", e)
             createErrorResponse("Failed to get combined state: ${e.message}")
+        }
+    }
+
+    private fun getVersion(): String {
+        return try {
+            val context = this.context ?: return createErrorResponse("Context not available")
+            val versionName = context.packageManager.getPackageInfo(context.packageName, 0).versionName
+            createSuccessResponse(versionName)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to get version", e)
+            createErrorResponse("Failed to get version: ${e.message}")
         }
     }
 
