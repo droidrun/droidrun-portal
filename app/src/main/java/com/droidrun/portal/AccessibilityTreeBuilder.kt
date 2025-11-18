@@ -265,7 +265,6 @@ object AccessibilityTreeBuilder {
                 val child = node.getChild(i)
                 if (child != null) {
                     childrenArray.put(buildFullAccessibilityTreeJson(child))
-                    child.recycle()
                 }
             }
             put("children", childrenArray)
