@@ -29,6 +29,7 @@ class DroidrunContentProvider : ContentProvider() {
         private const val VERSION = 9
         private const val STATE_FULL = 10
         private const val SOCKET_PORT = 11
+        private const val OVERLAY_VISIBLE = 12
 
         private val uriMatcher = UriMatcher(UriMatcher.NO_MATCH).apply {
             addURI(AUTHORITY, "a11y_tree", A11Y_TREE)
@@ -42,6 +43,7 @@ class DroidrunContentProvider : ContentProvider() {
             addURI(AUTHORITY, "packages", PACKAGES)
             addURI(AUTHORITY, "version", VERSION)
             addURI(AUTHORITY, "socket_port", SOCKET_PORT)
+            addURI(AUTHORITY, "overlay_visible", OVERLAY_VISIBLE)
         }
     }
     
@@ -135,6 +137,10 @@ class DroidrunContentProvider : ContentProvider() {
                 SOCKET_PORT -> {
                     val port = values?.getAsInteger("port") ?: 0
                     handler.setSocketPort(port)
+                }
+                OVERLAY_VISIBLE -> {
+                    val visible = values?.getAsBoolean("visible") ?: true
+                    handler.setOverlayVisible(visible)
                 }
                 else -> ApiResponse.Error("Unsupported insert endpoint")
             }

@@ -167,6 +167,14 @@ class ApiHandler(
         }
     }
 
+    fun setOverlayVisible(visible: Boolean): ApiResponse {
+        return if (stateRepo.setOverlayVisible(visible)) {
+            ApiResponse.Success("Overlay visibility set to $visible")
+        } else {
+            ApiResponse.Error("Failed to set overlay visibility")
+        }
+    }
+
     fun setSocketPort(port: Int): ApiResponse {
         return if (stateRepo.updateSocketServerPort(port)) {
             ApiResponse.Success("Socket server port updated to $port")
