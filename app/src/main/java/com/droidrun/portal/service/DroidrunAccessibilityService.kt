@@ -24,6 +24,10 @@ import android.util.Base64
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.CompletableFuture
 
+// Event System Imports
+import com.droidrun.portal.events.EventHub
+import com.droidrun.portal.events.PortalWebSocketServer
+
 class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.ConfigChangeListener {
 
     companion object {
@@ -42,7 +46,10 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
     private val screenBounds = Rect()
     private lateinit var configManager: ConfigManager
     private val mainHandler = Handler(Looper.getMainLooper())
+    
+    // Servers
     private var socketServer: SocketServer? = null
+    private var websocketServer: PortalWebSocketServer? = null
     
     // Periodic update state
     private var isInitialized = false
@@ -63,6 +70,9 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
         // Initialize ConfigManager
         configManager = ConfigManager.getInstance(this)
         configManager.addListener(this)
+        
+        // Initialize Event System
+        EventHub.init(configManager)
         
         // Initialize SocketServer with ApiHandler
         val stateRepo = StateRepository(this)
@@ -109,6 +119,7 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
         startPeriodicUpdates()
         
         startSocketServerIfEnabled()
+        startWebSocketServerIfEnabled()
 
         Log.d(TAG, "Accessibility service connected and configured")
     }
@@ -581,6 +592,36 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
         return "adb forward tcp:$port tcp:$port"
     }
 
+    // WebSocket Management
+    private fun startWebSocketServerIfEnabled() {
+        if (configManager.websocketEnabled) {
+            startWebSocketServer()
+        }
+    }
+
+    private fun startWebSocketServer() {
+        try {
+            if (websocketServer == null) {
+                val port = configManager.websocketPort
+                websocketServer = PortalWebSocketServer(port)
+                websocketServer?.start()
+                Log.i(TAG, "WebSocket server started on port $port")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start WebSocket server", e)
+        }
+    }
+
+    private fun stopWebSocketServer() {
+        try {
+            websocketServer?.stopSafely()
+            websocketServer = null
+            Log.i(TAG, "WebSocket server stopped")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error stopping WebSocket server", e)
+        }
+    }
+
     // ConfigManager.ConfigChangeListener implementation
     override fun onOverlayVisibilityChanged(visible: Boolean) {
         // Already handled in setOverlayVisible method
@@ -615,6 +656,21 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
                     Log.e(TAG, "Failed to start socket server on new port $port")
                 }
             }
+        }
+    }
+
+    override fun onWebSocketEnabledChanged(enabled: Boolean) {
+        if (enabled) {
+            startWebSocketServer()
+        } else {
+            stopWebSocketServer()
+        }
+    }
+
+    override fun onWebSocketPortChanged(port: Int) {
+        stopWebSocketServer()
+        if (configManager.websocketEnabled) {
+            startWebSocketServer()
         }
     }
 
@@ -786,12 +842,15 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
         Log.d(TAG, "Accessibility service interrupted")
         stopPeriodicUpdates()
         stopSocketServer()
+        stopWebSocketServer()
     }
 
     override fun onDestroy() {
         super.onDestroy()
         stopPeriodicUpdates()
         stopSocketServer()
+        stopWebSocketServer()
+        
         clearElementList()
         configManager.removeListener(this)
         instance = null

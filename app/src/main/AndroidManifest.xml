@@ -41,6 +41,16 @@
                 android:resource="@xml/accessibility_service_config" />
         </service>
 
+        <service
+            android:name=".service.DroidrunNotificationListener"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
         <provider
             android:name=".service.DroidrunContentProvider"
             android:authorities="${applicationId}"

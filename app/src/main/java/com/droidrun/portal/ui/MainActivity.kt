@@ -3,6 +3,7 @@ package com.droidrun.portal.ui
 import com.droidrun.portal.R
 import com.droidrun.portal.config.ConfigManager
 import com.droidrun.portal.service.DroidrunAccessibilityService
+import com.droidrun.portal.service.DroidrunNotificationListener
 
 import android.content.Context
 import android.content.Intent
@@ -30,13 +31,21 @@ import android.graphics.Color
 import org.json.JSONObject
 import androidx.appcompat.app.AlertDialog
 import android.content.ClipboardManager
-import android.content.ClipData
+import android.content.ComponentName
+import com.droidrun.portal.ui.settings.SettingsBottomSheet
 
 class MainActivity : AppCompatActivity() {
     
     private lateinit var accessibilityBanner: com.google.android.material.card.MaterialCardView
     private lateinit var accessibilityStatusEnabled: com.google.android.material.card.MaterialCardView
     private lateinit var enableAccessibilityButton: MaterialButton
+    
+    // Notification UI elements
+    private lateinit var notificationBanner: com.google.android.material.card.MaterialCardView
+    private lateinit var notificationStatusEnabled: com.google.android.material.card.MaterialCardView
+    private lateinit var enableNotificationButton: MaterialButton
+    private lateinit var settingsButton: android.widget.ImageButton
+    
     private var responseText: String = ""
     private lateinit var versionText: TextView
     private lateinit var logsLink: TextView
@@ -79,6 +88,25 @@ class MainActivity : AppCompatActivity() {
         accessibilityBanner = findViewById(R.id.accessibility_banner)
         accessibilityStatusEnabled = findViewById(R.id.accessibility_status_enabled)
         enableAccessibilityButton = findViewById(R.id.enable_accessibility_button)
+        
+        // Notification UI init (try-catch in case XML isn't updated yet to prevent crash)
+        try {
+            notificationBanner = findViewById(R.id.notification_banner)
+            notificationStatusEnabled = findViewById(R.id.notification_status_enabled)
+            enableNotificationButton = findViewById(R.id.enable_notification_button)
+            
+            enableNotificationButton.setOnClickListener {
+                openNotificationSettings()
+            }
+            
+            settingsButton = findViewById(R.id.settings_button)
+            settingsButton.setOnClickListener {
+                SettingsBottomSheet().show(supportFragmentManager, SettingsBottomSheet.TAG)
+            }
+        } catch (e: Exception) {
+            Log.w("MainActivity", "Notification UI elements not found in layout yet")
+        }
+        
         versionText = findViewById(R.id.version_text)
         logsLink = findViewById(R.id.logs_link)
         fetchButton = findViewById(R.id.fetch_button)
@@ -148,17 +176,22 @@ class MainActivity : AppCompatActivity() {
         }
         
         // Check initial accessibility status and sync UI
-        updateAccessibilityStatusIndicator()
+        updateStatusIndicators()
         syncUIWithAccessibilityService()
         updateSocketServerStatus()
     }
     
     override fun onResume() {
         super.onResume()
-        // Update the accessibility status indicator when app resumes
-        updateAccessibilityStatusIndicator()
+        // Update the status indicators when app resumes
+        updateStatusIndicators()
         syncUIWithAccessibilityService()
         updateSocketServerStatus()
+    }
+
+    private fun updateStatusIndicators() {
+        updateAccessibilityStatusIndicator()
+        updateNotificationStatusIndicator()
     }
     
     private fun syncUIWithAccessibilityService() {
@@ -447,6 +480,13 @@ class MainActivity : AppCompatActivity() {
             return false
         }
     }
+
+    // Check if notification listener permission is enabled
+    private fun isNotificationServiceEnabled(): Boolean {
+        val componentName = ComponentName(this, DroidrunNotificationListener::class.java)
+        val flat = Settings.Secure.getString(contentResolver, "enabled_notification_listeners")
+        return flat?.contains(componentName.flattenToString()) == true
+    }
     
     // Update the accessibility status indicator based on service status
     private fun updateAccessibilityStatusIndicator() {
@@ -460,6 +500,25 @@ class MainActivity : AppCompatActivity() {
             // Show banner, hide enabled card
             accessibilityStatusEnabled.visibility = View.GONE
             accessibilityBanner.visibility = View.VISIBLE
+        }
+    }
+
+    private fun updateNotificationStatusIndicator() {
+        try {
+            if (!::notificationBanner.isInitialized) return
+
+            val isEnabled = isNotificationServiceEnabled()
+            if (isEnabled) {
+                // If enabled, hide everything (clean look)
+                notificationStatusEnabled.visibility = View.GONE
+                notificationBanner.visibility = View.GONE
+            } else {
+                // If disabled, show the warning banner
+                notificationStatusEnabled.visibility = View.GONE
+                notificationBanner.visibility = View.VISIBLE
+            }
+        } catch (e: Exception) {
+            Log.w("MainActivity", "Error updating notification status UI: ${e.message}")
         }
     }
     
@@ -480,6 +539,21 @@ class MainActivity : AppCompatActivity() {
                 "Error opening accessibility settings",
                 Toast.LENGTH_SHORT
             ).show()
+        }
+    }
+
+    private fun openNotificationSettings() {
+        try {
+            val intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+            startActivity(intent)
+            Toast.makeText(
+                this,
+                "Please grant Notification Access to Droidrun Portal",
+                Toast.LENGTH_LONG
+            ).show()
+        } catch (e: Exception) {
+            Log.e("DROIDRUN_MAIN", "Error opening notification settings: ${e.message}")
+            Toast.makeText(this, "Error opening settings", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -639,4 +713,4 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "Error showing logs: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
-} 
+}

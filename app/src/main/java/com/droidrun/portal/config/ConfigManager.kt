@@ -2,6 +2,7 @@ package com.droidrun.portal.config
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.droidrun.portal.events.model.EventType
 
 /**
  * Centralized configuration manager for Droidrun Portal
@@ -17,8 +18,15 @@ class ConfigManager private constructor(private val context: Context) {
         private const val KEY_AUTO_OFFSET_CALCULATED = "auto_offset_calculated"
         private const val KEY_SOCKET_SERVER_ENABLED = "socket_server_enabled"
         private const val KEY_SOCKET_SERVER_PORT = "socket_server_port"
+        
+        // WebSocket & Events
+        private const val KEY_WEBSOCKET_ENABLED = "websocket_enabled"
+        private const val KEY_WEBSOCKET_PORT = "websocket_port"
+        private const val PREFIX_EVENT_ENABLED = "event_enabled_"
+        
         private const val DEFAULT_OFFSET = 0
         private const val DEFAULT_SOCKET_PORT = 8080
+        private const val DEFAULT_WEBSOCKET_PORT = 8081
         
         @Volatile
         private var INSTANCE: ConfigManager? = null
@@ -60,19 +68,44 @@ class ConfigManager private constructor(private val context: Context) {
             sharedPrefs.edit().putBoolean(KEY_AUTO_OFFSET_CALCULATED, value).apply()
         }
 
-    // Socket server enabled
+    // Socket server enabled (REST API)
     var socketServerEnabled: Boolean
         get() = sharedPrefs.getBoolean(KEY_SOCKET_SERVER_ENABLED, true)
         set(value) {
             sharedPrefs.edit().putBoolean(KEY_SOCKET_SERVER_ENABLED, value).apply()
         }
     
-    // Socket server port
+    // Socket server port (REST API)
     var socketServerPort: Int
         get() = sharedPrefs.getInt(KEY_SOCKET_SERVER_PORT, DEFAULT_SOCKET_PORT)
         set(value) {
             sharedPrefs.edit().putInt(KEY_SOCKET_SERVER_PORT, value).apply()
         }
+
+    // WebSocket Server Enabled
+    var websocketEnabled: Boolean
+        get() = sharedPrefs.getBoolean(KEY_WEBSOCKET_ENABLED, true)
+        set(value) {
+            sharedPrefs.edit().putBoolean(KEY_WEBSOCKET_ENABLED, value).apply()
+        }
+
+    // WebSocket Server Port
+    var websocketPort: Int
+        get() = sharedPrefs.getInt(KEY_WEBSOCKET_PORT, DEFAULT_WEBSOCKET_PORT)
+        set(value) {
+            sharedPrefs.edit().putInt(KEY_WEBSOCKET_PORT, value).apply()
+        }
+
+    // Dynamic Event Toggles
+    fun isEventEnabled(type: EventType): Boolean {
+        // Default all events to true unless explicitly disabled
+        return sharedPrefs.getBoolean(PREFIX_EVENT_ENABLED + type.name, true)
+    }
+
+    fun setEventEnabled(type: EventType, enabled: Boolean) {
+        sharedPrefs.edit().putBoolean(PREFIX_EVENT_ENABLED + type.name, enabled).apply()
+        // We could notify listeners here if needed, but usually this is polled by EventHub
+    }
     
     // Listener interface for configuration changes
     interface ConfigChangeListener {
@@ -80,6 +113,9 @@ class ConfigManager private constructor(private val context: Context) {
         fun onOverlayOffsetChanged(offset: Int)
         fun onSocketServerEnabledChanged(enabled: Boolean)
         fun onSocketServerPortChanged(port: Int)
+        // New WebSocket listeners
+        fun onWebSocketEnabledChanged(enabled: Boolean) {}
+        fun onWebSocketPortChanged(port: Int) {}
     }
     
     private val listeners = mutableSetOf<ConfigChangeListener>()
@@ -111,6 +147,16 @@ class ConfigManager private constructor(private val context: Context) {
         socketServerPort = port
         listeners.forEach { it.onSocketServerPortChanged(port) }
     }
+
+    fun setWebSocketEnabledWithNotification(enabled: Boolean) {
+        websocketEnabled = enabled
+        listeners.forEach { it.onWebSocketEnabledChanged(enabled) }
+    }
+
+    fun setWebSocketPortWithNotification(port: Int) {
+        websocketPort = port
+        listeners.forEach { it.onWebSocketPortChanged(port) }
+    }
     
     // Bulk configuration update
     fun updateConfiguration(
@@ -118,7 +164,9 @@ class ConfigManager private constructor(private val context: Context) {
         overlayOffset: Int? = null,
         autoOffsetEnabled: Boolean? = null,
         socketServerEnabled: Boolean? = null,
-        socketServerPort: Int? = null
+        socketServerPort: Int? = null,
+        websocketEnabled: Boolean? = null,
+        websocketPort: Int? = null
     ) {
         val editor = sharedPrefs.edit()
         var hasChanges = false
@@ -147,6 +195,16 @@ class ConfigManager private constructor(private val context: Context) {
             editor.putInt(KEY_SOCKET_SERVER_PORT, it)
             hasChanges = true
         }
+
+        websocketEnabled?.let {
+            editor.putBoolean(KEY_WEBSOCKET_ENABLED, it)
+            hasChanges = true
+        }
+
+        websocketPort?.let {
+            editor.putInt(KEY_WEBSOCKET_PORT, it)
+            hasChanges = true
+        }
         
         if (hasChanges) {
             editor.apply()
@@ -156,6 +214,8 @@ class ConfigManager private constructor(private val context: Context) {
             overlayOffset?.let { listeners.forEach { listener -> listener.onOverlayOffsetChanged(it) } }
             socketServerEnabled?.let { listeners.forEach { listener -> listener.onSocketServerEnabledChanged(it) } }
             socketServerPort?.let { listeners.forEach { listener -> listener.onSocketServerPortChanged(it) } }
+            websocketEnabled?.let { listeners.forEach { listener -> listener.onWebSocketEnabledChanged(it) } }
+            websocketPort?.let { listeners.forEach { listener -> listener.onWebSocketPortChanged(it) } }
         }
     }
     
@@ -166,7 +226,9 @@ class ConfigManager private constructor(private val context: Context) {
         val autoOffsetEnabled: Boolean,
         val autoOffsetCalculated: Boolean,
         val socketServerEnabled: Boolean,
-        val socketServerPort: Int
+        val socketServerPort: Int,
+        val websocketEnabled: Boolean,
+        val websocketPort: Int
     )
 
     fun getCurrentConfiguration(): Configuration {
@@ -176,7 +238,9 @@ class ConfigManager private constructor(private val context: Context) {
             autoOffsetEnabled = autoOffsetEnabled,
             autoOffsetCalculated = autoOffsetCalculated,
             socketServerEnabled = socketServerEnabled,
-            socketServerPort = socketServerPort
+            socketServerPort = socketServerPort,
+            websocketEnabled = websocketEnabled,
+            websocketPort = websocketPort
         )
     }
-} 
+}
