@@ -247,30 +247,14 @@
                     android:orientation="vertical"
                     android:padding="20dp">
 
-                    <LinearLayout
-                        android:layout_width="match_parent"
+                    <TextView
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical"
-                        android:layout_marginBottom="15dp">
-
-                        <ImageView
-                            android:layout_width="35dp"
-                            android:layout_height="35dp"
-                            android:src="@drawable/settings"
-                            app:tint="@color/text_white"
-                            android:layout_marginEnd="10dp"
-                            android:layout_marginTop="2dp"
-                            />
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="Controls"
-                            android:textSize="25sp"
-                            android:textStyle="normal"
-                            android:textColor="@color/text_white" />
-                    </LinearLayout>
+                        android:text="Controls"
+                        android:textSize="25sp"
+                        android:textStyle="normal"
+                        android:textColor="@color/text_white"
+                        android:layout_marginBottom="15dp" />
 
                     <!-- Overlay Toggle -->
                     <LinearLayout
