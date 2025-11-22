@@ -8,14 +8,6 @@
     
     <!-- Permission for socket communication -->
     <uses-permission android:name="android.permission.INTERNET" />
-    
-    <!-- Define a custom permission for secure broadcast communication -->
-    <permission
-        android:name="com.droidrun.portal.SEND_INPUT_DATA"
-        android:protectionLevel="signature" />
-    
-    <!-- Use our custom permission -->
-    <uses-permission android:name="com.droidrun.portal.SEND_INPUT_DATA" />
 
     <queries>
         <intent>
@@ -37,7 +29,7 @@
 
 
         <service
-            android:name=".DroidrunAccessibilityService"
+            android:name=".service.DroidrunAccessibilityService"
             android:enabled="true"
             android:exported="false"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
@@ -50,14 +42,14 @@
         </service>
 
         <provider
-            android:name=".DroidrunContentProvider"
-            android:authorities="com.droidrun.portal"
+            android:name=".service.DroidrunContentProvider"
+            android:authorities="${applicationId}"
             android:enabled="true"
             android:exported="true">
         </provider>
 
         <service
-            android:name=".DroidrunKeyboardIME"
+            android:name=".input.DroidrunKeyboardIME"
             android:label="@string/keyboard_name"
             android:permission="android.permission.BIND_INPUT_METHOD"
             android:exported="true">
@@ -70,7 +62,7 @@
         </service>
 
         <activity
-            android:name=".MainActivity"
+            android:name=".ui.MainActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

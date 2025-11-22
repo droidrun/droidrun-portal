@@ -1,4 +1,4 @@
-package com.droidrun.portal
+package com.droidrun.portal.config
 
 import android.content.Context
 import android.content.SharedPreferences

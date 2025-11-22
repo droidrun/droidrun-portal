@@ -1,4 +1,4 @@
-package com.droidrun.portal
+package com.droidrun.portal.service
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
@@ -11,6 +11,11 @@ import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
 import com.droidrun.portal.model.ElementNode
 import com.droidrun.portal.model.PhoneState
+import com.droidrun.portal.api.ApiHandler
+import com.droidrun.portal.core.StateRepository
+import com.droidrun.portal.config.ConfigManager
+import com.droidrun.portal.input.DroidrunKeyboardIME
+import com.droidrun.portal.ui.overlay.OverlayManager
 import android.os.Handler
 import android.os.Looper
 import java.util.concurrent.atomic.AtomicBoolean
@@ -59,8 +64,19 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
         configManager = ConfigManager.getInstance(this)
         configManager.addListener(this)
         
-        // Initialize SocketServer
-        socketServer = SocketServer(this)
+        // Initialize SocketServer with ApiHandler
+        val stateRepo = StateRepository(this)
+        val apiHandler = ApiHandler(
+            stateRepo = stateRepo,
+            getKeyboardIME = { DroidrunKeyboardIME.getInstance() },
+            getPackageManager = { packageManager },
+            appVersionProvider = { 
+                 try {
+                     packageManager.getPackageInfo(packageName, 0).versionName
+                 } catch (e: Exception) { "unknown" }
+            }
+        )
+        socketServer = SocketServer(apiHandler)
         
         isInitialized = true
     }
@@ -304,6 +320,8 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
     fun getOverlayOffset(): Int = configManager.overlayOffset
 
     fun getCurrentAppliedOffset(): Int = overlayManager.getPositionOffsetY()
+
+    fun getScreenBounds(): Rect = screenBounds
 
     fun setAutoOffsetEnabled(enabled: Boolean): Boolean {
         return try {
@@ -597,6 +615,46 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
                     Log.e(TAG, "Failed to start socket server on new port $port")
                 }
             }
+        }
+    }
+
+    fun updateSocketServerPort(port: Int): Boolean {
+        if (port < 1 || port > 65535) {
+            Log.e(TAG, "Invalid port: $port")
+            return false
+        }
+
+        val server = socketServer ?: return false
+        
+        // If port hasn't changed, just return true
+        if (server.getPort() == port && server.isRunning()) {
+            return true
+        }
+
+        val oldPort = server.getPort()
+        val wasRunning = server.isRunning()
+        
+        // Stop current server
+        if (wasRunning) {
+            server.stop()
+        }
+        
+        // Try to start on new port
+        val success = server.start(port)
+        
+        if (success) {
+            // Update config without triggering listener notification loop
+            // We use the property setter which persists but doesn't notify listeners
+            configManager.socketServerPort = port
+            Log.i(TAG, "Successfully updated socket server port to $port")
+            return true
+        } else {
+            Log.e(TAG, "Failed to bind to new port $port, reverting to $oldPort")
+            // Revert to old port if it was running
+            if (wasRunning) {
+                server.start(oldPort)
+            }
+            return false
         }
     }
 

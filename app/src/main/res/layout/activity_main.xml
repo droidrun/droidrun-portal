@@ -207,13 +207,34 @@
                     </LinearLayout>
 
                     <!-- Overlay Offset Section -->
-                    <TextView
-                        android:layout_width="wrap_content"
+                    <LinearLayout
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="Overlay Offset"
-                        android:textColor="@color/text_white"
-                        android:textSize="16sp"
-                        android:layout_marginBottom="0dp" />
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="0dp">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Overlay Offset"
+                            android:textColor="@color/text_white"
+                            android:textSize="16sp" />
+
+                        <TextView
+                            android:id="@+id/btn_reset_offset"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Reset"
+                            android:textColor="@color/text_white"
+                            android:textSize="14sp"
+                            android:textStyle="bold"
+                            android:background="?attr/selectableItemBackground"
+                            android:padding="4dp"
+                            android:clickable="true"
+                            android:focusable="true" />
+                    </LinearLayout>
 
                     <LinearLayout
                         android:layout_width="match_parent"
@@ -598,7 +619,7 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="v0.4.0"
+                    tools:text="v0.4.3"
                     android:textColor="@color/text_gray_dark"
                     android:textSize="14sp" />
 

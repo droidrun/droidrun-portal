@@ -1,4 +1,8 @@
-package com.droidrun.portal
+package com.droidrun.portal.ui
+
+import com.droidrun.portal.R
+import com.droidrun.portal.config.ConfigManager
+import com.droidrun.portal.service.DroidrunAccessibilityService
 
 import android.content.Context
 import android.content.Intent
@@ -41,6 +45,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var offsetSlider: SeekBar
     private lateinit var offsetValueDisplay: TextInputEditText
     private lateinit var offsetValueInputLayout: TextInputLayout
+    private lateinit var btnResetOffset: TextView
     
     // Socket server UI elements
     private lateinit var socketPortInput: TextInputEditText
@@ -81,6 +86,7 @@ class MainActivity : AppCompatActivity() {
         offsetSlider = findViewById(R.id.offset_slider)
         offsetValueDisplay = findViewById(R.id.offset_value_display)
         offsetValueInputLayout = findViewById(R.id.offset_value_input_layout)
+        btnResetOffset = findViewById(R.id.btn_reset_offset)
         
         // Initialize socket server UI elements
         socketPortInput = findViewById(R.id.socket_port_input)
@@ -112,6 +118,23 @@ class MainActivity : AppCompatActivity() {
 
         toggleOverlay.setOnCheckedChangeListener { _, isChecked ->
             toggleOverlayVisibility(isChecked)
+        }
+
+        btnResetOffset.setOnClickListener {
+            val accessibilityService = DroidrunAccessibilityService.getInstance()
+            if (accessibilityService != null) {
+                // Force re-calculation
+                accessibilityService.setAutoOffsetEnabled(true)
+                
+                // Update UI with the new calculated value
+                val newOffset = accessibilityService.getOverlayOffset()
+                updateOffsetSlider(newOffset)
+                updateOffsetInputField(newOffset)
+                
+                Toast.makeText(this, "Auto-offset reset: $newOffset", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, "Service not available", Toast.LENGTH_SHORT).show()
+            }
         }
 
         // Setup enable accessibility button

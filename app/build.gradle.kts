@@ -11,8 +11,8 @@ android {
         applicationId = "com.droidrun.portal"
         minSdk = 30
         targetSdk = 34
-        versionCode = 43
-        versionName = "0.4.3"
+        versionCode = (project.findProperty("versionCode") as String).toInt()
+        versionName = project.findProperty("versionName") as String
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

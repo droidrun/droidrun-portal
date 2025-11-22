@@ -1,4 +1,4 @@
-package com.droidrun.portal
+package com.droidrun.portal.core
 
 import android.graphics.Rect
 import android.view.accessibility.AccessibilityNodeInfo
@@ -10,14 +10,54 @@ import org.json.JSONObject
  */
 object AccessibilityTreeBuilder {
 
+    private const val MIN_ELEMENT_SIZE = 5
+
+    private const val VISIBILITY_THRESHOLD = 0.01f  // 1% visibility threshold
+
     /**
      * Builds a comprehensive JSON object from an AccessibilityNodeInfo node,
      * extracting all available properties and recursively processing children.
+     * Optionally filters out nodes that are less than 10% visible on screen.
      *
      * @param node The AccessibilityNodeInfo to convert to JSON
-     * @return JSONObject containing all extractable node information
+     * @param screenBounds The visible screen bounds for filtering (null to disable filtering)
+     * @return JSONObject containing all extractable node information, or null if filtered out
      */
-    fun buildFullAccessibilityTreeJson(node: AccessibilityNodeInfo): JSONObject {
+    fun buildFullAccessibilityTreeJson(
+        node: AccessibilityNodeInfo,
+        screenBounds: Rect? = null
+    ): JSONObject? {
+        // Get bounds for this node
+        val rect = Rect()
+        node.getBoundsInScreen(rect)
+
+        // Check this node's validity (only if filtering is enabled)
+        val nodePassesFilter = if (screenBounds != null) {
+            val visiblePercentage = getVisiblePercentage(rect, screenBounds)
+            visiblePercentage >= VISIBILITY_THRESHOLD
+        } else {
+            true  // No filtering, always passes
+        }
+
+        // Process children FIRST (before deciding on this node)
+        val childrenArray = JSONArray()
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i)
+            if (child != null) {
+                val childJson = buildFullAccessibilityTreeJson(child, screenBounds)
+                if (childJson != null) {
+                    childrenArray.put(childJson)
+                }
+            }
+        }
+
+        // Parent preservation: keep if passes filter OR has valid children
+        if (!nodePassesFilter && childrenArray.length() == 0) {
+            node.recycle()
+            return null
+        }
+
+        // Build JSON with full properties
         val result = JSONObject().apply {
             // Basic identification
             put("resourceId", node.viewIdResourceName ?: "")
@@ -39,14 +79,12 @@ object AccessibilityTreeBuilder {
             }
             put("error", node.error?.toString() ?: "")
 
-            // Bounds (both in screen and in parent)
-            val boundsInScreen = Rect()
-            node.getBoundsInScreen(boundsInScreen)
+            // Bounds (reuse rect we already computed)
             put("boundsInScreen", JSONObject().apply {
-                put("left", boundsInScreen.left)
-                put("top", boundsInScreen.top)
-                put("right", boundsInScreen.right)
-                put("bottom", boundsInScreen.bottom)
+                put("left", rect.left)
+                put("top", rect.top)
+                put("right", rect.right)
+                put("bottom", rect.bottom)
             })
 
             val boundsInParent = Rect()
@@ -204,7 +242,7 @@ object AccessibilityTreeBuilder {
 
             // Action list (with all available details)
             val actionsArray = JSONArray()
-            node.actionList?.forEach { action ->
+            node.actionList?.sortedBy { it.id }?.forEach { action ->
                 val actionObj = JSONObject().apply {
                     put("id", action.id)
                     put("label", action.label?.toString() ?: "")
@@ -259,18 +297,37 @@ object AccessibilityTreeBuilder {
                 }
             }
 
-            // Recursively build children
-            val childrenArray = JSONArray()
-            for (i in 0 until node.childCount) {
-                val child = node.getChild(i)
-                if (child != null) {
-                    childrenArray.put(buildFullAccessibilityTreeJson(child))
-                }
-            }
+            // Use children array built earlier
             put("children", childrenArray)
         }
 
         node.recycle()
         return result
+    }
+
+    private fun getVisiblePercentage(rect: Rect, screenBounds: Rect): Float {
+        val width = rect.width()
+        val height = rect.height()
+        val totalArea = width * height
+
+        if (totalArea <= 0) return 0f
+
+        // Check if element fully contains screen (overflow case)
+        if (rect.left <= 0 && rect.top <= 0 &&
+            rect.right >= screenBounds.right && rect.bottom >= screenBounds.bottom) {
+            return 1f
+        }
+
+        // Calculate visible portion
+        val visibleLeft = maxOf(rect.left, screenBounds.left)
+        val visibleTop = maxOf(rect.top, screenBounds.top)
+        val visibleRight = minOf(rect.right, screenBounds.right)
+        val visibleBottom = minOf(rect.bottom, screenBounds.bottom)
+
+        val visibleWidth = maxOf(0, visibleRight - visibleLeft)
+        val visibleHeight = maxOf(0, visibleBottom - visibleTop)
+        val visibleArea = visibleWidth * visibleHeight
+
+        return visibleArea.toFloat() / totalArea.toFloat()
     }
 }

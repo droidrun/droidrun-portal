@@ -1,4 +1,4 @@
-package com.droidrun.portal
+package com.droidrun.portal.ui.overlay
 
 import android.content.Context
 import android.graphics.Canvas

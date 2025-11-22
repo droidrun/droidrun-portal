@@ -1,4 +1,6 @@
-package com.droidrun.portal
+package com.droidrun.portal.input
+
+import com.droidrun.portal.R
 
 import android.inputmethodservice.InputMethodService
 import android.util.Base64
