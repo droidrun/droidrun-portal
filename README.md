@@ -26,6 +26,12 @@ Droidrun Portal is an Android accessibility service that provides real-time visu
 2. Enable the accessibility service in Android Settings → Accessibility → Droidrun Portal
 3. Grant overlay permission when prompted
 
+### 📡 WebSocket Events
+
+Droidrun Portal includes a WebSocket server for real-time event streaming (notifications, etc.).
+
+See the [WebSocket Events documentation](docs/websocket-events.md) for setup and usage.
+
 ### 💻 ADB Commands
 ```bash
 # Get accessibility tree as JSON
