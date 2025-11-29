@@ -9,7 +9,7 @@ android {
 
     defaultConfig {
         applicationId = "com.droidrun.portal"
-        minSdk = 30
+        minSdk = 28
         targetSdk = 34
         versionCode = (project.findProperty("versionCode") as String).toInt()
         versionName = project.findProperty("versionName") as String
