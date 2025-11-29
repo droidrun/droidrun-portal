@@ -718,6 +718,12 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
     fun takeScreenshotBase64(hideOverlay: Boolean = true): CompletableFuture<String> {
         val future = CompletableFuture<String>()
 
+        // Check if screenshot API is available (API 34+)
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            future.complete("error: Screenshot API requires Android 14 (API 34) or higher")
+            return future
+        }
+
         // Temporarily hide overlay if requested
         val wasOverlayDrawingEnabled = if (hideOverlay) {
             val enabled = overlayManager.isDrawingEnabled()
@@ -739,16 +745,17 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
         } catch (e: Exception) {
             Log.e(TAG, "Error taking screenshot", e)
             future.complete("error: Failed to take screenshot: ${e.message}")
-            
+
             // Restore overlay drawing state in case of exception
             if (hideOverlay) {
                 overlayManager.setDrawingEnabled(wasOverlayDrawingEnabled)
             }
         }
-        
+
         return future
     }
     
+    @androidx.annotation.RequiresApi(android.os.Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
     private fun performScreenshotCapture(future: CompletableFuture<String>, wasOverlayDrawingEnabled: Boolean, hideOverlay: Boolean) {
         try {
             takeScreenshot(
