@@ -100,17 +100,10 @@ class OverlayManager(private val context: Context) {
      * Uses multiple detection methods with fallbacks for maximum compatibility.
      */
     fun calculateAutoOffset(): Int {
-        return try {
-            val offset = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                getStatusBarHeightFromInsets()
-            } else {
-                getStatusBarHeightFromResources()
-            }
-            if (offset in MIN_REASONABLE_OFFSET..MAX_REASONABLE_OFFSET) offset else FALLBACK_OFFSET
-        } catch (e: Exception) {
-            Log.e(TAG, "Error calculating auto offset, using fallback: ${e.message}", e)
-            FALLBACK_OFFSET
-        }
+        // With FLAG_LAYOUT_NO_LIMITS and LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES,
+        // the overlay should always be full screen (0,0) to (width, height).
+        // So, offset is not needed
+        return 0
     }
 
     private fun getStatusBarHeightFromInsets(): Int {
@@ -192,10 +185,15 @@ class OverlayManager(private val context: Context) {
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                         WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
                         WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
                         WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
                 PixelFormat.TRANSLUCENT
             )
             params.gravity = Gravity.TOP or Gravity.START
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) 
+                params.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            
             
             handler.post {
                 try {
