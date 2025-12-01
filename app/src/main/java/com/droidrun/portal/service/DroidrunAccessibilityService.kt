@@ -152,7 +152,7 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
             AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
             AccessibilityEvent.TYPE_VIEW_SCROLLED -> {
-                overlayManager.clearElements()
+                // Use a faster handling instead of clearing elements
             }
         }
     }
