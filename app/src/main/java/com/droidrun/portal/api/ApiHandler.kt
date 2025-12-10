@@ -3,9 +3,13 @@ package com.droidrun.portal.api
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.os.Build
+import android.content.Intent
+import android.util.Log
 import com.droidrun.portal.input.DroidrunKeyboardIME
 import com.droidrun.portal.core.JsonBuilders
 import com.droidrun.portal.core.StateRepository
+import com.droidrun.portal.service.GestureController
+import com.droidrun.portal.service.DroidrunAccessibilityService
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -192,12 +196,97 @@ class ApiHandler(
             if (result.startsWith("error:")) {
                 ApiResponse.Error(result.substring(7))
             } else {
-                ApiResponse.Success(result)
+                // Result is Base64 string from Service. 
+                // decode it back to bytes to pass as Binary response.
+                // In future, Service should return bytes directly to avoid this encode/decode cycle.
+                val bytes = android.util.Base64.decode(result, android.util.Base64.DEFAULT)
+                ApiResponse.Binary(bytes)
             }
         } catch (e: java.util.concurrent.TimeoutException) {
             ApiResponse.Error("Screenshot timeout - operation took too long")
         } catch (e: Exception) {
             ApiResponse.Error("Failed to get screenshot: ${e.message}")
+        }
+    }
+
+    // New Gesture Actions
+    fun performTap(x: Int, y: Int): ApiResponse {
+        return if (GestureController.tap(x, y)) {
+            ApiResponse.Success("Tap performed at ($x, $y)")
+        } else {
+            ApiResponse.Error("Failed to perform tap at ($x, $y)")
+        }
+    }
+
+    fun performSwipe(startX: Int, startY: Int, endX: Int, endY: Int, duration: Int): ApiResponse {
+        return if (GestureController.swipe(startX, startY, endX, endY, duration)) {
+            ApiResponse.Success("Swipe performed")
+        } else {
+            ApiResponse.Error("Failed to perform swipe")
+        }
+    }
+
+    fun performGlobalAction(action: Int): ApiResponse {
+        return if (GestureController.performGlobalAction(action)) {
+            ApiResponse.Success("Global action $action performed")
+        } else {
+            ApiResponse.Error("Failed to perform global action $action")
+        }
+    }
+
+    fun startApp(packageName: String, activityName: String? = null): ApiResponse {
+        val service = DroidrunAccessibilityService.getInstance()
+            ?: return ApiResponse.Error("Accessibility Service not available")
+
+        // TODO check the problem with other apps
+        val actualPackageName = if (packageName.equals("Settings", ignoreCase = true)) {
+            "com.android.settings"
+        } else {
+            packageName
+        }
+
+        return try {
+            val intent = if (!activityName.isNullOrEmpty() && activityName != "null") {
+                Intent().apply {
+                    setClassName(actualPackageName, if (activityName.startsWith(".")) actualPackageName + activityName else activityName)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+            } else {
+                service.packageManager.getLaunchIntentForPackage(actualPackageName)?.apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+            }
+
+            if (intent != null) {
+                service.startActivity(intent)
+                ApiResponse.Success("Started app $actualPackageName")
+            } else {
+                Log.e("ApiHandler", "Could not create intent for $actualPackageName - getLaunchIntentForPackage returned null. Trying fallback.")
+                
+                // Fallback for system apps like Settings that might need explicit component handling
+                // or if visibility rules are strict.
+                // generic MAIN/LAUNCHER intent for the package
+                // TODO test with other apps
+                try {
+                    val fallbackIntent = Intent(Intent.ACTION_MAIN)
+                    fallbackIntent.addCategory(Intent.CATEGORY_LAUNCHER)
+                    fallbackIntent.setPackage(actualPackageName)
+                    fallbackIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    
+                    if (fallbackIntent.resolveActivity(service.packageManager) != null) {
+                         service.startActivity(fallbackIntent)
+                         ApiResponse.Success("Started app $actualPackageName (fallback)")
+                    } else {
+                         ApiResponse.Error("Could not create intent for $actualPackageName")
+                    }
+                } catch (e2: Exception) {
+                    Log.e("ApiHandler", "Fallback start failed", e2)
+                    ApiResponse.Error("Could not create intent for $actualPackageName")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("ApiHandler", "Error starting app", e)
+            ApiResponse.Error("Error starting app: ${e.message}")
         }
     }
 }

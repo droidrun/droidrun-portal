@@ -79,13 +79,26 @@ class MainActivity : AppCompatActivity() {
         private const val MAX_OFFSET = 256
         private const val SLIDER_RANGE = MAX_OFFSET - MIN_OFFSET
     }
-    
+
+    // TODO use view binding everywhere in the project
+    private lateinit var deviceIpText: TextView
+    private lateinit var authTokenText: TextView
+    private lateinit var btnCopyToken: View
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         
         // Initialize UI elements
         accessibilityBanner = findViewById(R.id.accessibility_banner)
+
+        deviceIpText = findViewById(R.id.device_ip_text)
+        authTokenText = findViewById(R.id.auth_token_text)
+        btnCopyToken = findViewById(R.id.btn_copy_token)
+
+        setupNetworkInfo()
+        
+        accessibilityStatusEnabled = findViewById(R.id.accessibility_status_enabled)
         accessibilityStatusEnabled = findViewById(R.id.accessibility_status_enabled)
         enableAccessibilityButton = findViewById(R.id.enable_accessibility_button)
         
@@ -187,6 +200,39 @@ class MainActivity : AppCompatActivity() {
         updateStatusIndicators()
         syncUIWithAccessibilityService()
         updateSocketServerStatus()
+    }
+
+    private fun setupNetworkInfo() {
+        val configManager = ConfigManager.getInstance(this)
+        
+        authTokenText.text = configManager.authToken
+        
+        btnCopyToken.setOnClickListener {
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val clip = android.content.ClipData.newPlainText("Auth Token", configManager.authToken)
+            clipboard.setPrimaryClip(clip)
+            Toast.makeText(this, "Token copied", Toast.LENGTH_SHORT).show()
+        }
+
+        deviceIpText.text = getIpAddress() ?: "Unavailable (Check WiFi)"
+    }
+
+    private fun getIpAddress(): String? {
+        try {
+            val interfaces = java.net.NetworkInterface.getNetworkInterfaces()
+            while (interfaces.hasMoreElements()) {
+                val networkInterface = interfaces.nextElement()
+                val addresses = networkInterface.inetAddresses
+                while (addresses.hasMoreElements()) {
+                    val address = addresses.nextElement()
+                    if (!address.isLoopbackAddress && address is java.net.Inet4Address)
+                        return address.hostAddress
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Error getting IP: ${e.message}")
+        }
+        return null
     }
 
     private fun updateStatusIndicators() {

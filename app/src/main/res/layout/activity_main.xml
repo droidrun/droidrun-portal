@@ -485,6 +485,84 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
+                        android:text="Network Access"
+                        android:textColor="@color/text_white"
+                        android:textSize="16sp"
+                        android:textStyle="normal"
+                        android:layout_marginBottom="10dp" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:background="@color/background_code"
+                        android:padding="12dp"
+                        android:layout_marginBottom="16dp">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:layout_marginBottom="8dp">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="IP: "
+                                android:textColor="@color/text_gray"
+                                android:fontFamily="monospace" />
+
+                            <TextView
+                                android:id="@+id/device_ip_text"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Unavailable"
+                                android:textColor="@color/text_white"
+                                android:textStyle="bold"
+                                android:fontFamily="monospace" />
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Token: "
+                                android:textColor="@color/text_gray"
+                                android:fontFamily="monospace" />
+
+                            <TextView
+                                android:id="@+id/auth_token_text"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:text="..."
+                                android:textColor="@color/text_white"
+                                android:textStyle="bold"
+                                android:fontFamily="monospace"
+                                android:ellipsize="end"
+                                android:maxLines="1" />
+
+                            <ImageView
+                                android:id="@+id/btn_copy_token"
+                                android:layout_width="20dp"
+                                android:layout_height="20dp"
+                                android:contentDescription="Copy token"
+                                android:src="@drawable/baseline_content_copy_24"
+                                app:tint="@color/text_white"
+                                android:background="?attr/selectableItemBackgroundBorderless"
+                                android:clickable="true"
+                                android:focusable="true" />
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
                         android:text="ADB Forward Command"
                         android:textColor="@color/text_white"
                         android:textSize="16sp"

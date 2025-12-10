@@ -3,6 +3,7 @@ package com.droidrun.portal.config
 import android.content.Context
 import android.content.SharedPreferences
 import com.droidrun.portal.events.model.EventType
+import androidx.core.content.edit
 
 /**
  * Centralized configuration manager for Droidrun Portal
@@ -23,6 +24,7 @@ class ConfigManager private constructor(private val context: Context) {
         private const val KEY_WEBSOCKET_ENABLED = "websocket_enabled"
         private const val KEY_WEBSOCKET_PORT = "websocket_port"
         private const val PREFIX_EVENT_ENABLED = "event_enabled_"
+        private const val KEY_AUTH_TOKEN = "auth_token"
         
         private const val DEFAULT_OFFSET = 0
         private const val DEFAULT_SOCKET_PORT = 8080
@@ -40,6 +42,18 @@ class ConfigManager private constructor(private val context: Context) {
     
     private val sharedPrefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     
+    // Auth Token (Auto-generated if missing)
+    // TODO add external injection from some config file
+    val authToken: String
+        get() {
+            var token = sharedPrefs.getString(KEY_AUTH_TOKEN, null)
+            if (token == null) {
+                token = java.util.UUID.randomUUID().toString()
+                sharedPrefs.edit { putString(KEY_AUTH_TOKEN, token) }
+            }
+            return token
+        }
+
     // Overlay visibility
     var overlayVisible: Boolean
         get() = sharedPrefs.getBoolean(KEY_OVERLAY_VISIBLE, true)
@@ -228,7 +242,8 @@ class ConfigManager private constructor(private val context: Context) {
         val socketServerEnabled: Boolean,
         val socketServerPort: Int,
         val websocketEnabled: Boolean,
-        val websocketPort: Int
+        val websocketPort: Int,
+        val authToken: String
     )
 
     fun getCurrentConfiguration(): Configuration {
@@ -240,7 +255,8 @@ class ConfigManager private constructor(private val context: Context) {
             socketServerEnabled = socketServerEnabled,
             socketServerPort = socketServerPort,
             websocketEnabled = websocketEnabled,
-            websocketPort = websocketPort
+            websocketPort = websocketPort,
+            authToken = authToken
         )
     }
 }

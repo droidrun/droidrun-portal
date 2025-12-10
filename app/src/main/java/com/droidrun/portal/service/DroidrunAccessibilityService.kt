@@ -48,6 +48,8 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
     private val mainHandler = Handler(Looper.getMainLooper())
     
     // Servers
+    // TODO Make nullable
+    private lateinit var actionDispatcher: ActionDispatcher
     private var socketServer: SocketServer? = null
     private var websocketServer: PortalWebSocketServer? = null
     
@@ -63,6 +65,7 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
         super.onCreate()
         overlayManager = OverlayManager(this)
         val windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+        // TODO increase SDK version to 30
         val windowMetrics = windowManager.currentWindowMetrics
         val bounds = windowMetrics.bounds
         screenBounds.set(0, 0, bounds.width(), bounds.height())
@@ -86,7 +89,9 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
                  } catch (e: Exception) { "unknown" }
             }
         )
-        socketServer = SocketServer(apiHandler)
+        
+        actionDispatcher = ActionDispatcher(apiHandler)
+        socketServer = SocketServer(apiHandler, configManager, actionDispatcher)
         
         isInitialized = true
     }
@@ -603,7 +608,7 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
         try {
             if (websocketServer == null) {
                 val port = configManager.websocketPort
-                websocketServer = PortalWebSocketServer(port)
+                websocketServer = PortalWebSocketServer(port, actionDispatcher, configManager)
                 websocketServer?.start()
                 Log.i(TAG, "WebSocket server started on port $port")
             }
