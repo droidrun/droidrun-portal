@@ -45,7 +45,7 @@
                     android:background="?attr/selectableItemBackgroundBorderless"
                     android:src="@drawable/settings"
                     app:tint="@color/text_white"
-                    android:contentDescription="Settings"
+                    android:contentDescription="@string/settings_content_description"
                     android:padding="12dp" />
 
             </LinearLayout>
@@ -80,7 +80,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="Accessibility Service Not Enabled"
+                        android:text="@string/accessibility_service_not_enabled"
                         android:textColor="@color/text_white"
                         android:textSize="12sp"
                         />
@@ -89,7 +89,7 @@
                         android:id="@+id/enable_accessibility_button"
                         android:layout_width="wrap_content"
                         android:layout_height="36dp"
-                        android:text="Enable Now"
+                        android:text="@string/enable_now"
                         android:textSize="12sp"
                         android:textColor="@color/text_white"
                         app:backgroundTint="@color/alert_error_button"
@@ -129,7 +129,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="Accessibility Service"
+                        android:text="@string/accessibility_service"
                         android:textColor="@color/text_white"
                         android:textSize="14sp" />
 
@@ -137,7 +137,7 @@
                         android:id="@+id/fetch_button"
                         android:layout_width="wrap_content"
                         android:layout_height="40dp"
-                        android:text="Test Fetching"
+                        android:text="@string/test_fetching"
                         android:textSize="12sp"
                         android:textColor="@color/background_primary"
                         app:backgroundTint="@color/status_success"
@@ -178,7 +178,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="Notification Access Not Granted"
+                        android:text="@string/notification_access_not_granted"
                         android:textColor="@color/text_white"
                         android:textSize="12sp" />
 
@@ -186,7 +186,7 @@
                         android:id="@+id/enable_notification_button"
                         android:layout_width="wrap_content"
                         android:layout_height="36dp"
-                        android:text="Enable"
+                        android:text="@string/enable"
                         android:textSize="12sp"
                         android:textColor="@color/text_white"
                         app:backgroundTint="@color/alert_error_button"
@@ -225,7 +225,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Notification Listener"
+                        android:text="@string/notification_listener"
                         android:textColor="@color/text_white"
                         android:textSize="14sp" />
                 </LinearLayout>
@@ -250,7 +250,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Controls"
+                        android:text="@string/controls_header"
                         android:textSize="25sp"
                         android:textStyle="normal"
                         android:textColor="@color/text_white"
@@ -268,7 +268,7 @@
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="Overlay"
+                            android:text="@string/overlay_label"
                             android:textColor="@color/text_white"
                             android:textSize="16sp" />
 
@@ -292,7 +292,7 @@
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="Overlay Offset"
+                            android:text="@string/overlay_offset_label"
                             android:textColor="@color/text_white"
                             android:textSize="16sp" />
 
@@ -300,7 +300,7 @@
                             android:id="@+id/btn_reset_offset"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Reset"
+                            android:text="@string/reset_button"
                             android:textColor="@color/text_white"
                             android:textSize="14sp"
                             android:textStyle="bold"
@@ -341,7 +341,7 @@
                                 android:layout_width="60dp"
                                 android:layout_height="wrap_content"
                                 android:inputType="numberSigned"
-                                android:text="0"
+                                android:text="@string/default_offset_value"
                                 android:textColor="@color/text_white"
                                 android:textSize="14sp"
                                 android:textStyle="bold"
@@ -369,14 +369,14 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Tip: Vision mode works even with overlay off"
+                            android:text="@string/tip_vision_mode"
                             android:textColor="@color/text_hint"
                             android:textSize="12sp" />
                     </LinearLayout>
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Socket Server Port"
+                        android:text="@string/socket_server_port_label"
                         android:textColor="@color/text_white"
                         android:textSize="16sp"
                          />
@@ -405,7 +405,7 @@
                                 android:textSize="16sp"
                                 android:textColor="@color/text_white"
                                 android:background="@color/background_input"
-                                android:text="8080"
+                                android:text="@string/default_port"
 
                        />
                         </com.google.android.material.textfield.TextInputLayout>
@@ -452,7 +452,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Connection Details"
+                            android:text="@string/connection_details_header"
                             android:textSize="25sp"
                             android:textStyle="normal"
                             android:textColor="@color/text_white" />
@@ -468,7 +468,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Socket Status:"
+                            android:text="@string/socket_status_label"
                             android:textColor="@color/text_gray"
                             android:textSize="14sp"
                             android:layout_marginEnd="8dp" />
@@ -477,7 +477,7 @@
                             android:id="@+id/socket_server_status"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Service not available"
+                            android:text="@string/service_not_available"
                             android:textColor="@color/status_error"
                             android:textSize="14sp" />
                     </LinearLayout>
@@ -485,7 +485,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Network Access"
+                        android:text="@string/network_access_header"
                         android:textColor="@color/text_white"
                         android:textSize="16sp"
                         android:textStyle="normal"
@@ -508,7 +508,7 @@
                             <TextView
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:text="IP: "
+                                android:text="@string/ip_label"
                                 android:textColor="@color/text_gray"
                                 android:fontFamily="monospace" />
 
@@ -516,7 +516,7 @@
                                 android:id="@+id/device_ip_text"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:text="Unavailable"
+                                android:text="@string/unavailable"
                                 android:textColor="@color/text_white"
                                 android:textStyle="bold"
                                 android:fontFamily="monospace" />
@@ -531,7 +531,7 @@
                             <TextView
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:text="Token: "
+                                android:text="@string/token_label"
                                 android:textColor="@color/text_gray"
                                 android:fontFamily="monospace" />
 
@@ -551,7 +551,7 @@
                                 android:id="@+id/btn_copy_token"
                                 android:layout_width="20dp"
                                 android:layout_height="20dp"
-                                android:contentDescription="Copy token"
+                                android:contentDescription="@string/copy_token_content_description"
                                 android:src="@drawable/baseline_content_copy_24"
                                 app:tint="@color/text_white"
                                 android:background="?attr/selectableItemBackgroundBorderless"
@@ -563,7 +563,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="ADB Forward Command"
+                        android:text="@string/adb_forward_command_header"
                         android:textColor="@color/text_white"
                         android:textSize="16sp"
                         android:textStyle="normal"
@@ -573,7 +573,7 @@
                         android:id="@+id/adb_forward_command"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="adb forward tcp:8080 tcp:8080"
+                        android:text="@string/adb_forward_command_placeholder"
                         android:textColor="@color/text_gray_light"
                         android:textSize="13sp"
                         android:fontFamily="monospace"
@@ -603,7 +603,7 @@
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="Endpoints"
+                            android:text="@string/endpoints_header"
                             android:textColor="@color/text_white"
                             android:textSize="16sp"
                             android:textStyle="bold"
@@ -628,7 +628,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="GET"
+                            android:text="@string/http_method_get"
                             android:textColor="@color/http_get"
                             android:textSize="14sp"
                             android:textStyle="bold"
@@ -638,7 +638,7 @@
                         <TextView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:text="/a11y_tree"
+                            android:text="@string/endpoint_a11y_tree"
                             android:textColor="@color/text_gray_light"
                             android:textSize="13sp"
                             android:fontFamily="monospace"
@@ -648,7 +648,7 @@
                         <TextView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:text="/phone_state"
+                            android:text="@string/endpoint_phone_state"
                             android:textColor="@color/text_gray_light"
                             android:textSize="13sp"
                             android:fontFamily="monospace"
@@ -658,7 +658,7 @@
                         <TextView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:text="/state"
+                            android:text="@string/endpoint_state"
                             android:textColor="@color/text_gray_light"
                             android:textSize="13sp"
                             android:fontFamily="monospace"
@@ -668,7 +668,7 @@
                         <TextView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:text="/ping"
+                            android:text="@string/endpoint_ping"
                             android:textColor="@color/text_gray_light"
                             android:textSize="13sp"
                             android:fontFamily="monospace"
@@ -678,7 +678,7 @@
                         <TextView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:text="/a11y_tree_full"
+                            android:text="@string/endpoint_a11y_tree_full"
                             android:textColor="@color/text_gray_light"
                             android:textSize="13sp"
                             android:fontFamily="monospace"
@@ -688,7 +688,7 @@
                         <TextView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:text="/packages"
+                            android:text="@string/endpoint_packages"
                             android:textColor="@color/text_gray_light"
                             android:textSize="13sp"
                             android:fontFamily="monospace"
@@ -698,7 +698,7 @@
                         <TextView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:text="/screenshot"
+                            android:text="@string/endpoint_screenshot"
                             android:textColor="@color/text_gray_light"
                             android:textSize="13sp"
                             android:fontFamily="monospace"
@@ -709,7 +709,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="POST"
+                            android:text="@string/http_method_post"
                             android:textColor="@color/http_post"
                             android:textSize="14sp"
                             android:textStyle="bold"
@@ -719,7 +719,7 @@
                         <TextView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:text="/keyboard/input"
+                            android:text="@string/endpoint_keyboard_input"
                             android:textColor="@color/text_gray_light"
                             android:textSize="13sp"
                             android:fontFamily="monospace"
@@ -729,7 +729,7 @@
                         <TextView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:text="/keyboard/clear"
+                            android:text="@string/endpoint_keyboard_clear"
                             android:textColor="@color/text_gray_light"
                             android:textSize="13sp"
                             android:fontFamily="monospace"
@@ -739,7 +739,7 @@
                         <TextView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:text="/keyboard/key"
+                            android:text="@string/endpoint_keyboard_key"
                             android:textColor="@color/text_gray_light"
                             android:textSize="13sp"
                             android:fontFamily="monospace"
@@ -749,7 +749,7 @@
                         <TextView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:text="/overlay_offset"
+                            android:text="@string/endpoint_overlay_offset"
                             android:textColor="@color/text_gray_light"
                             android:textSize="13sp"
                             android:fontFamily="monospace"
@@ -779,7 +779,7 @@
                     android:id="@+id/logs_link"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Logs"
+                    android:text="@string/logs_link_text"
                     android:textColor="@color/text_white"
                     android:textSize="14sp"
                     android:textStyle="bold"

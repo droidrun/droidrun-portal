@@ -21,7 +21,7 @@
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="WebSocket Settings"
+        android:text="@string/websocket_settings_header"
         android:textColor="@color/text_white"
         android:textSize="20sp"
         android:textStyle="bold"
@@ -32,7 +32,7 @@
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="SERVER CONFIGURATION"
+        android:text="@string/server_configuration_header"
         android:textColor="@color/text_gray"
         android:textSize="12sp"
         android:textStyle="bold"
@@ -56,14 +56,14 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Enable Server"
+                android:text="@string/enable_server_label"
                 android:textColor="@color/text_white"
                 android:textSize="16sp" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Allow external connections"
+                android:text="@string/allow_external_connections_label"
                 android:textColor="@color/text_gray"
                 android:textSize="14sp" />
         </LinearLayout>
@@ -86,7 +86,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="Port"
+            android:text="@string/port_label"
             android:textColor="@color/text_white"
             android:textSize="16sp" />
 
@@ -117,7 +117,7 @@
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="REVERSE CONNECTION (CLIENT MODE)"
+        android:text="@string/reverse_connection_header"
         android:textColor="@color/text_gray"
         android:textSize="12sp"
         android:textStyle="bold"
@@ -141,14 +141,14 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Connect to Host"
+                android:text="@string/connect_to_host_label"
                 android:textColor="@color/text_white"
                 android:textSize="16sp" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Initiate outbound connection"
+                android:text="@string/initiate_outbound_connection_label"
                 android:textColor="@color/text_gray"
                 android:textSize="14sp" />
         </LinearLayout>
@@ -167,7 +167,7 @@
         style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
         app:boxStrokeColor="@color/text_gray"
         app:hintTextColor="@color/text_gray"
-        android:hint="Host URL (ws://...)">
+        android:hint="@string/host_url_hint">
 
         <com.google.android.material.textfield.TextInputEditText
             android:id="@+id/input_reverse_url"
@@ -185,7 +185,7 @@
         style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
         app:boxStrokeColor="@color/text_gray"
         app:hintTextColor="@color/text_gray"
-        android:hint="Token (Optional)">
+        android:hint="@string/token_optional_hint">
 
         <com.google.android.material.textfield.TextInputEditText
             android:id="@+id/input_reverse_token"
@@ -205,7 +205,7 @@
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="EVENT FILTERS"
+        android:text="@string/event_filters_header"
         android:textColor="@color/text_gray"
         android:textSize="12sp"
         android:textStyle="bold"
@@ -229,14 +229,14 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Notifications"
+                android:text="@string/notifications_label"
                 android:textColor="@color/text_white"
                 android:textSize="16sp" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Push system notifications"
+                android:text="@string/push_system_notifications_label"
                 android:textColor="@color/text_gray"
                 android:textSize="14sp" />
         </LinearLayout>
