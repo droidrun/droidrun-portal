@@ -61,21 +61,22 @@ class ReverseConnectionService : Service() {
     private fun connectToHost() {
         if (!isServiceRunning.get()) return
 
-        val hostUrl = configManager.reverseConnectionUrl
-        val authToken = configManager.authToken
+        val hostUrl = configManager.reverseConnectionUrl 
+        val authToken = configManager.reverseConnectionToken
 
         if (hostUrl.isBlank()) {
             Log.w(TAG, "No host URL configured")
-            // Don't stop self, maybe user will config later?
+            // Don't stop self, maybe user will config later? 
             // Or stop and let UI restart it.
-            // TBD
             return
         }
 
         try {
             val uri = URI(hostUrl)
             val headers = mutableMapOf<String, String>()
-            headers["Authorization"] = "Bearer $authToken"
+            if (authToken.isNotBlank())
+                headers["Authorization"] = "Bearer $authToken"
+
 
             webSocketClient = object : WebSocketClient(uri, headers) {
                 override fun onOpen(handshakedata: ServerHandshake?) {
@@ -104,13 +105,20 @@ class ReverseConnectionService : Service() {
         }
     }
 
+    private var isReconnecting = AtomicBoolean(false)
+
     private fun scheduleReconnect() {
         if (!isServiceRunning.get()) return
+        if (isReconnecting.getAndSet(true)) return // Already scheduled
         
+        Log.d(TAG, "Scheduling reconnect in ${RECONNECT_DELAY_MS}ms")
         handler.postDelayed({
             if (isServiceRunning.get()) {
+                isReconnecting.set(false)
                 Log.d(TAG, "Attempting reconnect...")
                 connectToHost()
+            } else {
+                isReconnecting.set(false)
             }
         }, RECONNECT_DELAY_MS)
     }
@@ -125,6 +133,7 @@ class ReverseConnectionService : Service() {
     }
 
     private fun handleMessage(message: String?) {
+        Log.d(TAG, "Received message: $message")
         if (message == null) return
         
         if (!::actionDispatcher.isInitialized) {
@@ -140,12 +149,14 @@ class ReverseConnectionService : Service() {
             val json = JSONObject(message)
             val id = json.optString("id")
             val method = json.optString("method")
+            Log.d(TAG, "Dispatching $method (id=$id)")
             
             if (id.isNotEmpty() && method.isNotEmpty()) {
                 val params = json.optJSONObject("params") ?: JSONObject()
                 
                 // Execute
                 val result = actionDispatcher.dispatch(method, params)
+                Log.d(TAG, "Command executed. Result type: ${result.javaClass.simpleName}")
                 
                 // Response
                 if (result is ApiResponse.Binary) {
@@ -155,6 +166,7 @@ class ReverseConnectionService : Service() {
                     payload.put(result.data)
                     payload.flip()
                     webSocketClient?.send(payload)
+                    Log.d(TAG, "Sent binary response")
                 } else {
                     // Text Response
                     val response = JSONObject()
@@ -169,6 +181,7 @@ class ReverseConnectionService : Service() {
                         response.put("error", apiResponseJson.opt("error"))
                     }
                     webSocketClient?.send(response.toString())
+                    Log.d(TAG, "Sent text response: $response")
                 }
             }
         } catch (e: Exception) {

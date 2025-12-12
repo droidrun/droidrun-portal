@@ -25,6 +25,11 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
         return binding.root
     }
 
+    override fun onDestroyView() {
+        super.onDestroyView()
+        _binding = null
+    }
+
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         configManager = ConfigManager.getInstance(requireContext())
@@ -54,6 +59,7 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
         // Reverse Connection Settings
         binding.switchReverseEnabled.isChecked = configManager.reverseConnectionEnabled
         binding.inputReverseUrl.setText(configManager.reverseConnectionUrl)
+        binding.inputReverseToken.setText(configManager.reverseConnectionToken)
 
         // Toggle Service on Switch Change
         binding.switchReverseEnabled.setOnCheckedChangeListener { _, isChecked ->
@@ -65,6 +71,9 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
                 val url = binding.inputReverseUrl.text.toString()
                 if (url.isNotBlank()) {
                     configManager.reverseConnectionUrl = url
+                    // Also save token if user typed it but didn't hit done
+                    configManager.reverseConnectionToken = binding.inputReverseToken.text.toString()
+                    
                     requireContext().startService(intent)
                 } else {
                     binding.inputReverseUrl.error = "URL required"
@@ -76,16 +85,21 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
         }
 
         binding.inputReverseUrl.setOnEditorActionListener { v, actionId, _ ->
-            if (actionId == EditorInfo.IME_ACTION_DONE) {
+            if (actionId == EditorInfo.IME_ACTION_DONE || actionId == EditorInfo.IME_ACTION_NEXT) {
                 configManager.reverseConnectionUrl = v.text.toString()
-                binding.inputReverseUrl.clearFocus()
-                
-                // If enabled, restart service to pick up new URL
-                if (configManager.reverseConnectionEnabled) {
-                    val intent = android.content.Intent(requireContext(), com.droidrun.portal.service.ReverseConnectionService::class.java)
-                    requireContext().stopService(intent)
-                    requireContext().startService(intent)
-                }
+                if (actionId == EditorInfo.IME_ACTION_DONE) binding.inputReverseUrl.clearFocus()
+                restartServiceIfEnabled()
+                true
+            } else {
+                false
+            }
+        }
+
+        binding.inputReverseToken.setOnEditorActionListener { v, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_DONE) {
+                configManager.reverseConnectionToken = v.text.toString()
+                binding.inputReverseToken.clearFocus()
+                restartServiceIfEnabled()
                 true
             } else {
                 false
@@ -93,15 +107,23 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
         }
 
         // Event Filters
-        binding.switchEventNotification.isChecked = configManager.isEventEnabled(EventType.NOTIFICATION)
-        binding.switchEventNotification.setOnCheckedChangeListener { _, isChecked ->
-            configManager.setEventEnabled(EventType.NOTIFICATION, isChecked)
+        setupEventToggle(binding.switchEventNotification, EventType.NOTIFICATION)
+    }
+
+    private fun restartServiceIfEnabled() {
+        if (configManager.reverseConnectionEnabled) {
+            val intent = android.content.Intent(requireContext(), com.droidrun.portal.service.ReverseConnectionService::class.java)
+            requireContext().stopService(intent)
+            requireContext().startService(intent)
         }
     }
 
-    override fun onDestroyView() {
-        super.onDestroyView()
-        _binding = null
+    private fun setupEventToggle(switch: com.google.android.material.switchmaterial.SwitchMaterial, type: EventType) {
+        switch.isChecked = configManager.isEventEnabled(type)
+        
+        switch.setOnCheckedChangeListener { _, isChecked ->
+            configManager.setEventEnabled(type, isChecked)
+        }
     }
 
     companion object {

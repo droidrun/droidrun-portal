@@ -177,6 +177,24 @@
             android:textColor="@color/text_white" />
     </com.google.android.material.textfield.TextInputLayout>
 
+    <com.google.android.material.textfield.TextInputLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingHorizontal="24dp"
+        android:paddingBottom="12dp"
+        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+        app:boxStrokeColor="@color/text_gray"
+        app:hintTextColor="@color/text_gray"
+        android:hint="Token (Optional)">
+
+        <com.google.android.material.textfield.TextInputEditText
+            android:id="@+id/input_reverse_token"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="textVisiblePassword"
+            android:textColor="@color/text_white" />
+    </com.google.android.material.textfield.TextInputLayout>
+
     <View
         android:layout_width="match_parent"
         android:layout_height="1dp"

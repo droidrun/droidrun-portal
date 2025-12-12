@@ -24,6 +24,7 @@ class ConfigManager private constructor(private val context: Context) {
         private const val KEY_WEBSOCKET_ENABLED = "websocket_enabled"
         private const val KEY_WEBSOCKET_PORT = "websocket_port"
         private const val KEY_REVERSE_CONNECTION_URL = "reverse_connection_url"
+        private const val KEY_REVERSE_CONNECTION_TOKEN = "reverse_connection_token"
         private const val KEY_REVERSE_CONNECTION_ENABLED = "reverse_connection_enabled"
         private const val PREFIX_EVENT_ENABLED = "event_enabled_"
         private const val KEY_AUTH_TOKEN = "auth_token"
@@ -43,6 +44,12 @@ class ConfigManager private constructor(private val context: Context) {
     }
     
     private val sharedPrefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    
+    init {
+        if (sharedPrefs.contains(KEY_REVERSE_CONNECTION_ENABLED)) {
+            sharedPrefs.edit { putBoolean(KEY_REVERSE_CONNECTION_ENABLED, false) }
+        }
+    }
     
     // Auth Token (Auto-generated if missing)
     // TODO add external injection from some config file
@@ -119,12 +126,14 @@ class ConfigManager private constructor(private val context: Context) {
             sharedPrefs.edit { putString(KEY_REVERSE_CONNECTION_URL, value) }
         }
 
-    // Reverse Connection Enabled
-    var reverseConnectionEnabled: Boolean
-        get() = sharedPrefs.getBoolean(KEY_REVERSE_CONNECTION_ENABLED, false)
+    // Reverse Connection Token (Optional, for authenticating with Host/Cloud)
+    var reverseConnectionToken: String
+        get() = sharedPrefs.getString(KEY_REVERSE_CONNECTION_TOKEN, "") ?: ""
         set(value) {
-            sharedPrefs.edit { putBoolean(KEY_REVERSE_CONNECTION_ENABLED, value) }
+            sharedPrefs.edit { putString(KEY_REVERSE_CONNECTION_TOKEN, value) }
         }
+
+    var reverseConnectionEnabled: Boolean = false
 
     // Dynamic Event Toggles
     fun isEventEnabled(type: EventType): Boolean {
