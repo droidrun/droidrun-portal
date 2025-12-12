@@ -73,6 +73,9 @@ class ActionDispatcher(private val apiHandler: ApiHandler) {
                 val hideOverlay = params.optBoolean("hideOverlay", true)
                 apiHandler.getScreenshot(hideOverlay)
             }
+            "packages" -> {
+                apiHandler.getPackages()
+            }
             else -> ApiResponse.Error("Unknown method: $method")
         }
     }

@@ -69,6 +69,7 @@ class ApiHandler(
 
 
     fun getPackages(): ApiResponse {
+        Log.d("ApiHandler", "getPackages called")
         return try {
             val pm = getPackageManager()
             val mainIntent = android.content.Intent(android.content.Intent.ACTION_MAIN, null).apply {
@@ -81,36 +82,48 @@ class ApiHandler(
                 @Suppress("DEPRECATION")
                 pm.queryIntentActivities(mainIntent, 0)
             }
+            
+            Log.d("ApiHandler", "Found ${resolvedApps.size} raw resolved apps")
 
             val arr = JSONArray()
 
             for (resolveInfo in resolvedApps) {
-                val pkgInfo = try {
-                    pm.getPackageInfo(resolveInfo.activityInfo.packageName, 0)
-                } catch (e: PackageManager.NameNotFoundException) {
-                    continue
+                try {
+                    val pkgInfo = try {
+                        pm.getPackageInfo(resolveInfo.activityInfo.packageName, 0)
+                    } catch (e: PackageManager.NameNotFoundException) {
+                        Log.w("ApiHandler", "Package not found: ${resolveInfo.activityInfo.packageName}")
+                        continue
+                    }
+
+                    val label = try {
+                        resolveInfo.loadLabel(pm).toString()
+                    } catch (e: Exception) {
+                        Log.w("ApiHandler", "Label load failed for ${pkgInfo.packageName}: ${e.message}")
+                        // Fallback to package name if label load fails (Samsung resource error with ARzone or something)
+                        pkgInfo.packageName
+                    }
+
+                    val appInfo = resolveInfo.activityInfo.applicationInfo
+                    val obj = JSONObject()
+
+                    obj.put("packageName", pkgInfo.packageName)
+                    obj.put("label", label)
+                    obj.put("versionName", pkgInfo.versionName ?: JSONObject.NULL)
+
+                    val versionCode = pkgInfo.longVersionCode
+                    obj.put("versionCode", versionCode)
+
+                    val isSystem = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+                    obj.put("isSystemApp", isSystem)
+
+                    arr.put(obj)
+                } catch (e: Exception) {
+                    Log.w("ApiHandler", "Skipping package ${resolveInfo.activityInfo.packageName}: ${e.message}")
                 }
-
-                val appInfo = resolveInfo.activityInfo.applicationInfo
-                val obj = JSONObject()
-
-                obj.put("packageName", pkgInfo.packageName)
-                obj.put("label", resolveInfo.loadLabel(pm).toString())
-                obj.put("versionName", pkgInfo.versionName ?: JSONObject.NULL)
-
-                val versionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                    pkgInfo.longVersionCode
-                } else {
-                    @Suppress("DEPRECATION")
-                    pkgInfo.versionCode.toLong()
-                }
-                obj.put("versionCode", versionCode)
-
-                val isSystem = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
-                obj.put("isSystemApp", isSystem)
-
-                arr.put(obj)
             }
+            
+            Log.d("ApiHandler", "Returning ${arr.length()} packages")
 
             val root = JSONObject()
             root.put("status", "success")
@@ -120,6 +133,7 @@ class ApiHandler(
             ApiResponse.Raw(root)
 
         } catch (e: Exception) {
+            Log.e("ApiHandler", "getPackages failed", e)
             ApiResponse.Error("Failed to enumerate launchable apps: ${e.message}")
         }
     }
@@ -238,50 +252,41 @@ class ApiHandler(
         val service = DroidrunAccessibilityService.getInstance()
             ?: return ApiResponse.Error("Accessibility Service not available")
 
-        // TODO check the problem with other apps
-        val actualPackageName = if (packageName.equals("Settings", ignoreCase = true)) {
-            "com.android.settings"
-        } else {
-            packageName
-        }
-
         return try {
             val intent = if (!activityName.isNullOrEmpty() && activityName != "null") {
                 Intent().apply {
-                    setClassName(actualPackageName, if (activityName.startsWith(".")) actualPackageName + activityName else activityName)
+                    setClassName(packageName, if (activityName.startsWith(".")) packageName + activityName else activityName)
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
             } else {
-                service.packageManager.getLaunchIntentForPackage(actualPackageName)?.apply {
+                service.packageManager.getLaunchIntentForPackage(packageName)?.apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
             }
 
             if (intent != null) {
                 service.startActivity(intent)
-                ApiResponse.Success("Started app $actualPackageName")
+                ApiResponse.Success("Started app $packageName")
             } else {
-                Log.e("ApiHandler", "Could not create intent for $actualPackageName - getLaunchIntentForPackage returned null. Trying fallback.")
+                Log.e("ApiHandler", "Could not create intent for $packageName - getLaunchIntentForPackage returned null. Trying fallback.")
                 
                 // Fallback for system apps like Settings that might need explicit component handling
-                // or if visibility rules are strict.
                 // generic MAIN/LAUNCHER intent for the package
-                // TODO test with other apps
                 try {
                     val fallbackIntent = Intent(Intent.ACTION_MAIN)
                     fallbackIntent.addCategory(Intent.CATEGORY_LAUNCHER)
-                    fallbackIntent.setPackage(actualPackageName)
+                    fallbackIntent.setPackage(packageName)
                     fallbackIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     
                     if (fallbackIntent.resolveActivity(service.packageManager) != null) {
                          service.startActivity(fallbackIntent)
-                         ApiResponse.Success("Started app $actualPackageName (fallback)")
+                         ApiResponse.Success("Started app $packageName (fallback)")
                     } else {
-                         ApiResponse.Error("Could not create intent for $actualPackageName")
+                         ApiResponse.Error("Could not create intent for $packageName")
                     }
                 } catch (e2: Exception) {
                     Log.e("ApiHandler", "Fallback start failed", e2)
-                    ApiResponse.Error("Could not create intent for $actualPackageName")
+                    ApiResponse.Error("Could not create intent for $packageName")
                 }
             }
         } catch (e: Exception) {
