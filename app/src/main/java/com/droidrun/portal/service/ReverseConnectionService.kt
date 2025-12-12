@@ -36,9 +36,7 @@ class ReverseConnectionService : Service() {
         fun getService(): ReverseConnectionService = this@ReverseConnectionService
     }
 
-    override fun onBind(intent: Intent): IBinder {
-        return binder
-    }
+    override fun onBind(intent: Intent): IBinder = binder
 
     override fun onCreate() {
         super.onCreate()
