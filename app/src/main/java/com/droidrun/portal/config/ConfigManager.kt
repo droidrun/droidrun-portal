@@ -58,56 +58,56 @@ class ConfigManager private constructor(private val context: Context) {
     var overlayVisible: Boolean
         get() = sharedPrefs.getBoolean(KEY_OVERLAY_VISIBLE, true)
         set(value) {
-            sharedPrefs.edit().putBoolean(KEY_OVERLAY_VISIBLE, value).apply()
+            sharedPrefs.edit { putBoolean(KEY_OVERLAY_VISIBLE, value) }
         }
     
     // Overlay offset
     var overlayOffset: Int
         get() = sharedPrefs.getInt(KEY_OVERLAY_OFFSET, DEFAULT_OFFSET)
         set(value) {
-            sharedPrefs.edit().putInt(KEY_OVERLAY_OFFSET, value).apply()
+            sharedPrefs.edit { putInt(KEY_OVERLAY_OFFSET, value) }
         }
 
     // Auto offset enabled
     var autoOffsetEnabled: Boolean
         get() = sharedPrefs.getBoolean(KEY_AUTO_OFFSET_ENABLED, true)
         set(value) {
-            sharedPrefs.edit().putBoolean(KEY_AUTO_OFFSET_ENABLED, value).apply()
+            sharedPrefs.edit { putBoolean(KEY_AUTO_OFFSET_ENABLED, value) }
         }
 
     // Track if auto offset has been calculated before
     var autoOffsetCalculated: Boolean
         get() = sharedPrefs.getBoolean(KEY_AUTO_OFFSET_CALCULATED, false)
         set(value) {
-            sharedPrefs.edit().putBoolean(KEY_AUTO_OFFSET_CALCULATED, value).apply()
+            sharedPrefs.edit { putBoolean(KEY_AUTO_OFFSET_CALCULATED, value) }
         }
 
     // Socket server enabled (REST API)
     var socketServerEnabled: Boolean
         get() = sharedPrefs.getBoolean(KEY_SOCKET_SERVER_ENABLED, true)
         set(value) {
-            sharedPrefs.edit().putBoolean(KEY_SOCKET_SERVER_ENABLED, value).apply()
+            sharedPrefs.edit { putBoolean(KEY_SOCKET_SERVER_ENABLED, value) }
         }
     
     // Socket server port (REST API)
     var socketServerPort: Int
         get() = sharedPrefs.getInt(KEY_SOCKET_SERVER_PORT, DEFAULT_SOCKET_PORT)
         set(value) {
-            sharedPrefs.edit().putInt(KEY_SOCKET_SERVER_PORT, value).apply()
+            sharedPrefs.edit { putInt(KEY_SOCKET_SERVER_PORT, value) }
         }
 
     // WebSocket Server Enabled
     var websocketEnabled: Boolean
         get() = sharedPrefs.getBoolean(KEY_WEBSOCKET_ENABLED, true)
         set(value) {
-            sharedPrefs.edit().putBoolean(KEY_WEBSOCKET_ENABLED, value).apply()
+            sharedPrefs.edit { putBoolean(KEY_WEBSOCKET_ENABLED, value) }
         }
 
     // WebSocket Server Port
     var websocketPort: Int
         get() = sharedPrefs.getInt(KEY_WEBSOCKET_PORT, DEFAULT_WEBSOCKET_PORT)
         set(value) {
-            sharedPrefs.edit().putInt(KEY_WEBSOCKET_PORT, value).apply()
+            sharedPrefs.edit { putInt(KEY_WEBSOCKET_PORT, value) }
         }
 
     // Dynamic Event Toggles
@@ -117,7 +117,7 @@ class ConfigManager private constructor(private val context: Context) {
     }
 
     fun setEventEnabled(type: EventType, enabled: Boolean) {
-        sharedPrefs.edit().putBoolean(PREFIX_EVENT_ENABLED + type.name, enabled).apply()
+        sharedPrefs.edit { putBoolean(PREFIX_EVENT_ENABLED + type.name, enabled) }
         // We could notify listeners here if needed, but usually this is polled by EventHub
     }
     

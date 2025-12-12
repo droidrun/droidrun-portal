@@ -16,9 +16,8 @@ sealed class ApiResponse {
             return data.contentEquals(other.data)
         }
 
-        override fun hashCode(): Int {
-            return data.contentHashCode()
-        }
+        override fun hashCode(): Int = data.contentHashCode()
+
     }
 
     fun toJson(): String = when (this) {
