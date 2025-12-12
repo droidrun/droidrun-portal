@@ -7,7 +7,6 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.util.Log
-import com.droidrun.portal.api.ApiHandler
 import com.droidrun.portal.api.ApiResponse
 import com.droidrun.portal.config.ConfigManager
 import org.java_websocket.client.WebSocketClient
@@ -62,22 +61,19 @@ class ReverseConnectionService : Service() {
     private fun connectToHost() {
         if (!isServiceRunning.get()) return
 
-        // We need to add host URL to config first!
-        // For now, let's assume it's stored or passed.
-        // Let's rely on ConfigManager to have a new field 'reverseConnectionUrl'
-        val hostUrl = configManager.reverseConnectionUrl 
+        val hostUrl = configManager.reverseConnectionUrl
         val authToken = configManager.authToken
 
         if (hostUrl.isBlank()) {
             Log.w(TAG, "No host URL configured")
-            // Don't stop self, maybe user will config later? 
+            // Don't stop self, maybe user will config later?
             // Or stop and let UI restart it.
+            // TBD
             return
         }
 
         try {
             val uri = URI(hostUrl)
-            // Add Auth header
             val headers = mutableMapOf<String, String>()
             headers["Authorization"] = "Bearer $authToken"
 
@@ -131,7 +127,6 @@ class ReverseConnectionService : Service() {
     private fun handleMessage(message: String?) {
         if (message == null) return
         
-        // Lazy init actionDispatcher if needed
         if (!::actionDispatcher.isInitialized) {
             val service = DroidrunAccessibilityService.getInstance()
             if (service == null) {
@@ -154,7 +149,6 @@ class ReverseConnectionService : Service() {
                 
                 // Response
                 if (result is ApiResponse.Binary) {
-                    // Binary Response
                     val uuidBytes = id.toByteArray(Charsets.UTF_8)
                     val payload = ByteBuffer.allocate(uuidBytes.size + result.data.size)
                     payload.put(uuidBytes)

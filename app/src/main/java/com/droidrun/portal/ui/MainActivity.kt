@@ -1,6 +1,5 @@
 package com.droidrun.portal.ui
 
-import com.droidrun.portal.R
 import com.droidrun.portal.config.ConfigManager
 import com.droidrun.portal.service.DroidrunAccessibilityService
 import com.droidrun.portal.service.DroidrunNotificationListener
@@ -16,56 +15,28 @@ import android.text.TextWatcher
 import android.view.inputmethod.EditorInfo
 import android.widget.SeekBar
 import android.widget.Toast
-import com.google.android.material.button.MaterialButton
-import com.google.android.material.switchmaterial.SwitchMaterial
-import com.google.android.material.textfield.TextInputEditText
-import com.google.android.material.textfield.TextInputLayout
 import android.provider.Settings
-import android.widget.ImageView
 import android.view.View
 import android.os.Handler
 import android.os.Looper
 import android.net.Uri
-import android.database.Cursor
 import android.graphics.Color
 import org.json.JSONObject
 import androidx.appcompat.app.AlertDialog
 import android.content.ClipboardManager
 import android.content.ComponentName
+import com.droidrun.portal.databinding.ActivityMainBinding
 import com.droidrun.portal.ui.settings.SettingsBottomSheet
+import androidx.core.net.toUri
+import androidx.core.graphics.toColorInt
 
 class MainActivity : AppCompatActivity() {
-    
-    private lateinit var accessibilityBanner: com.google.android.material.card.MaterialCardView
-    private lateinit var accessibilityStatusEnabled: com.google.android.material.card.MaterialCardView
-    private lateinit var enableAccessibilityButton: MaterialButton
-    
-    // Notification UI elements
-    private lateinit var notificationBanner: com.google.android.material.card.MaterialCardView
-    private lateinit var notificationStatusEnabled: com.google.android.material.card.MaterialCardView
-    private lateinit var enableNotificationButton: MaterialButton
-    private lateinit var settingsButton: android.widget.ImageButton
-    
+	
+    private lateinit var binding: ActivityMainBinding
+
     private var responseText: String = ""
-    private lateinit var versionText: TextView
-    private lateinit var logsLink: TextView
-    private lateinit var toggleOverlay: SwitchMaterial
-    private lateinit var fetchButton: MaterialButton
-    private lateinit var offsetSlider: SeekBar
-    private lateinit var offsetValueDisplay: TextInputEditText
-    private lateinit var offsetValueInputLayout: TextInputLayout
-    private lateinit var btnResetOffset: TextView
-    
-    // Socket server UI elements
-    private lateinit var socketPortInput: TextInputEditText
-    private lateinit var socketPortInputLayout: TextInputLayout
-    private lateinit var socketServerStatus: TextView
-    private lateinit var adbForwardCommand: TextView
-    
+
     // Endpoints collapsible section
-    private lateinit var endpointsHeader: View
-    private lateinit var endpointsContent: View
-    private lateinit var endpointsArrow: ImageView
     private var isEndpointsExpanded = false
     
     // Flag to prevent infinite update loops
@@ -80,65 +51,20 @@ class MainActivity : AppCompatActivity() {
         private const val SLIDER_RANGE = MAX_OFFSET - MIN_OFFSET
     }
 
-    // TODO use view binding everywhere in the project
-    private lateinit var deviceIpText: TextView
-    private lateinit var authTokenText: TextView
-    private lateinit var btnCopyToken: View
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
-        
-        // Initialize UI elements
-        accessibilityBanner = findViewById(R.id.accessibility_banner)
-
-        deviceIpText = findViewById(R.id.device_ip_text)
-        authTokenText = findViewById(R.id.auth_token_text)
-        btnCopyToken = findViewById(R.id.btn_copy_token)
+        binding = ActivityMainBinding.inflate(layoutInflater)
+        setContentView(binding.root)
 
         setupNetworkInfo()
-        
-        accessibilityStatusEnabled = findViewById(R.id.accessibility_status_enabled)
-        accessibilityStatusEnabled = findViewById(R.id.accessibility_status_enabled)
-        enableAccessibilityButton = findViewById(R.id.enable_accessibility_button)
-        
-        // Notification UI init (try-catch in case XML isn't updated yet to prevent crash)
-        try {
-            notificationBanner = findViewById(R.id.notification_banner)
-            notificationStatusEnabled = findViewById(R.id.notification_status_enabled)
-            enableNotificationButton = findViewById(R.id.enable_notification_button)
-            
-            enableNotificationButton.setOnClickListener {
-                openNotificationSettings()
-            }
-            
-            settingsButton = findViewById(R.id.settings_button)
-            settingsButton.setOnClickListener {
-                SettingsBottomSheet().show(supportFragmentManager, SettingsBottomSheet.TAG)
-            }
-        } catch (e: Exception) {
-            Log.w("MainActivity", "Notification UI elements not found in layout yet")
+
+        binding.enableNotificationButton.setOnClickListener {
+            openNotificationSettings()
         }
-        
-        versionText = findViewById(R.id.version_text)
-        logsLink = findViewById(R.id.logs_link)
-        fetchButton = findViewById(R.id.fetch_button)
-        toggleOverlay = findViewById(R.id.toggle_overlay)
-        offsetSlider = findViewById(R.id.offset_slider)
-        offsetValueDisplay = findViewById(R.id.offset_value_display)
-        offsetValueInputLayout = findViewById(R.id.offset_value_input_layout)
-        btnResetOffset = findViewById(R.id.btn_reset_offset)
-        
-        // Initialize socket server UI elements
-        socketPortInput = findViewById(R.id.socket_port_input)
-        socketPortInputLayout = findViewById(R.id.socket_port_input_layout)
-        socketServerStatus = findViewById(R.id.socket_server_status)
-        adbForwardCommand = findViewById(R.id.adb_forward_command)
-        
-        // Initialize endpoints collapsible section
-        endpointsHeader = findViewById(R.id.endpoints_header)
-        endpointsContent = findViewById(R.id.endpoints_content)
-        endpointsArrow = findViewById(R.id.endpoints_arrow)
+
+        binding.settingsButton.setOnClickListener {
+            SettingsBottomSheet().show(supportFragmentManager, SettingsBottomSheet.TAG)
+        }
         
         // Set app version
         setAppVersion()
@@ -153,15 +79,15 @@ class MainActivity : AppCompatActivity() {
         // Configure endpoints collapsible section
         setupEndpointsCollapsible()
         
-        fetchButton.setOnClickListener {
+        binding.fetchButton.setOnClickListener {
             fetchElementData()
         }
 
-        toggleOverlay.setOnCheckedChangeListener { _, isChecked ->
+        binding.toggleOverlay.setOnCheckedChangeListener { _, isChecked ->
             toggleOverlayVisibility(isChecked)
         }
 
-        btnResetOffset.setOnClickListener {
+        binding.btnResetOffset.setOnClickListener {
             val accessibilityService = DroidrunAccessibilityService.getInstance()
             if (accessibilityService != null) {
                 // Force re-calculation
@@ -179,12 +105,12 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Setup enable accessibility button
-        enableAccessibilityButton.setOnClickListener {
+        binding.enableAccessibilityButton.setOnClickListener {
             openAccessibilitySettings()
         }
         
         // Setup logs link to show dialog
-        logsLink.setOnClickListener {
+        binding.logsLink.setOnClickListener {
             showLogsDialog()
         }
         
@@ -205,16 +131,16 @@ class MainActivity : AppCompatActivity() {
     private fun setupNetworkInfo() {
         val configManager = ConfigManager.getInstance(this)
         
-        authTokenText.text = configManager.authToken
+        binding.authTokenText.text = configManager.authToken
         
-        btnCopyToken.setOnClickListener {
+        binding.btnCopyToken.setOnClickListener {
             val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
             val clip = android.content.ClipData.newPlainText("Auth Token", configManager.authToken)
             clipboard.setPrimaryClip(clip)
             Toast.makeText(this, "Token copied", Toast.LENGTH_SHORT).show()
         }
 
-        deviceIpText.text = getIpAddress() ?: "Unavailable (Check WiFi)"
+        binding.deviceIpText.text = getIpAddress() ?: "Unavailable (Check WiFi)"
     }
 
     private fun getIpAddress(): String? {
@@ -244,7 +170,7 @@ class MainActivity : AppCompatActivity() {
         val accessibilityService = DroidrunAccessibilityService.getInstance()
         if (accessibilityService != null) {
             // Sync overlay toggle
-            toggleOverlay.isChecked = accessibilityService.isOverlayVisible()
+            binding.toggleOverlay.isChecked = accessibilityService.isOverlayVisible()
 
             // Sync offset controls - show actual applied offset
             val displayOffset = accessibilityService.getOverlayOffset()
@@ -255,7 +181,7 @@ class MainActivity : AppCompatActivity() {
     
     private fun setupOffsetSlider() {
         // Initialize the slider with the new range
-        offsetSlider.max = SLIDER_RANGE
+        binding.offsetSlider.max = SLIDER_RANGE
         
         // Get initial value from service if available, otherwise use default
         val accessibilityService = DroidrunAccessibilityService.getInstance()
@@ -263,10 +189,10 @@ class MainActivity : AppCompatActivity() {
         
         // Convert the initial offset to slider position
         val initialSliderPosition = initialOffset - MIN_OFFSET
-        offsetSlider.progress = initialSliderPosition
+        binding.offsetSlider.progress = initialSliderPosition
         
         // Set listener for slider changes
-        offsetSlider.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+        binding.offsetSlider.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 // Convert slider position back to actual offset value (range -256 to +256)
                 val offsetValue = progress + MIN_OFFSET
@@ -297,11 +223,11 @@ class MainActivity : AppCompatActivity() {
         
         // Set initial value
         isProgrammaticUpdate = true
-        offsetValueDisplay.setText(initialOffset.toString())
+        binding.offsetValueDisplay.setText(initialOffset.toString())
         isProgrammaticUpdate = false
         
         // Apply on enter key
-        offsetValueDisplay.setOnEditorActionListener { _, actionId, _ ->
+        binding.offsetValueDisplay.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_DONE) {
                 applyInputOffset()
                 true
@@ -311,7 +237,7 @@ class MainActivity : AppCompatActivity() {
         }
         
         // Input validation and auto-apply
-        offsetValueDisplay.addTextChangedListener(object : TextWatcher {
+        binding.offsetValueDisplay.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
@@ -321,32 +247,32 @@ class MainActivity : AppCompatActivity() {
                 if (isProgrammaticUpdate) return
                 
                 try {
-                    val value = s.toString().toIntOrNull()
-                    if (value != null) {
-                        if (value < MIN_OFFSET || value > MAX_OFFSET) {
-                            offsetValueInputLayout.error = "Value must be between $MIN_OFFSET and $MAX_OFFSET"
-                        } else {
-                            offsetValueInputLayout.error = null
-                            // Auto-apply if value is valid and complete
-                            if (s.toString().length > 1 || (s.toString().length == 1 && !s.toString().startsWith("-"))) {
-                                applyInputOffset()
+                        val value = s.toString().toIntOrNull()
+                        if (value != null) {
+                            if (value !in MIN_OFFSET..MAX_OFFSET) {
+                                binding.offsetValueInputLayout.error = "Value must be between $MIN_OFFSET and $MAX_OFFSET"
+                            } else {
+                                binding.offsetValueInputLayout.error = null
+                                // Auto-apply if value is valid and complete
+                                if (s.toString().length > 1 || (s.toString().length == 1 && !s.toString().startsWith("-"))) {
+                                    applyInputOffset()
+                                }
                             }
+                        } else if (s.toString().isNotEmpty() && s.toString() != "-") {
+                            binding.offsetValueInputLayout.error = "Invalid number"
+                        } else {
+                            binding.offsetValueInputLayout.error = null
                         }
-                    } else if (s.toString().isNotEmpty() && s.toString() != "-") {
-                        offsetValueInputLayout.error = "Invalid number"
-                    } else {
-                        offsetValueInputLayout.error = null
+                    } catch (e: Exception) {
+                        binding.offsetValueInputLayout.error = "Invalid number"
                     }
-                } catch (e: Exception) {
-                    offsetValueInputLayout.error = "Invalid number"
                 }
-            }
-        })
+            })
     }
     
     private fun applyInputOffset() {
         try {
-            val inputText = offsetValueDisplay.text.toString()
+            val inputText = binding.offsetValueDisplay.text.toString()
             val offsetValue = inputText.toIntOrNull()
             
             if (offsetValue != null) {
@@ -356,14 +282,14 @@ class MainActivity : AppCompatActivity() {
                 if (boundedValue != offsetValue) {
                     // Update input if we had to bound the value
                     isProgrammaticUpdate = true
-                    offsetValueDisplay.setText(boundedValue.toString())
+                    binding.offsetValueDisplay.setText(boundedValue.toString())
                     isProgrammaticUpdate = false
                     Toast.makeText(this, "Value adjusted to valid range", Toast.LENGTH_SHORT).show()
                 }
                 
                 // Update slider to match and apply the offset
                 val sliderPosition = boundedValue - MIN_OFFSET
-                offsetSlider.progress = sliderPosition
+                binding.offsetSlider.progress = sliderPosition
                 updateOverlayOffset(boundedValue)
             } else {
                 // Invalid input
@@ -381,7 +307,7 @@ class MainActivity : AppCompatActivity() {
         
         // Update the slider to match the current offset from the service
         val sliderPosition = boundedOffset - MIN_OFFSET
-        offsetSlider.progress = sliderPosition
+        binding.offsetSlider.progress = sliderPosition
     }
     
     private fun updateOffsetInputField(currentOffset: Int) {
@@ -389,7 +315,7 @@ class MainActivity : AppCompatActivity() {
         isProgrammaticUpdate = true
         
         // Update the text input to match the current offset
-        offsetValueDisplay.setText(currentOffset.toString())
+        binding.offsetValueDisplay.setText(currentOffset.toString())
         
         // Reset flag
         isProgrammaticUpdate = false
@@ -472,7 +398,7 @@ class MainActivity : AppCompatActivity() {
     private fun fetchPhoneStateData() {
         try {
             // Use ContentProvider to get phone state
-            val uri = Uri.parse("content://com.droidrun.portal/")
+            val uri = "content://com.droidrun.portal/".toUri()
             val command = JSONObject().apply {
                 put("action", "phone_state")
             }
@@ -540,28 +466,27 @@ class MainActivity : AppCompatActivity() {
         
         if (isEnabled) {
             // Show enabled card, hide banner
-            accessibilityStatusEnabled.visibility = View.VISIBLE
-            accessibilityBanner.visibility = View.GONE
+            // TODO add ext functions, makeVisible, makeInvisible, makeVisibleIf, makeVisibleIfElse etc.
+            binding.accessibilityStatusEnabled.visibility = View.VISIBLE
+            binding.accessibilityBanner.visibility = View.GONE
         } else {
             // Show banner, hide enabled card
-            accessibilityStatusEnabled.visibility = View.GONE
-            accessibilityBanner.visibility = View.VISIBLE
+            binding.accessibilityStatusEnabled.visibility = View.GONE
+            binding.accessibilityBanner.visibility = View.VISIBLE
         }
     }
 
     private fun updateNotificationStatusIndicator() {
         try {
-            if (!::notificationBanner.isInitialized) return
-
             val isEnabled = isNotificationServiceEnabled()
             if (isEnabled) {
                 // If enabled, hide everything (clean look)
-                notificationStatusEnabled.visibility = View.GONE
-                notificationBanner.visibility = View.GONE
+                binding.notificationStatusEnabled.visibility = View.GONE
+                binding.notificationBanner.visibility = View.GONE
             } else {
                 // If disabled, show the warning banner
-                notificationStatusEnabled.visibility = View.GONE
-                notificationBanner.visibility = View.VISIBLE
+                binding.notificationStatusEnabled.visibility = View.GONE
+                binding.notificationBanner.visibility = View.VISIBLE
             }
         } catch (e: Exception) {
             Log.w("MainActivity", "Error updating notification status UI: ${e.message}")
@@ -609,11 +534,11 @@ class MainActivity : AppCompatActivity() {
         
         // Set default port value
         isProgrammaticUpdate = true
-        socketPortInput.setText(configManager.socketServerPort.toString())
+        binding.socketPortInput.setText(configManager.socketServerPort.toString())
         isProgrammaticUpdate = false
         
         // Port input listener
-        socketPortInput.addTextChangedListener(object : TextWatcher {
+        binding.socketPortInput.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
             
@@ -625,19 +550,19 @@ class MainActivity : AppCompatActivity() {
                     if (portText.isNotEmpty()) {
                         val port = portText.toIntOrNull()
                         if (port != null && port in 1..65535) {
-                            socketPortInputLayout.error = null
+                            binding.socketPortInputLayout.error = null
                             updateSocketServerPort(port)
                         } else {
-                            socketPortInputLayout.error = "Port must be between 1-65535"
+                            binding.socketPortInputLayout.error = "Port must be between 1-65535"
                         }
                     } else {
-                        socketPortInputLayout.error = null
+                        binding.socketPortInputLayout.error = null
                     }
                 } catch (e: Exception) {
-                    socketPortInputLayout.error = "Invalid port number"
+                    binding.socketPortInputLayout.error = "Invalid port number"
                 }
-            }
-        })
+                }
+            })
         
         // Update initial UI state
         updateSocketServerStatus()
@@ -654,6 +579,7 @@ class MainActivity : AppCompatActivity() {
             updateAdbForwardCommand()
             
             // Give the server a moment to restart, then update the status
+            // TODO const
             mainHandler.postDelayed({
                 updateSocketServerStatus()
             }, 1000)
@@ -669,14 +595,14 @@ class MainActivity : AppCompatActivity() {
             val accessibilityService = DroidrunAccessibilityService.getInstance()
             if (accessibilityService != null) {
                 val status = accessibilityService.getSocketServerStatus()
-                socketServerStatus.text = status
-                socketServerStatus.setTextColor(Color.parseColor("#00FFA6"))
+                binding.socketServerStatus.text = status
+                binding.socketServerStatus.setTextColor("#00FFA6".toColorInt())
             } else {
-                socketServerStatus.text = "Service not available"
+                binding.socketServerStatus.text = "Service not available"
             }
         } catch (e: Exception) {
             Log.e("DROIDRUN_MAIN", "Error updating socket server status: ${e.message}")
-            socketServerStatus.text = "Error"
+            binding.socketServerStatus.text = "Error"
         }
     }
     
@@ -685,28 +611,28 @@ class MainActivity : AppCompatActivity() {
             val accessibilityService = DroidrunAccessibilityService.getInstance()
             if (accessibilityService != null) {
                 val command = accessibilityService.getAdbForwardCommand()
-                adbForwardCommand.text = command
+                binding.adbForwardCommand.text = command
             } else {
                 val configManager = ConfigManager.getInstance(this)
                 val port = configManager.socketServerPort
-                adbForwardCommand.text = "adb forward tcp:$port tcp:$port"
+                binding.adbForwardCommand.text = "adb forward tcp:$port tcp:$port"
             }
         } catch (e: Exception) {
             Log.e("DROIDRUN_MAIN", "Error updating ADB forward command: ${e.message}")
-            adbForwardCommand.text = "Error"
+            binding.adbForwardCommand.text = "Error"
         }
     }
 
     private fun setupEndpointsCollapsible() {
-        endpointsHeader.setOnClickListener {
+        binding.endpointsHeader.setOnClickListener {
             isEndpointsExpanded = !isEndpointsExpanded
             
             if (isEndpointsExpanded) {
-                endpointsContent.visibility = View.VISIBLE
-                endpointsArrow.rotation = 90f
+                binding.endpointsContent.visibility = View.VISIBLE
+                binding.endpointsArrow.rotation = 90f
             } else {
-                endpointsContent.visibility = View.GONE
-                endpointsArrow.rotation = 0f
+                binding.endpointsContent.visibility = View.GONE
+                binding.endpointsArrow.rotation = 0f
             }
         }
     }
@@ -715,10 +641,10 @@ class MainActivity : AppCompatActivity() {
         try {
             val packageInfo = packageManager.getPackageInfo(packageName, 0)
             val version = packageInfo.versionName
-            versionText.text = "Version: $version"
+            binding.versionText.text = "Version: $version"
         } catch (e: Exception) {
             Log.e("DROIDRUN_MAIN", "Error getting app version: ${e.message}")
-            versionText.text = "Version: N/A"
+            binding.versionText.text = "Version: N/A"
         }
     }
     
@@ -729,7 +655,7 @@ class MainActivity : AppCompatActivity() {
             // Create a scrollable TextView for the logs
             val scrollView = androidx.core.widget.NestedScrollView(this)
             val textView = TextView(this).apply {
-                text = if (responseText.isNotEmpty()) responseText else "No logs available. Fetch data first."
+                text = responseText.ifEmpty { "No logs available. Fetch data first." }
                 textSize = 12f
                 setTextColor(Color.WHITE)
                 setPadding(40, 40, 40, 40)
@@ -744,7 +670,7 @@ class MainActivity : AppCompatActivity() {
                     dialog.dismiss()
                 }
                 .setNeutralButton("Copy") { _, _ ->
-                    val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                     val clip = android.content.ClipData.newPlainText("Response Logs", responseText)
                     clipboard.setPrimaryClip(clip)
                     Toast.makeText(this, "Logs copied to clipboard", Toast.LENGTH_SHORT).show()
