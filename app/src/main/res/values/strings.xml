@@ -3,4 +3,62 @@
     <string name="accessibility_service_description">Droidrun Portal identifies and visualizes UI elements on screen. This service helps to detect which elements are visible to the user by examining the layers of the UI, which is useful for UI analysis and automation.</string>
     <string name="keyboard_name">Droidrun Keyboard</string>
     <string name="keyboard_on">Droidrun Keyboard (ON)</string>
+
+    <!-- Activity Main -->
+    <string name="settings_content_description">Settings</string>
+    <string name="accessibility_service_not_enabled">Accessibility Service Not Enabled</string>
+    <string name="enable_now">Enable Now</string>
+    <string name="accessibility_service">Accessibility Service</string>
+    <string name="test_fetching">Test Fetching</string>
+    <string name="notification_access_not_granted">Notification Access Not Granted</string>
+    <string name="enable">Enable</string>
+    <string name="notification_listener">Notification Listener</string>
+    <string name="controls_header">Controls</string>
+    <string name="overlay_label">Overlay</string>
+    <string name="overlay_offset_label">Overlay Offset</string>
+    <string name="reset_button">Reset</string>
+    <string name="default_offset_value">0</string>
+    <string name="tip_vision_mode">Tip: Vision mode works even with overlay off</string>
+    <string name="socket_server_port_label">Socket Server Port</string>
+    <string name="default_port">8080</string>
+    <string name="connection_details_header">Connection Details</string>
+    <string name="socket_status_label">Socket Status:</string>
+    <string name="service_not_available">Service not available</string>
+    <string name="network_access_header">Network Access</string>
+    <string name="ip_label">"IP: "</string>
+    <string name="unavailable">Unavailable</string>
+    <string name="token_label">"Token: "</string>
+    <string name="copy_token_content_description">Copy token</string>
+    <string name="adb_forward_command_header">ADB Forward Command</string>
+    <string name="adb_forward_command_placeholder">adb forward tcp:8080 tcp:8080</string>
+    <string name="endpoints_header">Endpoints</string>
+    <string name="http_method_get">GET</string>
+    <string name="endpoint_a11y_tree">/a11y_tree</string>
+    <string name="endpoint_phone_state">/phone_state</string>
+    <string name="endpoint_state">/state</string>
+    <string name="endpoint_ping">/ping</string>
+    <string name="endpoint_a11y_tree_full">/a11y_tree_full</string>
+    <string name="endpoint_packages">/packages</string>
+    <string name="endpoint_screenshot">/screenshot</string>
+    <string name="http_method_post">POST</string>
+    <string name="endpoint_keyboard_input">/keyboard/input</string>
+    <string name="endpoint_keyboard_clear">/keyboard/clear</string>
+    <string name="endpoint_keyboard_key">/keyboard/key</string>
+    <string name="endpoint_overlay_offset">/overlay_offset</string>
+    <string name="logs_link_text">Logs</string>
+
+    <!-- Sheet Settings -->
+    <string name="websocket_settings_header">WebSocket Settings</string>
+    <string name="server_configuration_header">SERVER CONFIGURATION</string>
+    <string name="enable_server_label">Enable Server</string>
+    <string name="allow_external_connections_label">Allow external connections</string>
+    <string name="port_label">Port</string>
+    <string name="reverse_connection_header">REVERSE CONNECTION (CLIENT MODE)</string>
+    <string name="connect_to_host_label">Connect to Host</string>
+    <string name="initiate_outbound_connection_label">Initiate outbound connection</string>
+    <string name="host_url_hint">Host URL (ws://...)</string>
+    <string name="token_optional_hint">Token (Optional)</string>
+    <string name="event_filters_header">EVENT FILTERS</string>
+    <string name="notifications_label">Notifications</string>
+    <string name="push_system_notifications_label">Push system notifications</string>
 </resources>

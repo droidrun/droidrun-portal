@@ -6,6 +6,7 @@ import android.util.Log
 import com.droidrun.portal.api.ApiHandler
 import com.droidrun.portal.api.ApiResponse
 import org.json.JSONObject
+import com.droidrun.portal.config.ConfigManager
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.io.OutputStream
@@ -16,7 +17,11 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
-class SocketServer(private val apiHandler: ApiHandler) {
+class SocketServer(
+    private val apiHandler: ApiHandler,
+    private val configManager: ConfigManager,
+    private val actionDispatcher: ActionDispatcher,
+) {
     companion object {
         private const val TAG = "DroidrunSocketServer"
         private const val DEFAULT_PORT = 8080
@@ -110,26 +115,60 @@ class SocketServer(private val apiHandler: ApiHandler) {
 
                 val method = parts[0]
                 val path = parts[1]
+                
+                var authToken: String? = null
 
                 // Consume headers
-                while (reader.readLine().isNullOrEmpty() == false) {}
-
-                val response = when (method) {
-                    "GET" -> handleGetRequest(path)
-                    "POST" -> handlePostRequest(path, reader)
-                    else -> ApiResponse.Error("Method not allowed: $method").toJson()
+                var line = reader.readLine()
+                while (!line.isNullOrEmpty()) {
+                    if (line.startsWith("Authorization:", ignoreCase = true)) {
+                        authToken = line.substring(14).trim().removePrefix("Bearer ").trim()
+                    }
+                    line = reader.readLine()
+                }
+                
+                // Validate Auth Token (Skip for ping, but safer to require for all because of ping attacks)
+                // For now, /ping without auth for easier connectivity checks
+                if (path != "/ping" && authToken != configManager.authToken) {
+                     sendErrorResponse(outputStream, 401, "Unauthorized")
+                     return
                 }
 
-                sendHttpResponse(outputStream, response)
+                when (method) {
+                    "GET" -> handleGetRequest(path, outputStream)
+                    "POST" -> handlePostRequest(path, reader, outputStream)
+                    else -> sendHttpResponse(outputStream, ApiResponse.Error("Method not allowed: $method").toJson())
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error handling client", e)
         }
     }
 
-    private fun handleGetRequest(path: String): String {
-        return try {
+    private fun handleGetRequest(path: String, outputStream: OutputStream) {
+        try {
+            // Special handling for legacy endpoints that map to dispatcher
+            // This project reuses dispatcher for everything now
+            // Dispatcher expects "method" name, we have path.
+            // Dispatcher handles /action/ prefix or raw names.
+            // Legacy GETs like /state need to be mapped.
+            
+            // TODO test it because Dispatcher is designed for RPC (method + params).
+            // Legacy GETs don't fit perfectly. 
+            // I need Binary only for handling for /screenshot.
             val response = when {
+                path.startsWith("/screenshot") -> {
+                    val hideOverlay = if (path.contains("?")) {
+                         !path.contains("hideOverlay=false")
+                    } else true
+                    val params = JSONObject()
+                    params.put("hideOverlay", hideOverlay)
+                    actionDispatcher.dispatch("screenshot", params)
+                }
+                // Fallback to legacy logic for other endpoints for now
+                // or map them to dispatcher if possible
+
+                // The legacy logic
                 path.startsWith("/ping") -> apiHandler.ping()
                 path.startsWith("/a11y_tree_full") -> apiHandler.getTreeFull(parseFilterParam(path))
                 path.startsWith("/a11y_tree") -> apiHandler.getTree()
@@ -138,22 +177,21 @@ class SocketServer(private val apiHandler: ApiHandler) {
                 path.startsWith("/phone_state") -> apiHandler.getPhoneState()
                 path.startsWith("/version") -> apiHandler.getVersion()
                 path.startsWith("/packages") -> apiHandler.getPackages()
-                path.startsWith("/screenshot") -> {
-                    val hideOverlay = if (path.contains("?")) {
-                         !path.contains("hideOverlay=false")
-                    } else true
-                    apiHandler.getScreenshot(hideOverlay)
-                }
                 else -> ApiResponse.Error("Unknown endpoint: $path")
             }
-            response.toJson()
+            
+            if (response is ApiResponse.Binary) {
+                sendBinaryResponse(outputStream, response.data, "image/png")
+            } else {
+                sendHttpResponse(outputStream, response.toJson())
+            }
         } catch (e: Exception) {
-            ApiResponse.Error("Internal server error: ${e.message}").toJson()
+            sendHttpResponse(outputStream, ApiResponse.Error("Internal server error: ${e.message}").toJson())
         }
     }
 
-    private fun handlePostRequest(path: String, reader: BufferedReader): String {
-        return try {
+    private fun handlePostRequest(path: String, reader: BufferedReader, outputStream: OutputStream) {
+        try {
             val postData = StringBuilder()
             if (reader.ready()) {
                 val char = CharArray(1024)
@@ -162,23 +200,41 @@ class SocketServer(private val apiHandler: ApiHandler) {
                     postData.append(char, 0, bytesRead)
                 }
             }
+            
+            // Convert ContentValues to JSONObject for Dispatcher
             val values = parsePostData(postData.toString())
-
-            val response = when {
-                path.startsWith("/keyboard/input") -> 
-                    apiHandler.keyboardInput(values.getAsString("base64_text") ?: "", values.getAsBoolean("clear") ?: true)
-                path.startsWith("/keyboard/clear") -> apiHandler.keyboardClear()
-                path.startsWith("/keyboard/key") -> 
-                    apiHandler.keyboardKey(values.getAsInteger("key_code") ?: 0)
-                path.startsWith("/overlay_offset") -> 
-                    apiHandler.setOverlayOffset(values.getAsInteger("offset") ?: 0)
-                path.startsWith("/socket_port") ->
-                    apiHandler.setSocketPort(values.getAsInteger("port") ?: 0)
-                else -> ApiResponse.Error("Unknown POST endpoint: $path")
+            val params = JSONObject()
+            values.keySet().forEach { key ->
+                val value = values.get(key)
+                params.put(key, value)
             }
-            response.toJson()
+
+            val response = actionDispatcher.dispatch(path, params)
+            
+            if (response is ApiResponse.Binary) {
+                sendBinaryResponse(outputStream, response.data, "application/octet-stream")
+            } else {
+                sendHttpResponse(outputStream, response.toJson())
+            }
         } catch (e: Exception) {
-            ApiResponse.Error("Internal server error: ${e.message}").toJson()
+            sendHttpResponse(outputStream, ApiResponse.Error("Internal server error: ${e.message}").toJson())
+        }
+    }
+
+    // TODO put in consts
+    private fun sendBinaryResponse(outputStream: OutputStream, data: ByteArray, contentType: String) {
+        try {
+            val headers = "HTTP/1.1 200 OK\r\n" +
+                    "Content-Type: $contentType\r\n" +
+                    "Content-Length: ${data.size}\r\n" +
+                    "Access-Control-Allow-Origin: *\r\n" +
+                    "Connection: close\r\n" +
+                    "\r\n"
+            outputStream.write(headers.toByteArray(Charsets.UTF_8))
+            outputStream.write(data)
+            outputStream.flush()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error sending Binary response", e)
         }
     }
 

@@ -3,6 +3,7 @@ package com.droidrun.portal.config
 import android.content.Context
 import android.content.SharedPreferences
 import com.droidrun.portal.events.model.EventType
+import androidx.core.content.edit
 
 /**
  * Centralized configuration manager for Droidrun Portal
@@ -22,7 +23,11 @@ class ConfigManager private constructor(private val context: Context) {
         // WebSocket & Events
         private const val KEY_WEBSOCKET_ENABLED = "websocket_enabled"
         private const val KEY_WEBSOCKET_PORT = "websocket_port"
+        private const val KEY_REVERSE_CONNECTION_URL = "reverse_connection_url"
+        private const val KEY_REVERSE_CONNECTION_TOKEN = "reverse_connection_token"
+        private const val KEY_REVERSE_CONNECTION_ENABLED = "reverse_connection_enabled"
         private const val PREFIX_EVENT_ENABLED = "event_enabled_"
+        private const val KEY_AUTH_TOKEN = "auth_token"
         
         private const val DEFAULT_OFFSET = 0
         private const val DEFAULT_SOCKET_PORT = 8080
@@ -40,53 +45,71 @@ class ConfigManager private constructor(private val context: Context) {
     
     private val sharedPrefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     
+    init {
+        if (sharedPrefs.contains(KEY_REVERSE_CONNECTION_ENABLED)) {
+            sharedPrefs.edit { putBoolean(KEY_REVERSE_CONNECTION_ENABLED, false) }
+        }
+    }
+    
+    // Auth Token (Auto-generated if missing)
+    // TODO add external injection from some config file
+    val authToken: String
+        get() {
+            var token = sharedPrefs.getString(KEY_AUTH_TOKEN, null)
+            if (token == null) {
+                token = java.util.UUID.randomUUID().toString()
+                sharedPrefs.edit { putString(KEY_AUTH_TOKEN, token) }
+            }
+            return token
+        }
+
     // Overlay visibility
     var overlayVisible: Boolean
         get() = sharedPrefs.getBoolean(KEY_OVERLAY_VISIBLE, true)
         set(value) {
-            sharedPrefs.edit().putBoolean(KEY_OVERLAY_VISIBLE, value).apply()
+            sharedPrefs.edit { putBoolean(KEY_OVERLAY_VISIBLE, value) }
         }
     
     // Overlay offset
     var overlayOffset: Int
         get() = sharedPrefs.getInt(KEY_OVERLAY_OFFSET, DEFAULT_OFFSET)
         set(value) {
-            sharedPrefs.edit().putInt(KEY_OVERLAY_OFFSET, value).apply()
+            sharedPrefs.edit { putInt(KEY_OVERLAY_OFFSET, value) }
         }
 
     // Auto offset enabled
     var autoOffsetEnabled: Boolean
         get() = sharedPrefs.getBoolean(KEY_AUTO_OFFSET_ENABLED, true)
         set(value) {
-            sharedPrefs.edit().putBoolean(KEY_AUTO_OFFSET_ENABLED, value).apply()
+            sharedPrefs.edit { putBoolean(KEY_AUTO_OFFSET_ENABLED, value) }
         }
 
     // Track if auto offset has been calculated before
     var autoOffsetCalculated: Boolean
         get() = sharedPrefs.getBoolean(KEY_AUTO_OFFSET_CALCULATED, false)
         set(value) {
-            sharedPrefs.edit().putBoolean(KEY_AUTO_OFFSET_CALCULATED, value).apply()
+            sharedPrefs.edit { putBoolean(KEY_AUTO_OFFSET_CALCULATED, value) }
         }
 
     // Socket server enabled (REST API)
     var socketServerEnabled: Boolean
         get() = sharedPrefs.getBoolean(KEY_SOCKET_SERVER_ENABLED, true)
         set(value) {
-            sharedPrefs.edit().putBoolean(KEY_SOCKET_SERVER_ENABLED, value).apply()
+            sharedPrefs.edit { putBoolean(KEY_SOCKET_SERVER_ENABLED, value) }
         }
     
     // Socket server port (REST API)
     var socketServerPort: Int
         get() = sharedPrefs.getInt(KEY_SOCKET_SERVER_PORT, DEFAULT_SOCKET_PORT)
         set(value) {
-            sharedPrefs.edit().putInt(KEY_SOCKET_SERVER_PORT, value).apply()
+            sharedPrefs.edit { putInt(KEY_SOCKET_SERVER_PORT, value) }
         }
 
     // WebSocket Server Enabled
     var websocketEnabled: Boolean
         get() = sharedPrefs.getBoolean(KEY_WEBSOCKET_ENABLED, true)
         set(value) {
-            sharedPrefs.edit().putBoolean(KEY_WEBSOCKET_ENABLED, value).apply()
+            sharedPrefs.edit { putBoolean(KEY_WEBSOCKET_ENABLED, value) }
         }
 
     // WebSocket Server Port
@@ -96,6 +119,22 @@ class ConfigManager private constructor(private val context: Context) {
             sharedPrefs.edit().putInt(KEY_WEBSOCKET_PORT, value).apply()
         }
 
+    // Reverse Connection URL
+    var reverseConnectionUrl: String
+        get() = sharedPrefs.getString(KEY_REVERSE_CONNECTION_URL, "") ?: ""
+        set(value) {
+            sharedPrefs.edit { putString(KEY_REVERSE_CONNECTION_URL, value) }
+        }
+
+    // Reverse Connection Token (Optional, for authenticating with Host/Cloud)
+    var reverseConnectionToken: String
+        get() = sharedPrefs.getString(KEY_REVERSE_CONNECTION_TOKEN, "") ?: ""
+        set(value) {
+            sharedPrefs.edit { putString(KEY_REVERSE_CONNECTION_TOKEN, value) }
+        }
+
+    var reverseConnectionEnabled: Boolean = false
+
     // Dynamic Event Toggles
     fun isEventEnabled(type: EventType): Boolean {
         // Default all events to true unless explicitly disabled
@@ -103,7 +142,7 @@ class ConfigManager private constructor(private val context: Context) {
     }
 
     fun setEventEnabled(type: EventType, enabled: Boolean) {
-        sharedPrefs.edit().putBoolean(PREFIX_EVENT_ENABLED + type.name, enabled).apply()
+        sharedPrefs.edit { putBoolean(PREFIX_EVENT_ENABLED + type.name, enabled) }
         // We could notify listeners here if needed, but usually this is polled by EventHub
     }
     
@@ -228,7 +267,8 @@ class ConfigManager private constructor(private val context: Context) {
         val socketServerEnabled: Boolean,
         val socketServerPort: Int,
         val websocketEnabled: Boolean,
-        val websocketPort: Int
+        val websocketPort: Int,
+        val authToken: String
     )
 
     fun getCurrentConfiguration(): Configuration {
@@ -240,7 +280,8 @@ class ConfigManager private constructor(private val context: Context) {
             socketServerEnabled = socketServerEnabled,
             socketServerPort = socketServerPort,
             websocketEnabled = websocketEnabled,
-            websocketPort = websocketPort
+            websocketPort = websocketPort,
+            authToken = authToken
         )
     }
 }
