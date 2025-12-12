@@ -23,6 +23,8 @@ class ConfigManager private constructor(private val context: Context) {
         // WebSocket & Events
         private const val KEY_WEBSOCKET_ENABLED = "websocket_enabled"
         private const val KEY_WEBSOCKET_PORT = "websocket_port"
+        private const val KEY_REVERSE_CONNECTION_URL = "reverse_connection_url"
+        private const val KEY_REVERSE_CONNECTION_ENABLED = "reverse_connection_enabled"
         private const val PREFIX_EVENT_ENABLED = "event_enabled_"
         private const val KEY_AUTH_TOKEN = "auth_token"
         
@@ -107,7 +109,21 @@ class ConfigManager private constructor(private val context: Context) {
     var websocketPort: Int
         get() = sharedPrefs.getInt(KEY_WEBSOCKET_PORT, DEFAULT_WEBSOCKET_PORT)
         set(value) {
-            sharedPrefs.edit { putInt(KEY_WEBSOCKET_PORT, value) }
+            sharedPrefs.edit().putInt(KEY_WEBSOCKET_PORT, value).apply()
+        }
+
+    // Reverse Connection URL
+    var reverseConnectionUrl: String
+        get() = sharedPrefs.getString(KEY_REVERSE_CONNECTION_URL, "") ?: ""
+        set(value) {
+            sharedPrefs.edit { putString(KEY_REVERSE_CONNECTION_URL, value) }
+        }
+
+    // Reverse Connection Enabled
+    var reverseConnectionEnabled: Boolean
+        get() = sharedPrefs.getBoolean(KEY_REVERSE_CONNECTION_ENABLED, false)
+        set(value) {
+            sharedPrefs.edit { putBoolean(KEY_REVERSE_CONNECTION_ENABLED, value) }
         }
 
     // Dynamic Event Toggles

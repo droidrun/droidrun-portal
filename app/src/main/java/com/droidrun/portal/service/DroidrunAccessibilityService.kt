@@ -2,6 +2,7 @@ package com.droidrun.portal.service
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
+import android.annotation.SuppressLint
 import android.graphics.Rect
 import android.util.Log
 import android.view.Display
@@ -28,6 +29,7 @@ import java.util.concurrent.CompletableFuture
 import com.droidrun.portal.events.EventHub
 import com.droidrun.portal.events.PortalWebSocketServer
 
+@SuppressLint("AccessibilityPolicy")
 class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.ConfigChangeListener {
 
     companion object {
@@ -338,6 +340,8 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
     fun getCurrentAppliedOffset(): Int = overlayManager.getPositionOffsetY()
 
     fun getScreenBounds(): Rect = screenBounds
+
+    fun getActionDispatcher(): ActionDispatcher = actionDispatcher
 
     fun setAutoOffsetEnabled(enabled: Boolean): Boolean {
         return try {

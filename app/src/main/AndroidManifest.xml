@@ -51,6 +51,11 @@
             </intent-filter>
         </service>
 
+        <service
+            android:name=".service.ReverseConnectionService"
+            android:enabled="true"
+            android:exported="false" />
+
         <provider
             android:name=".service.DroidrunContentProvider"
             android:authorities="${applicationId}"
