@@ -6,8 +6,10 @@ import android.content.UriMatcher
 import android.database.Cursor
 import android.database.MatrixCursor
 import android.net.Uri
+import android.os.Bundle
 import android.util.Log
 import androidx.core.net.toUri
+import androidx.lifecycle.viewmodel.CreationExtras
 import com.droidrun.portal.api.ApiHandler
 import com.droidrun.portal.api.ApiResponse
 import com.droidrun.portal.core.StateRepository
@@ -156,6 +158,15 @@ class DroidrunContentProvider : ContentProvider() {
              val errorMsg = (result as ApiResponse.Error).message
             "content://$AUTHORITY/result?status=error&message=${Uri.encode(errorMsg)}".toUri()
         }
+    }
+
+    override fun call(msg: String, arg: String?, extras: Bundle?): Bundle?{
+        when(msg) {
+            "resetApiHandler" -> {
+                apiHandler = null
+            }
+        }
+        return super.call(msg, arg, extras)
     }
 
     override fun delete(uri: Uri, selection: String?, selectionArgs: Array<String>?): Int = 0
