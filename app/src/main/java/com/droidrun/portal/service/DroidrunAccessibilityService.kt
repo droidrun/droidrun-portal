@@ -20,6 +20,7 @@ import android.os.Handler
 import android.os.Looper
 import java.util.concurrent.atomic.AtomicBoolean
 import android.graphics.Bitmap
+import android.net.Uri
 import android.util.Base64
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.CompletableFuture
@@ -95,6 +96,14 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
         super.onServiceConnected()
         overlayManager.showOverlay()
         instance = this
+
+        contentResolver.call(Uri.Builder()
+            .scheme("content")
+            .authority("com.droidrun.portal")
+            .build(),
+            "resetApiHandler",
+            null, null
+        )
 
         serviceInfo = AccessibilityServiceInfo().apply {
             eventTypes = AccessibilityEvent.TYPES_ALL_MASK
