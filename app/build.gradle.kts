@@ -46,6 +46,8 @@ dependencies {
     implementation(libs.material)
     implementation(libs.java.websocket)
     testImplementation(libs.junit)
+    testImplementation(libs.json)
+    testImplementation(libs.mockk)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
 }
