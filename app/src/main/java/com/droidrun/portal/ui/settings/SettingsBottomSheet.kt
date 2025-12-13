@@ -44,7 +44,7 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
         binding.inputWsPort.setOnEditorActionListener { v, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_DONE) {
                 val port = v.text.toString().toIntOrNull()
-                if (port != null && port in 1024..65535) {
+                if (port != null && port in MIN_PORT..MAX_PORT) {
                     configManager.setWebSocketPortWithNotification(port)
                     binding.inputWsPort.clearFocus()
                 } else {
@@ -128,5 +128,7 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
 
     companion object {
         const val TAG = "SettingsBottomSheet"
+        private const val MIN_PORT = 1024
+        private const val MAX_PORT = 65535
     }
 }

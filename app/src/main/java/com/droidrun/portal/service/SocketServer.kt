@@ -26,6 +26,14 @@ class SocketServer(
         private const val TAG = "DroidrunSocketServer"
         private const val DEFAULT_PORT = 8080
         private const val THREAD_POOL_SIZE = 5
+        private const val HTTP_STATUS_OK = 200
+        private const val HTTP_REASON_OK = "OK"
+        private const val HTTP_STATUS_BAD_REQUEST = 400
+        private const val HTTP_STATUS_UNAUTHORIZED = 401
+        private const val AUTHORIZATION_HEADER_PREFIX = "Authorization:"
+        private const val BEARER_PREFIX = "Bearer "
+        private const val POST_BODY_BUFFER_SIZE = 1024
+        private const val UNAUTHORIZED = "Unauthorized"
     }
 
     private var serverSocket: ServerSocket? = null
@@ -109,7 +117,7 @@ class SocketServer(
 
                 val parts = requestLine.split(" ")
                 if (parts.size < 2) {
-                    sendErrorResponse(outputStream, 400, "Bad Request")
+                    sendErrorResponse(outputStream, HTTP_STATUS_BAD_REQUEST, "Bad Request")
                     return
                 }
 
@@ -121,8 +129,8 @@ class SocketServer(
                 // Consume headers
                 var line = reader.readLine()
                 while (!line.isNullOrEmpty()) {
-                    if (line.startsWith("Authorization:", ignoreCase = true)) {
-                        authToken = line.substring(14).trim().removePrefix("Bearer ").trim()
+                    if (line.startsWith(AUTHORIZATION_HEADER_PREFIX, ignoreCase = true)) {
+                        authToken = line.substring(14).trim().removePrefix(BEARER_PREFIX).trim()
                     }
                     line = reader.readLine()
                 }
@@ -130,7 +138,7 @@ class SocketServer(
                 // Validate Auth Token (Skip for ping, but safer to require for all because of ping attacks)
                 // For now, /ping without auth for easier connectivity checks
                 if (path != "/ping" && authToken != configManager.authToken) {
-                     sendErrorResponse(outputStream, 401, "Unauthorized")
+                     sendErrorResponse(outputStream, HTTP_STATUS_UNAUTHORIZED, UNAUTHORIZED)
                      return
                 }
 
@@ -194,7 +202,7 @@ class SocketServer(
         try {
             val postData = StringBuilder()
             if (reader.ready()) {
-                val char = CharArray(1024)
+                val char = CharArray(POST_BODY_BUFFER_SIZE)
                 val bytesRead = reader.read(char)
                 if (bytesRead > 0) {
                     postData.append(char, 0, bytesRead)
@@ -224,7 +232,7 @@ class SocketServer(
     // TODO put in consts
     private fun sendBinaryResponse(outputStream: OutputStream, data: ByteArray, contentType: String) {
         try {
-            val headers = "HTTP/1.1 200 OK\r\n" +
+            val headers = "HTTP/1.1 $HTTP_STATUS_OK $HTTP_REASON_OK\r\n" +
                     "Content-Type: $contentType\r\n" +
                     "Content-Length: ${data.size}\r\n" +
                     "Access-Control-Allow-Origin: *\r\n" +
@@ -288,7 +296,7 @@ class SocketServer(
     private fun sendHttpResponse(outputStream: OutputStream, response: String) {
         try {
             val responseBytes = response.toByteArray(Charsets.UTF_8)
-            val headers = "HTTP/1.1 200 OK\r\n" +
+            val headers = "HTTP/1.1 $HTTP_STATUS_OK $HTTP_REASON_OK\r\n" +
                     "Content-Type: application/json\r\n" +
                     "Content-Length: ${responseBytes.size}\r\n" +
                     "Access-Control-Allow-Origin: *\r\n" +

@@ -11,6 +11,10 @@ import org.json.JSONObject
  */
 class ActionDispatcher(private val apiHandler: ApiHandler) {
 
+    companion object {
+        private const val DEFAULT_SWIPE_DURATION_MS = 300
+    }
+
     /**
      * Dispatch a command based on the action name and parameters.
      *
@@ -31,7 +35,7 @@ class ActionDispatcher(private val apiHandler: ApiHandler) {
                 val startY = params.optInt("startY", 0)
                 val endX = params.optInt("endX", 0)
                 val endY = params.optInt("endY", 0)
-                val duration = params.optInt("duration", 300)
+                val duration = params.optInt("duration", DEFAULT_SWIPE_DURATION_MS)
                 apiHandler.performSwipe(startX, startY, endX, endY, duration)
             }
             "global" -> {
@@ -40,8 +44,8 @@ class ActionDispatcher(private val apiHandler: ApiHandler) {
             }
             "app" -> {
                 val pkg = params.optString("package", "")
-                val activity = params.optString("activity", null)
-                // JSON optString returns "" for missing keys if default not null? 
+                val activity = params.optString("activity", "")
+                // JSON optString returns "" for missing keys
                 // Let's be safe: treat empty string or "null" literal as null
                 val finalActivity = if (activity.isNullOrEmpty() || activity == "null") null else activity
                 apiHandler.startApp(pkg, finalActivity)

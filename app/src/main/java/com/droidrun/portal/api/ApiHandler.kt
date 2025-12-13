@@ -19,6 +19,10 @@ class ApiHandler(
     private val getPackageManager: () -> PackageManager,
     private val appVersionProvider: () -> String
 ) {
+    companion object {
+        private const val SCREENSHOT_TIMEOUT_SECONDS = 5L
+    }
+
     // Queries
     fun ping() = ApiResponse.Success("pong")
 
@@ -204,8 +208,8 @@ class ApiHandler(
     fun getScreenshot(hideOverlay: Boolean): ApiResponse {
         return try {
             val future = stateRepo.takeScreenshot(hideOverlay)
-            // Wait up to 5 seconds
-            val result = future.get(5, java.util.concurrent.TimeUnit.SECONDS)
+            // Wait up to a fixed timeout
+            val result = future.get(SCREENSHOT_TIMEOUT_SECONDS, java.util.concurrent.TimeUnit.SECONDS)
             
             if (result.startsWith("error:")) {
                 ApiResponse.Error(result.substring(7))
