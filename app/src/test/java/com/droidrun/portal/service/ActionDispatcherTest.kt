@@ -84,7 +84,10 @@ class ActionDispatcherTest {
         val apiHandler = mockk<ApiHandler>(relaxed = true)
         val dispatcher = ActionDispatcher(apiHandler)
 
-        assertEquals(ApiResponse.Error("Unknown method: does_not_exist"), dispatcher.dispatch("does_not_exist", JSONObject()))
+        assertEquals(
+            ApiResponse.Error("Unknown method: does_not_exist"),
+            dispatcher.dispatch("does_not_exist", JSONObject()),
+        )
     }
 }
 

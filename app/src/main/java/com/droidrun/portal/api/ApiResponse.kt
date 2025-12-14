@@ -25,10 +25,12 @@ sealed class ApiResponse {
             put("status", "success")
             put("data", data)
         }.toString()
+
         is Error -> JSONObject().apply {
             put("status", "error")
             put("error", message)
         }.toString()
+
         is Raw -> json.toString()
         is Binary -> JSONObject().apply {
             put("status", "success")

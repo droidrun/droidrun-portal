@@ -10,7 +10,7 @@ import androidx.core.content.edit
  * Handles SharedPreferences operations and provides a clean API for configuration management
  */
 class ConfigManager private constructor(private val context: Context) {
-    
+
     companion object {
         private const val PREFS_NAME = "droidrun_config"
         private const val KEY_OVERLAY_VISIBLE = "overlay_visible"
@@ -19,7 +19,7 @@ class ConfigManager private constructor(private val context: Context) {
         private const val KEY_AUTO_OFFSET_CALCULATED = "auto_offset_calculated"
         private const val KEY_SOCKET_SERVER_ENABLED = "socket_server_enabled"
         private const val KEY_SOCKET_SERVER_PORT = "socket_server_port"
-        
+
         // WebSocket & Events
         private const val KEY_WEBSOCKET_ENABLED = "websocket_enabled"
         private const val KEY_WEBSOCKET_PORT = "websocket_port"
@@ -28,29 +28,31 @@ class ConfigManager private constructor(private val context: Context) {
         private const val KEY_REVERSE_CONNECTION_ENABLED = "reverse_connection_enabled"
         private const val PREFIX_EVENT_ENABLED = "event_enabled_"
         private const val KEY_AUTH_TOKEN = "auth_token"
-        
+
         private const val DEFAULT_OFFSET = 0
         private const val DEFAULT_SOCKET_PORT = 8080
         private const val DEFAULT_WEBSOCKET_PORT = 8081
-        
+
+        // TODO replace
         @Volatile
         private var INSTANCE: ConfigManager? = null
-        
+
         fun getInstance(context: Context): ConfigManager {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: ConfigManager(context.applicationContext).also { INSTANCE = it }
             }
         }
     }
-    
-    private val sharedPrefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-    
+
+    private val sharedPrefs: SharedPreferences =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
     init {
         if (sharedPrefs.contains(KEY_REVERSE_CONNECTION_ENABLED)) {
             sharedPrefs.edit { putBoolean(KEY_REVERSE_CONNECTION_ENABLED, false) }
         }
     }
-    
+
     // Auth Token (Auto-generated if missing)
     // TODO add external injection from some config file
     val authToken: String
@@ -69,7 +71,7 @@ class ConfigManager private constructor(private val context: Context) {
         set(value) {
             sharedPrefs.edit { putBoolean(KEY_OVERLAY_VISIBLE, value) }
         }
-    
+
     // Overlay offset
     var overlayOffset: Int
         get() = sharedPrefs.getInt(KEY_OVERLAY_OFFSET, DEFAULT_OFFSET)
@@ -97,7 +99,7 @@ class ConfigManager private constructor(private val context: Context) {
         set(value) {
             sharedPrefs.edit { putBoolean(KEY_SOCKET_SERVER_ENABLED, value) }
         }
-    
+
     // Socket server port (REST API)
     var socketServerPort: Int
         get() = sharedPrefs.getInt(KEY_SOCKET_SERVER_PORT, DEFAULT_SOCKET_PORT)
@@ -145,33 +147,34 @@ class ConfigManager private constructor(private val context: Context) {
         sharedPrefs.edit { putBoolean(PREFIX_EVENT_ENABLED + type.name, enabled) }
         // We could notify listeners here if needed, but usually this is polled by EventHub
     }
-    
+
     // Listener interface for configuration changes
     interface ConfigChangeListener {
         fun onOverlayVisibilityChanged(visible: Boolean)
         fun onOverlayOffsetChanged(offset: Int)
         fun onSocketServerEnabledChanged(enabled: Boolean)
         fun onSocketServerPortChanged(port: Int)
+
         // New WebSocket listeners
         fun onWebSocketEnabledChanged(enabled: Boolean) {}
         fun onWebSocketPortChanged(port: Int) {}
     }
-    
+
     private val listeners = mutableSetOf<ConfigChangeListener>()
-    
+
     fun addListener(listener: ConfigChangeListener) {
         listeners.add(listener)
     }
-    
+
     fun removeListener(listener: ConfigChangeListener) {
         listeners.remove(listener)
     }
-    
+
     fun setOverlayVisibleWithNotification(visible: Boolean) {
         overlayVisible = visible
         listeners.forEach { it.onOverlayVisibilityChanged(visible) }
     }
-    
+
     fun setOverlayOffsetWithNotification(offset: Int) {
         overlayOffset = offset
         listeners.forEach { it.onOverlayOffsetChanged(offset) }
@@ -181,7 +184,7 @@ class ConfigManager private constructor(private val context: Context) {
         socketServerEnabled = enabled
         listeners.forEach { it.onSocketServerEnabledChanged(enabled) }
     }
-    
+
     fun setSocketServerPortWithNotification(port: Int) {
         socketServerPort = port
         listeners.forEach { it.onSocketServerPortChanged(port) }
@@ -196,7 +199,7 @@ class ConfigManager private constructor(private val context: Context) {
         websocketPort = port
         listeners.forEach { it.onWebSocketPortChanged(port) }
     }
-    
+
     // Bulk configuration update
     fun updateConfiguration(
         overlayVisible: Boolean? = null,
@@ -209,12 +212,12 @@ class ConfigManager private constructor(private val context: Context) {
     ) {
         val editor = sharedPrefs.edit()
         var hasChanges = false
-        
+
         overlayVisible?.let {
             editor.putBoolean(KEY_OVERLAY_VISIBLE, it)
             hasChanges = true
         }
-        
+
         overlayOffset?.let {
             editor.putInt(KEY_OVERLAY_OFFSET, it)
             hasChanges = true
@@ -229,7 +232,7 @@ class ConfigManager private constructor(private val context: Context) {
             editor.putBoolean(KEY_SOCKET_SERVER_ENABLED, it)
             hasChanges = true
         }
-        
+
         socketServerPort?.let {
             editor.putInt(KEY_SOCKET_SERVER_PORT, it)
             hasChanges = true
@@ -244,20 +247,44 @@ class ConfigManager private constructor(private val context: Context) {
             editor.putInt(KEY_WEBSOCKET_PORT, it)
             hasChanges = true
         }
-        
+
         if (hasChanges) {
             editor.apply()
-            
+
             // Notify listeners
-            overlayVisible?.let { listeners.forEach { listener -> listener.onOverlayVisibilityChanged(it) } }
+            overlayVisible?.let {
+                listeners.forEach { listener ->
+                    listener.onOverlayVisibilityChanged(
+                        it
+                    )
+                }
+            }
             overlayOffset?.let { listeners.forEach { listener -> listener.onOverlayOffsetChanged(it) } }
-            socketServerEnabled?.let { listeners.forEach { listener -> listener.onSocketServerEnabledChanged(it) } }
-            socketServerPort?.let { listeners.forEach { listener -> listener.onSocketServerPortChanged(it) } }
-            websocketEnabled?.let { listeners.forEach { listener -> listener.onWebSocketEnabledChanged(it) } }
+            socketServerEnabled?.let {
+                listeners.forEach { listener ->
+                    listener.onSocketServerEnabledChanged(
+                        it
+                    )
+                }
+            }
+            socketServerPort?.let {
+                listeners.forEach { listener ->
+                    listener.onSocketServerPortChanged(
+                        it
+                    )
+                }
+            }
+            websocketEnabled?.let {
+                listeners.forEach { listener ->
+                    listener.onWebSocketEnabledChanged(
+                        it
+                    )
+                }
+            }
             websocketPort?.let { listeners.forEach { listener -> listener.onWebSocketPortChanged(it) } }
         }
     }
-    
+
     // Get all configuration as a data class
     data class Configuration(
         val overlayVisible: Boolean,

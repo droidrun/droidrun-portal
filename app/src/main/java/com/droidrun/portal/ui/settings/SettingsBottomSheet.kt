@@ -64,8 +64,11 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
         // Toggle Service on Switch Change
         binding.switchReverseEnabled.setOnCheckedChangeListener { _, isChecked ->
             configManager.reverseConnectionEnabled = isChecked
-            
-            val intent = android.content.Intent(requireContext(), com.droidrun.portal.service.ReverseConnectionService::class.java)
+
+            val intent = android.content.Intent(
+                requireContext(),
+                com.droidrun.portal.service.ReverseConnectionService::class.java,
+            )
             if (isChecked) {
                 // Ensure URL is saved before starting
                 val url = binding.inputReverseUrl.text.toString()
@@ -73,7 +76,7 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
                     configManager.reverseConnectionUrl = url
                     // Also save token if user typed it but didn't hit done
                     configManager.reverseConnectionToken = binding.inputReverseToken.text.toString()
-                    
+
                     requireContext().startService(intent)
                 } else {
                     binding.inputReverseUrl.error = "URL required"
@@ -112,15 +115,21 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
 
     private fun restartServiceIfEnabled() {
         if (configManager.reverseConnectionEnabled) {
-            val intent = android.content.Intent(requireContext(), com.droidrun.portal.service.ReverseConnectionService::class.java)
+            val intent = android.content.Intent(
+                requireContext(),
+                com.droidrun.portal.service.ReverseConnectionService::class.java,
+            )
             requireContext().stopService(intent)
             requireContext().startService(intent)
         }
     }
 
-    private fun setupEventToggle(switch: com.google.android.material.switchmaterial.SwitchMaterial, type: EventType) {
+    private fun setupEventToggle(
+        switch: com.google.android.material.switchmaterial.SwitchMaterial,
+        type: EventType,
+    ) {
         switch.isChecked = configManager.isEventEnabled(type)
-        
+
         switch.setOnCheckedChangeListener { _, isChecked ->
             configManager.setEventEnabled(type, isChecked)
         }

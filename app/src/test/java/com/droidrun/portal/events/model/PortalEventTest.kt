@@ -30,7 +30,8 @@ class PortalEventTest {
 
     @Test
     fun roundTrip_preservesStringPayload() {
-        val original = PortalEvent(type = EventType.NOTIFICATION, timestamp = 456L, payload = "payload")
+        val original =
+            PortalEvent(type = EventType.NOTIFICATION, timestamp = 456L, payload = "payload")
 
         val parsed = PortalEvent.fromJson(original.toJson())
 

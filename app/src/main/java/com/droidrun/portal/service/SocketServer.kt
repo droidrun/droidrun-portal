@@ -49,16 +49,16 @@ class SocketServer(
 
         this.port = port
         Log.i(TAG, "Starting socket server on port $port...")
-        
+
         return try {
             executorService = Executors.newFixedThreadPool(THREAD_POOL_SIZE)
             serverSocket = ServerSocket(port)
             isRunning.set(true)
-            
+
             executorService?.submit {
                 acceptConnections()
             }
-            
+
             Log.i(TAG, "Socket server started successfully on port $port")
             true
         } catch (e: Exception) {
@@ -74,7 +74,7 @@ class SocketServer(
         if (!isRunning.get()) return
 
         isRunning.set(false)
-        
+
         try {
             serverSocket?.close()
             executorService?.shutdown()
@@ -123,7 +123,7 @@ class SocketServer(
 
                 val method = parts[0]
                 val path = parts[1]
-                
+
                 var authToken: String? = null
 
                 // Consume headers
@@ -134,18 +134,21 @@ class SocketServer(
                     }
                     line = reader.readLine()
                 }
-                
+
                 // Validate Auth Token (Skip for ping, but safer to require for all because of ping attacks)
                 // For now, /ping without auth for easier connectivity checks
                 if (path != "/ping" && authToken != configManager.authToken) {
-                     sendErrorResponse(outputStream, HTTP_STATUS_UNAUTHORIZED, UNAUTHORIZED)
-                     return
+                    sendErrorResponse(outputStream, HTTP_STATUS_UNAUTHORIZED, UNAUTHORIZED)
+                    return
                 }
 
                 when (method) {
                     "GET" -> handleGetRequest(path, outputStream)
                     "POST" -> handlePostRequest(path, reader, outputStream)
-                    else -> sendHttpResponse(outputStream, ApiResponse.Error("Method not allowed: $method").toJson())
+                    else -> sendHttpResponse(
+                        outputStream,
+                        ApiResponse.Error("Method not allowed: $method").toJson(),
+                    )
                 }
             }
         } catch (e: Exception) {
@@ -160,14 +163,14 @@ class SocketServer(
             // Dispatcher expects "method" name, we have path.
             // Dispatcher handles /action/ prefix or raw names.
             // Legacy GETs like /state need to be mapped.
-            
+
             // TODO test it because Dispatcher is designed for RPC (method + params).
             // Legacy GETs don't fit perfectly. 
             // I need Binary only for handling for /screenshot.
             val response = when {
                 path.startsWith("/screenshot") -> {
                     val hideOverlay = if (path.contains("?")) {
-                         !path.contains("hideOverlay=false")
+                        !path.contains("hideOverlay=false")
                     } else true
                     val params = JSONObject()
                     params.put("hideOverlay", hideOverlay)
@@ -187,18 +190,25 @@ class SocketServer(
                 path.startsWith("/packages") -> apiHandler.getPackages()
                 else -> ApiResponse.Error("Unknown endpoint: $path")
             }
-            
+
             if (response is ApiResponse.Binary) {
                 sendBinaryResponse(outputStream, response.data, "image/png")
             } else {
                 sendHttpResponse(outputStream, response.toJson())
             }
         } catch (e: Exception) {
-            sendHttpResponse(outputStream, ApiResponse.Error("Internal server error: ${e.message}").toJson())
+            sendHttpResponse(
+                outputStream,
+                ApiResponse.Error("Internal server error: ${e.message}").toJson(),
+            )
         }
     }
 
-    private fun handlePostRequest(path: String, reader: BufferedReader, outputStream: OutputStream) {
+    private fun handlePostRequest(
+        path: String,
+        reader: BufferedReader,
+        outputStream: OutputStream,
+    ) {
         try {
             val postData = StringBuilder()
             if (reader.ready()) {
@@ -208,7 +218,7 @@ class SocketServer(
                     postData.append(char, 0, bytesRead)
                 }
             }
-            
+
             // Convert ContentValues to JSONObject for Dispatcher
             val values = parsePostData(postData.toString())
             val params = JSONObject()
@@ -218,19 +228,26 @@ class SocketServer(
             }
 
             val response = actionDispatcher.dispatch(path, params)
-            
+
             if (response is ApiResponse.Binary) {
                 sendBinaryResponse(outputStream, response.data, "application/octet-stream")
             } else {
                 sendHttpResponse(outputStream, response.toJson())
             }
         } catch (e: Exception) {
-            sendHttpResponse(outputStream, ApiResponse.Error("Internal server error: ${e.message}").toJson())
+            sendHttpResponse(
+                outputStream,
+                ApiResponse.Error("Internal server error: ${e.message}").toJson(),
+            )
         }
     }
 
     // TODO put in consts
-    private fun sendBinaryResponse(outputStream: OutputStream, data: ByteArray, contentType: String) {
+    private fun sendBinaryResponse(
+        outputStream: OutputStream,
+        data: ByteArray,
+        contentType: String,
+    ) {
         try {
             val headers = "HTTP/1.1 $HTTP_STATUS_OK $HTTP_REASON_OK\r\n" +
                     "Content-Type: $contentType\r\n" +
@@ -309,14 +326,14 @@ class SocketServer(
             Log.e(TAG, "Error sending HTTP response", e)
         }
     }
-    
+
     private fun sendErrorResponse(outputStream: OutputStream, code: Int, message: String) {
         // Implementation similar to previous, but maybe using ApiResponse if possible, 
         // though this is for protocol-level errors (400, 500)
         try {
-             val errorResponse = ApiResponse.Error(message).toJson()
-             val responseBytes = errorResponse.toByteArray(Charsets.UTF_8)
-             val headers = "HTTP/1.1 $code $message\r\n" +
+            val errorResponse = ApiResponse.Error(message).toJson()
+            val responseBytes = errorResponse.toByteArray(Charsets.UTF_8)
+            val headers = "HTTP/1.1 $code $message\r\n" +
                     "Content-Type: application/json\r\n" +
                     "Content-Length: ${responseBytes.size}\r\n" +
                     "Connection: close\r\n" +

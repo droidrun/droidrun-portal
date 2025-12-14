@@ -17,7 +17,7 @@ class PortalWebSocketServer(
     private val actionDispatcher: ActionDispatcher,
     private val configManager: ConfigManager,
 ) : WebSocketServer(InetSocketAddress(port)) {
-    
+
     companion object {
         private const val TAG = "PortalWSServer"
         private const val AUTHORIZATION_HEADER = "Authorization"
@@ -35,7 +35,7 @@ class PortalWebSocketServer(
         request: ClientHandshake?
     ): org.java_websocket.handshake.ServerHandshakeBuilder {
         val descriptor = request?.resourceDescriptor ?: ""
-        
+
         // Check for token in header
         var token = request?.getFieldValue(AUTHORIZATION_HEADER)
         if (!token.isNullOrEmpty() && token.startsWith(BEARER_PREFIX)) {
@@ -57,7 +57,10 @@ class PortalWebSocketServer(
         // Validate Token
         if (token != configManager.authToken) {
             Log.w(TAG, "Rejecting connection: Invalid or missing token")
-            throw org.java_websocket.exceptions.InvalidDataException(HTTP_UNAUTHORIZED_CODE, UNAUTORIZED)
+            throw org.java_websocket.exceptions.InvalidDataException(
+                HTTP_UNAUTHORIZED_CODE,
+                UNAUTORIZED,
+            )
         }
 
         return super.onWebsocketHandshakeReceivedAsServer(conn, draft, request)
@@ -73,18 +76,18 @@ class PortalWebSocketServer(
 
     override fun onMessage(conn: WebSocket?, message: String?) {
         if (message == null) return
-        
+
         try {
             val json = JSONObject(message)
             val id = json.optString("id")
             val method = json.optString("method")
-            
+
             if (id.isNotEmpty() && method.isNotEmpty()) {
                 // Command Request
                 val params = json.optJSONObject("params") ?: JSONObject()
-                
+
                 val result = actionDispatcher.dispatch(method, params)
-                
+
                 if (result is com.droidrun.portal.api.ApiResponse.Binary) {
                     // Binary Response: [UUID (36 bytes)] + [Data]
                     val uuidBytes = id.toByteArray(Charsets.UTF_8)
@@ -92,9 +95,12 @@ class PortalWebSocketServer(
                     // If not, maybe need padding or fixed size.
                     // Python UUID str is 36 chars = 36 bytes in UTF-8/ASCII.
                     if (uuidBytes.size != EXPECTED_REQUEST_ID_BYTES)
-                        Log.w(TAG, "Unexpected request id size: ${uuidBytes.size} bytes (expected $EXPECTED_REQUEST_ID_BYTES)")
+                        Log.w(
+                            TAG,
+                            "Unexpected request id size: ${uuidBytes.size} bytes (expected $EXPECTED_REQUEST_ID_BYTES)",
+                        )
 
-                    
+
                     val payload = ByteBuffer.allocate(uuidBytes.size + result.data.size)
                     payload.put(uuidBytes)
                     payload.put(result.data)
@@ -104,7 +110,7 @@ class PortalWebSocketServer(
                     // Text Response
                     val response = JSONObject()
                     response.put("id", id)
-                    
+
                     val apiResponseJson = JSONObject(result.toJson())
 
                     if (apiResponseJson.getString("status") == "success") {
@@ -123,8 +129,9 @@ class PortalWebSocketServer(
                         response.put("error", apiResponseJson.opt("error") ?: "Unknown error")
                     }
 
-                    conn?.send(response.toString())                }
-                
+                    conn?.send(response.toString())
+                }
+
             } else {
                 // Fallback for legacy events (if any) or ping
                 val commandEvent = PortalEvent.fromJson(message)
@@ -145,25 +152,26 @@ class PortalWebSocketServer(
 
     override fun onStart() {
         Log.i(TAG, "WebSocket Server started on port $port")
-        
+
         // Register ourselves with the Hub to receive events
         EventHub.subscribe { event ->
             broadcast(event.toJson())
         }
     }
-    
+
     private fun handleCommand(conn: WebSocket?, event: PortalEvent) {
         when (event.type) {
             EventType.PING -> {
                 val pong = PortalEvent(EventType.PONG, payload = "pong")
                 conn?.send(pong.toJson())
             }
+
             else -> {
                 Log.d(TAG, "Received unhandled event: ${event.type}")
             }
         }
     }
-    
+
     // Helper to safely stop
     fun stopSafely() {
         try {

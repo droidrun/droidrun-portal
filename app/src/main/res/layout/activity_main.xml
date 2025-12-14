@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.coordinatorlayout.widget.CoordinatorLayout
-    xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
@@ -82,8 +81,7 @@
                         android:layout_weight="1"
                         android:text="@string/accessibility_service_not_enabled"
                         android:textColor="@color/text_white"
-                        android:textSize="12sp"
-                        />
+                        android:textSize="12sp" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/enable_accessibility_button"
@@ -357,8 +355,8 @@
                         android:gravity="center_vertical"
                         android:background="@color/background_tertiary"
                         android:padding="12dp"
-                        android:layout_marginBottom="20dp"
-                        >
+                        android:layout_marginBottom="20dp">
+
                         <ImageView
                             android:layout_width="16dp"
                             android:layout_height="16dp"
@@ -373,19 +371,21 @@
                             android:textColor="@color/text_hint"
                             android:textSize="12sp" />
                     </LinearLayout>
+
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="@string/socket_server_port_label"
                         android:textColor="@color/text_white"
-                        android:textSize="16sp"
-                         />
+                        android:textSize="16sp" />
+
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="horizontal"
                         android:gravity="center_vertical"
                         android:padding="0dp">
+
                         <com.google.android.material.textfield.TextInputLayout
                             android:id="@+id/socket_port_input_layout"
                             android:layout_width="match_parent"
@@ -393,8 +393,7 @@
                             style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
                             app:boxStrokeColor="@color/background_input"
                             app:hintTextColor="@color/text_gray"
-                            android:textColorHint="@color/text_gray"
-                            >
+                            android:textColorHint="@color/text_gray">
 
                             <com.google.android.material.textfield.TextInputEditText
                                 android:id="@+id/socket_port_input"
@@ -405,13 +404,10 @@
                                 android:textSize="16sp"
                                 android:textColor="@color/text_white"
                                 android:background="@color/background_input"
-                                android:text="@string/default_port"
-
-                       />
+                                android:text="@string/default_port" />
                         </com.google.android.material.textfield.TextInputLayout>
                     </LinearLayout>
                 </LinearLayout>
-
 
 
             </com.google.android.material.card.MaterialCardView>
@@ -430,9 +426,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="20dp"
-
-               >
+                    android:padding="20dp">
 
                     <LinearLayout
                         android:layout_width="match_parent"
@@ -447,7 +441,7 @@
                             android:layout_marginTop="2dp"
                             android:src="@drawable/unplug"
                             app:tint="@color/text_white"
-                            android:layout_marginEnd="10dp"/>
+                            android:layout_marginEnd="10dp" />
 
                         <TextView
                             android:layout_width="wrap_content"
@@ -592,6 +586,7 @@
                         android:focusable="true"
                         android:background="?attr/selectableItemBackground"
                         android:paddingVertical="8dp">
+
                         <ImageView
                             android:id="@+id/endpoints_arrow"
                             android:layout_width="24dp"
@@ -599,6 +594,7 @@
                             android:src="@drawable/chevron_right"
                             app:tint="@color/text_white"
                             android:rotation="0" />
+
                         <TextView
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"

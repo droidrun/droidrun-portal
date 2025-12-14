@@ -30,6 +30,7 @@ class ActionDispatcher(private val apiHandler: ApiHandler) {
                 val y = params.optInt("y", 0)
                 apiHandler.performTap(x, y)
             }
+
             "swipe" -> {
                 val startX = params.optInt("startX", 0)
                 val startY = params.optInt("startY", 0)
@@ -38,46 +39,57 @@ class ActionDispatcher(private val apiHandler: ApiHandler) {
                 val duration = params.optInt("duration", DEFAULT_SWIPE_DURATION_MS)
                 apiHandler.performSwipe(startX, startY, endX, endY, duration)
             }
+
             "global" -> {
                 val actionId = params.optInt("action", 0)
                 apiHandler.performGlobalAction(actionId)
             }
+
             "app" -> {
                 val pkg = params.optString("package", "")
                 val activity = params.optString("activity", "")
                 // JSON optString returns "" for missing keys
                 // Let's be safe: treat empty string or "null" literal as null
-                val finalActivity = if (activity.isNullOrEmpty() || activity == "null") null else activity
+                val finalActivity =
+                    if (activity.isNullOrEmpty() || activity == "null") null else activity
                 apiHandler.startApp(pkg, finalActivity)
             }
+
             "keyboard/input", "input" -> {
                 val text = params.optString("base64_text", "")
                 val clear = params.optBoolean("clear", true)
                 apiHandler.keyboardInput(text, clear)
             }
+
             "keyboard/clear", "clear" -> {
                 apiHandler.keyboardClear()
             }
+
             "keyboard/key", "key" -> {
                 val keyCode = params.optInt("key_code", 0)
                 apiHandler.keyboardKey(keyCode)
             }
+
             "overlay_offset" -> {
                 val offset = params.optInt("offset", 0)
                 apiHandler.setOverlayOffset(offset)
             }
+
             "socket_port" -> {
                 val port = params.optInt("port", 0)
                 apiHandler.setSocketPort(port)
             }
+
             "screenshot" -> {
                 // Default to hiding overlay unless specified otherwise
                 val hideOverlay = params.optBoolean("hideOverlay", true)
                 apiHandler.getScreenshot(hideOverlay)
             }
+
             "packages" -> {
                 apiHandler.getPackages()
             }
+
             else -> ApiResponse.Error("Unknown method: $method")
         }
     }

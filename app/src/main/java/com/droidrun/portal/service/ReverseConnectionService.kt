@@ -26,7 +26,7 @@ class ReverseConnectionService : Service() {
     private val binder = LocalBinder()
     private lateinit var configManager: ConfigManager
     private lateinit var actionDispatcher: ActionDispatcher
-    
+
     private var webSocketClient: WebSocketClient? = null
     private var isServiceRunning = AtomicBoolean(false)
     private val handler = Handler(Looper.getMainLooper())
@@ -61,7 +61,7 @@ class ReverseConnectionService : Service() {
     private fun connectToHost() {
         if (!isServiceRunning.get()) return
 
-        val hostUrl = configManager.reverseConnectionUrl 
+        val hostUrl = configManager.reverseConnectionUrl
         val authToken = configManager.reverseConnectionToken
 
         if (hostUrl.isBlank()) {
@@ -110,7 +110,7 @@ class ReverseConnectionService : Service() {
     private fun scheduleReconnect() {
         if (!isServiceRunning.get()) return
         if (isReconnecting.getAndSet(true)) return // Already scheduled
-        
+
         Log.d(TAG, "Scheduling reconnect in ${RECONNECT_DELAY_MS}ms")
         handler.postDelayed({
             if (isServiceRunning.get()) {
@@ -135,7 +135,7 @@ class ReverseConnectionService : Service() {
     private fun handleMessage(message: String?) {
         Log.d(TAG, "Received message: $message")
         if (message == null) return
-        
+
         if (!::actionDispatcher.isInitialized) {
             val service = DroidrunAccessibilityService.getInstance()
             if (service == null) {
@@ -150,14 +150,14 @@ class ReverseConnectionService : Service() {
             val id = json.optString("id")
             val method = json.optString("method")
             Log.d(TAG, "Dispatching $method (id=$id)")
-            
+
             if (id.isNotEmpty() && method.isNotEmpty()) {
                 val params = json.optJSONObject("params") ?: JSONObject()
-                
+
                 // Execute
                 val result = actionDispatcher.dispatch(method, params)
                 Log.d(TAG, "Command executed. Result type: ${result.javaClass.simpleName}")
-                
+
                 // Response
                 if (result is ApiResponse.Binary) {
                     val uuidBytes = id.toByteArray(Charsets.UTF_8)
@@ -171,7 +171,7 @@ class ReverseConnectionService : Service() {
                     // Text Response
                     val response = JSONObject()
                     response.put("id", id)
-                    
+
                     val apiResponseJson = JSONObject(result.toJson())
                     if (apiResponseJson.getString("status") == "success") {
                         response.put("status", "success")

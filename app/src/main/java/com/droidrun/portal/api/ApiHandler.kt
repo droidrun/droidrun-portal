@@ -76,17 +76,19 @@ class ApiHandler(
         Log.d("ApiHandler", "getPackages called")
         return try {
             val pm = getPackageManager()
-            val mainIntent = android.content.Intent(android.content.Intent.ACTION_MAIN, null).apply {
-                addCategory(android.content.Intent.CATEGORY_LAUNCHER)
-            }
+            val mainIntent =
+                android.content.Intent(android.content.Intent.ACTION_MAIN, null).apply {
+                    addCategory(android.content.Intent.CATEGORY_LAUNCHER)
+                }
 
-            val resolvedApps: List<android.content.pm.ResolveInfo> = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                pm.queryIntentActivities(mainIntent, PackageManager.ResolveInfoFlags.of(0L))
-            } else {
-                @Suppress("DEPRECATION")
-                pm.queryIntentActivities(mainIntent, 0)
-            }
-            
+            val resolvedApps: List<android.content.pm.ResolveInfo> =
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    pm.queryIntentActivities(mainIntent, PackageManager.ResolveInfoFlags.of(0L))
+                } else {
+                    @Suppress("DEPRECATION")
+                    pm.queryIntentActivities(mainIntent, 0)
+                }
+
             Log.d("ApiHandler", "Found ${resolvedApps.size} raw resolved apps")
 
             val arr = JSONArray()
@@ -96,14 +98,20 @@ class ApiHandler(
                     val pkgInfo = try {
                         pm.getPackageInfo(resolveInfo.activityInfo.packageName, 0)
                     } catch (e: PackageManager.NameNotFoundException) {
-                        Log.w("ApiHandler", "Package not found: ${resolveInfo.activityInfo.packageName}")
+                        Log.w(
+                            "ApiHandler",
+                            "Package not found: ${resolveInfo.activityInfo.packageName}",
+                        )
                         continue
                     }
 
                     val label = try {
                         resolveInfo.loadLabel(pm).toString()
                     } catch (e: Exception) {
-                        Log.w("ApiHandler", "Label load failed for ${pkgInfo.packageName}: ${e.message}")
+                        Log.w(
+                            "ApiHandler",
+                            "Label load failed for ${pkgInfo.packageName}: ${e.message}",
+                        )
                         // Fallback to package name if label load fails (Samsung resource error with ARzone or something)
                         pkgInfo.packageName
                     }
@@ -123,17 +131,20 @@ class ApiHandler(
 
                     arr.put(obj)
                 } catch (e: Exception) {
-                    Log.w("ApiHandler", "Skipping package ${resolveInfo.activityInfo.packageName}: ${e.message}")
+                    Log.w(
+                        "ApiHandler",
+                        "Skipping package ${resolveInfo.activityInfo.packageName}: ${e.message}",
+                    )
                 }
             }
-            
+
             Log.d("ApiHandler", "Returning ${arr.length()} packages")
 
             val root = JSONObject()
             root.put("status", "success")
             root.put("count", arr.length())
             root.put("packages", arr)
-            
+
             ApiResponse.Raw(root)
 
         } catch (e: Exception) {
@@ -153,8 +164,9 @@ class ApiHandler(
     }
 
     fun keyboardClear(): ApiResponse {
-        val ime = getKeyboardIME() ?: return ApiResponse.Error("DroidrunKeyboardIME not active or available")
-        
+        val ime = getKeyboardIME()
+            ?: return ApiResponse.Error("DroidrunKeyboardIME not active or available")
+
         if (!ime.hasInputConnection()) {
             return ApiResponse.Error("No input connection available - keyboard may not be focused on an input field")
         }
@@ -165,10 +177,11 @@ class ApiHandler(
             ApiResponse.Error("Failed to clear text via keyboard")
         }
     }
-    
+
     fun keyboardKey(keyCode: Int): ApiResponse {
-        val ime = getKeyboardIME() ?: return ApiResponse.Error("DroidrunKeyboardIME not active or available")
-        
+        val ime = getKeyboardIME()
+            ?: return ApiResponse.Error("DroidrunKeyboardIME not active or available")
+
         if (!ime.hasInputConnection()) {
             return ApiResponse.Error("No input connection available - keyboard may not be focused on an input field")
         }
@@ -209,8 +222,9 @@ class ApiHandler(
         return try {
             val future = stateRepo.takeScreenshot(hideOverlay)
             // Wait up to a fixed timeout
-            val result = future.get(SCREENSHOT_TIMEOUT_SECONDS, java.util.concurrent.TimeUnit.SECONDS)
-            
+            val result =
+                future.get(SCREENSHOT_TIMEOUT_SECONDS, java.util.concurrent.TimeUnit.SECONDS)
+
             if (result.startsWith("error:")) {
                 ApiResponse.Error(result.substring(7))
             } else {
@@ -259,7 +273,10 @@ class ApiHandler(
         return try {
             val intent = if (!activityName.isNullOrEmpty() && activityName != "null") {
                 Intent().apply {
-                    setClassName(packageName, if (activityName.startsWith(".")) packageName + activityName else activityName)
+                    setClassName(
+                        packageName,
+                        if (activityName.startsWith(".")) packageName + activityName else activityName
+                    )
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
             } else {
@@ -272,8 +289,11 @@ class ApiHandler(
                 service.startActivity(intent)
                 ApiResponse.Success("Started app $packageName")
             } else {
-                Log.e("ApiHandler", "Could not create intent for $packageName - getLaunchIntentForPackage returned null. Trying fallback.")
-                
+                Log.e(
+                    "ApiHandler",
+                    "Could not create intent for $packageName - getLaunchIntentForPackage returned null. Trying fallback.",
+                )
+
                 // Fallback for system apps like Settings that might need explicit component handling
                 // generic MAIN/LAUNCHER intent for the package
                 try {
@@ -281,12 +301,12 @@ class ApiHandler(
                     fallbackIntent.addCategory(Intent.CATEGORY_LAUNCHER)
                     fallbackIntent.setPackage(packageName)
                     fallbackIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    
+
                     if (fallbackIntent.resolveActivity(service.packageManager) != null) {
-                         service.startActivity(fallbackIntent)
-                         ApiResponse.Success("Started app $packageName (fallback)")
+                        service.startActivity(fallbackIntent)
+                        ApiResponse.Success("Started app $packageName (fallback)")
                     } else {
-                         ApiResponse.Error("Could not create intent for $packageName")
+                        ApiResponse.Error("Could not create intent for $packageName")
                     }
                 } catch (e2: Exception) {
                     Log.e("ApiHandler", "Fallback start failed", e2)
