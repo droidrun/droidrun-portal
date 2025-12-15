@@ -90,6 +90,19 @@ class ActionDispatcher(private val apiHandler: ApiHandler) {
                 apiHandler.getPackages()
             }
 
+            "state" -> {
+                val filter = params.optBoolean("filter", false)
+                apiHandler.getStateFull(filter)
+            }
+
+            "version" -> {
+                apiHandler.getVersion()
+            }
+
+            "time" -> {
+                apiHandler.getTime()
+            }
+
             else -> ApiResponse.Error("Unknown method: $method")
         }
     }

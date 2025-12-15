@@ -66,7 +66,7 @@ class ApiHandler(
             put("phone_state", phoneStateJson)
             put("device_context", deviceContext)
         }
-        return ApiResponse.Success(combined.toString())
+        return ApiResponse.RawObject(combined)
     }
 
     fun getVersion() = ApiResponse.Success(appVersionProvider())
@@ -140,12 +140,7 @@ class ApiHandler(
 
             Log.d("ApiHandler", "Returning ${arr.length()} packages")
 
-            val root = JSONObject()
-            root.put("status", "success")
-            root.put("count", arr.length())
-            root.put("packages", arr)
-
-            ApiResponse.Raw(root)
+            ApiResponse.RawArray(arr)
 
         } catch (e: Exception) {
             Log.e("ApiHandler", "getPackages failed", e)
@@ -317,5 +312,9 @@ class ApiHandler(
             Log.e("ApiHandler", "Error starting app", e)
             ApiResponse.Error("Error starting app: ${e.message}")
         }
+    }
+
+    fun getTime(): ApiResponse {
+        return ApiResponse.Success(System.currentTimeMillis())
     }
 }
