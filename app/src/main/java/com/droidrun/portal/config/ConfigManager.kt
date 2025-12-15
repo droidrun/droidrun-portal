@@ -28,6 +28,7 @@ class ConfigManager private constructor(private val context: Context) {
         private const val KEY_REVERSE_CONNECTION_ENABLED = "reverse_connection_enabled"
         private const val PREFIX_EVENT_ENABLED = "event_enabled_"
         private const val KEY_AUTH_TOKEN = "auth_token"
+        private const val KEY_DEVICE_ID = "device_id"
 
         private const val DEFAULT_OFFSET = 0
         private const val DEFAULT_SOCKET_PORT = 8080
@@ -63,6 +64,16 @@ class ConfigManager private constructor(private val context: Context) {
                 sharedPrefs.edit { putString(KEY_AUTH_TOKEN, token) }
             }
             return token
+        }
+
+    val deviceID: String
+        get() {
+            var id = sharedPrefs.getString(KEY_DEVICE_ID, null)
+            if (id == null) {
+                id = java.util.UUID.randomUUID().toString()
+                sharedPrefs.edit { putString(KEY_DEVICE_ID, id) }
+            }
+            return id
         }
 
     // Overlay visibility

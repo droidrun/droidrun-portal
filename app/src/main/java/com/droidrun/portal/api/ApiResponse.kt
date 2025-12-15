@@ -20,10 +20,31 @@ sealed class ApiResponse {
 
     }
 
+    fun toJson(id: Int): String = when (this) {
+        is Success -> JSONObject().apply {
+            put("id", id)
+            put("status", "success")
+            put("result", data)
+        }.toString()
+
+        is Error -> JSONObject().apply {
+            put("id", id)
+            put("status", "error")
+            put("error", message)
+        }.toString()
+
+        is Raw -> json.toString()
+        is Binary -> JSONObject().apply {
+            put("id", id)
+            put("status", "success")
+            put("result", android.util.Base64.encodeToString(data, android.util.Base64.NO_WRAP))
+        }.toString()
+    }
+
     fun toJson(): String = when (this) {
         is Success -> JSONObject().apply {
             put("status", "success")
-            put("data", data)
+            put("result", data)
         }.toString()
 
         is Error -> JSONObject().apply {
@@ -34,7 +55,7 @@ sealed class ApiResponse {
         is Raw -> json.toString()
         is Binary -> JSONObject().apply {
             put("status", "success")
-            put("data", android.util.Base64.encodeToString(data, android.util.Base64.NO_WRAP))
+            put("result", android.util.Base64.encodeToString(data, android.util.Base64.NO_WRAP))
         }.toString()
     }
 }

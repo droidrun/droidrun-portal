@@ -77,6 +77,11 @@ class ReverseConnectionService : Service() {
             if (authToken.isNotBlank())
                 headers["Authorization"] = "Bearer $authToken"
 
+            headers["X-User-ID"] = "7785b089-b9aa-458d-a32e-baec315e5e16"
+            headers["X-Device-ID"] = configManager.deviceID
+            headers["X-Device-Name"] = configManager.deviceID
+            headers["X-Device-Country"] = "de"
+
 
             webSocketClient = object : WebSocketClient(uri, headers) {
                 override fun onOpen(handshakedata: ServerHandshake?) {
@@ -97,8 +102,9 @@ class ReverseConnectionService : Service() {
                     scheduleReconnect()
                 }
             }
+            Log.i(TAG, "connecting to remote via websocket")
             webSocketClient?.connect()
-
+            Log.i(TAG, "websocket connection established")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to initiate connection", e)
             scheduleReconnect()
@@ -147,43 +153,19 @@ class ReverseConnectionService : Service() {
 
         try {
             val json = JSONObject(message)
-            val id = json.optString("id")
-            val method = json.optString("method")
-            Log.d(TAG, "Dispatching $method (id=$id)")
+            val id = json.getInt("id")
+            val method = json.getString("method")
+            val params = json.optJSONArray("params")?.optJSONObject(0) ?: JSONObject()
 
-            if (id.isNotEmpty() && method.isNotEmpty()) {
-                val params = json.optJSONObject("params") ?: JSONObject()
+            Log.d(TAG, "Dispatching $method (id=$id,params=$params)")
 
-                // Execute
-                val result = actionDispatcher.dispatch(method, params)
-                Log.d(TAG, "Command executed. Result type: ${result.javaClass.simpleName}")
+            // Execute
+            val result = actionDispatcher.dispatch(method, params)
+            Log.d(TAG, "Command executed. Result type: ${result.javaClass.simpleName}")
 
-                // Response
-                if (result is ApiResponse.Binary) {
-                    val uuidBytes = id.toByteArray(Charsets.UTF_8)
-                    val payload = ByteBuffer.allocate(uuidBytes.size + result.data.size)
-                    payload.put(uuidBytes)
-                    payload.put(result.data)
-                    payload.flip()
-                    webSocketClient?.send(payload)
-                    Log.d(TAG, "Sent binary response")
-                } else {
-                    // Text Response
-                    val response = JSONObject()
-                    response.put("id", id)
-
-                    val apiResponseJson = JSONObject(result.toJson())
-                    if (apiResponseJson.getString("status") == "success") {
-                        response.put("status", "success")
-                        response.put("result", apiResponseJson.opt("data"))
-                    } else {
-                        response.put("status", "error")
-                        response.put("error", apiResponseJson.opt("error"))
-                    }
-                    webSocketClient?.send(response.toString())
-                    Log.d(TAG, "Sent text response: $response")
-                }
-            }
+            val resp = result.toJson(id)
+            webSocketClient?.send(resp)
+            Log.d(TAG, "Sent response: $resp")
         } catch (e: Exception) {
             Log.e(TAG, "Error processing message", e)
         }
