@@ -22,53 +22,33 @@ sealed class ApiResponse {
 
     }
 
-    fun toJson(id: Int): String = when (this) {
+    fun toJson(id: Int? = null): String = when (this) {
         is Success -> JSONObject().apply {
-            put("id", id)
+            id?.let { put("id", id) }
             put("status", "success")
             put("result", data)
         }.toString()
 
         is Error -> JSONObject().apply {
-            put("id", id)
+            id?.let { put("id", id) }
             put("status", "error")
             put("error", message)
         }.toString()
 
         is RawObject -> JSONObject().apply {
-            put("id", id)
+            id?.let { put("id", id) }
             put("status", "success")
             put("result", json)
         }.toString()
 
         is RawArray -> JSONObject().apply {
-            put("id", id)
+            id?.let { put("id", id) }
             put("status", "success")
             put("result", json)
         }.toString()
 
         is Binary -> JSONObject().apply {
-            put("id", id)
-            put("status", "success")
-            put("result", android.util.Base64.encodeToString(data, android.util.Base64.NO_WRAP))
-        }.toString()
-    }
-
-    fun toJson(): String = when (this) {
-        is Success -> JSONObject().apply {
-            put("status", "success")
-            put("result", data)
-        }.toString()
-
-        is Error -> JSONObject().apply {
-            put("status", "error")
-            put("error", message)
-        }.toString()
-
-        is RawObject -> json.toString()
-        is RawArray -> json.toString()
-
-        is Binary -> JSONObject().apply {
+            id?.let { put("id", id) }
             put("status", "success")
             put("result", android.util.Base64.encodeToString(data, android.util.Base64.NO_WRAP))
         }.toString()

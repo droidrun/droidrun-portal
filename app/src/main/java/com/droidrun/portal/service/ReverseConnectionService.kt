@@ -54,6 +54,7 @@ class ReverseConnectionService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         isServiceRunning.set(false)
+        handler.removeCallbacksAndMessages(null)
         disconnect()
         Log.i(TAG, "Service Destroyed")
     }

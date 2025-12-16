@@ -25,7 +25,7 @@ class PortalWebSocketServer(
         private const val TOKEN_QUERY_PARAM_PREFIX = "token="
         private const val HTTP_UNAUTHORIZED_CODE = 401
         private const val EXPECTED_REQUEST_ID_BYTES = 36
-        private const val UNAUTORIZED = "Unauthorized"
+        private const val UNAUTHORIZED = "Unauthorized"
     }
 
     // TODO test it
@@ -59,7 +59,7 @@ class PortalWebSocketServer(
             Log.w(TAG, "Rejecting connection: Invalid or missing token")
             throw org.java_websocket.exceptions.InvalidDataException(
                 HTTP_UNAUTHORIZED_CODE,
-                UNAUTORIZED,
+                UNAUTHORIZED,
             )
         }
 
