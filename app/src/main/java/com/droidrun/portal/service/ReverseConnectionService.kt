@@ -13,7 +13,6 @@ import org.java_websocket.client.WebSocketClient
 import org.java_websocket.handshake.ServerHandshake
 import org.json.JSONObject
 import java.net.URI
-import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicBoolean
 
 class ReverseConnectionService : Service() {
@@ -151,18 +150,22 @@ class ReverseConnectionService : Service() {
         Log.d(TAG, "Received message: $message")
         if (message == null) return
 
-        if (!::actionDispatcher.isInitialized) {
-            val service = DroidrunAccessibilityService.getInstance()
-            if (service == null) {
-                Log.e(TAG, "Accessibility Service not ready, cannot dispatch command")
-                return
-            }
-            actionDispatcher = service.getActionDispatcher()
-        }
+        var id: Int? = null
 
         try {
             val json = JSONObject(message)
-            val id = json.getInt("id")
+            id = json.getInt("id")
+
+            if (!::actionDispatcher.isInitialized) {
+                val service = DroidrunAccessibilityService.getInstance()
+                if (service == null) {
+                    Log.e(TAG, "Accessibility Service not ready, cannot dispatch command")
+                    webSocketClient?.send(ApiResponse.Error("Accessibility Service not ready, cannot dispatch command").toJson(id))
+                    return
+                }
+                actionDispatcher = service.getActionDispatcher()
+            }
+
             val method = json.getString("method")
             val params = json.optJSONArray("params")?.optJSONObject(0) ?: JSONObject()
 
@@ -177,6 +180,13 @@ class ReverseConnectionService : Service() {
             Log.d(TAG, "Sent response: $resp")
         } catch (e: Exception) {
             Log.e(TAG, "Error processing message", e)
+            if (id != null) {
+                try {
+                    webSocketClient?.send(ApiResponse.Error(e.message ?: "unknown exception").toJson(id))
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error responding with an error")
+                }
+            }
         }
     }
 }
