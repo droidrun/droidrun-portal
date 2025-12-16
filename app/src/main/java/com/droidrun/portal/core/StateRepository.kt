@@ -26,7 +26,8 @@ class StateRepository(private val service: DroidrunAccessibilityService) {
 
     fun setOverlayVisible(visible: Boolean): Boolean = service.setOverlayVisible(visible)
 
-    fun takeScreenshot(hideOverlay: Boolean): java.util.concurrent.CompletableFuture<String> = service.takeScreenshotBase64(hideOverlay)
+    fun takeScreenshot(hideOverlay: Boolean): java.util.concurrent.CompletableFuture<String> =
+        service.takeScreenshotBase64(hideOverlay)
 
     fun updateSocketServerPort(port: Int): Boolean = service.updateSocketServerPort(port)
 }

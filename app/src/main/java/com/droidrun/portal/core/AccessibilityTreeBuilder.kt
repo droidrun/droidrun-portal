@@ -67,16 +67,12 @@ object AccessibilityTreeBuilder {
             // Text content
             put("text", node.text?.toString() ?: "")
             put("contentDescription", node.contentDescription?.toString() ?: "")
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                put("hint", node.hintText?.toString() ?: "")
-            }
+            put("hint", node.hintText?.toString() ?: "")
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
                 put("stateDescription", node.stateDescription?.toString() ?: "")
             }
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-                put("tooltipText", node.tooltipText?.toString() ?: "")
-                put("paneTitle", node.paneTitle?.toString() ?: "")
-            }
+            put("tooltipText", node.tooltipText?.toString() ?: "")
+            put("paneTitle", node.paneTitle?.toString() ?: "")
             put("error", node.error?.toString() ?: "")
 
             // Bounds (reuse rect we already computed)
@@ -120,9 +116,7 @@ object AccessibilityTreeBuilder {
             // Boolean states - Editable/Input
             put("isEditable", node.isEditable)
             put("isPassword", node.isPassword)
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                put("isShowingHintText", node.isShowingHintText)
-            }
+            put("isShowingHintText", node.isShowingHintText)
 
             // Boolean states - Scrollable
             put("isScrollable", node.isScrollable)
@@ -137,10 +131,8 @@ object AccessibilityTreeBuilder {
             put("isImportantForAccessibility", node.isImportantForAccessibility)
 
             // Boolean states - Screen reader
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-                put("isScreenReaderFocusable", node.isScreenReaderFocusable)
-                put("isHeading", node.isHeading)
-            }
+            put("isScreenReaderFocusable", node.isScreenReaderFocusable)
+            put("isHeading", node.isHeading)
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
                 put("isTextSelectable", node.isTextSelectable)
             }
@@ -161,9 +153,7 @@ object AccessibilityTreeBuilder {
             put("windowId", node.windowId)
 
             // Drawing order
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                put("drawingOrder", node.drawingOrder)
-            }
+            put("drawingOrder", node.drawingOrder)
 
             // Max text length
             put("maxTextLength", node.maxTextLength)
@@ -191,9 +181,7 @@ object AccessibilityTreeBuilder {
                     put("rowCount", collection.rowCount)
                     put("columnCount", collection.columnCount)
                     put("isHierarchical", collection.isHierarchical)
-                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
-                        put("selectionMode", collection.selectionMode)
-                    }
+                    put("selectionMode", collection.selectionMode)
                 })
             }
 

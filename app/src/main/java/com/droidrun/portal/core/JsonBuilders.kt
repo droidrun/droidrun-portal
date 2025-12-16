@@ -13,7 +13,10 @@ object JsonBuilders {
             put("resourceId", element.nodeInfo.viewIdResourceName ?: "")
             put("className", element.className)
             put("text", element.text)
-            put("bounds", "${element.rect.left}, ${element.rect.top}, ${element.rect.right}, ${element.rect.bottom}")
+            put(
+                "bounds",
+                "${element.rect.left}, ${element.rect.top}, ${element.rect.right}, ${element.rect.bottom}",
+            )
 
             val childrenArray = JSONArray()
             element.children.forEach { child ->
