@@ -22,6 +22,8 @@ sealed class ApiResponse {
 
     }
 
+    data class Text(val data: String) : ApiResponse()
+
     fun toJson(id: Int? = null): String = when (this) {
         is Success -> JSONObject().apply {
             id?.let { put("id", id) }
@@ -51,6 +53,12 @@ sealed class ApiResponse {
             id?.let { put("id", id) }
             put("status", "success")
             put("result", android.util.Base64.encodeToString(data, android.util.Base64.NO_WRAP))
+        }.toString()
+
+        is Text -> JSONObject().apply {
+            id?.let { put("id", id) }
+            put("status", "success")
+            put("result", data)
         }.toString()
     }
 }

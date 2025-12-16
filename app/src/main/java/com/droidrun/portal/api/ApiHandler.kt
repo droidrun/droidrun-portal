@@ -226,8 +226,10 @@ class ApiHandler(
                 // Result is Base64 string from Service. 
                 // decode it back to bytes to pass as Binary response.
                 // In future, Service should return bytes directly to avoid this encode/decode cycle.
-                val bytes = android.util.Base64.decode(result, android.util.Base64.DEFAULT)
-                ApiResponse.Binary(bytes)
+                // val bytes = android.util.Base64.decode(result, android.util.Base64.DEFAULT)
+
+                // use base64 encoding to be compatible with json rpc 1.0.
+                ApiResponse.Text(result)
             }
         } catch (e: java.util.concurrent.TimeoutException) {
             ApiResponse.Error("Screenshot timeout - operation took too long")
