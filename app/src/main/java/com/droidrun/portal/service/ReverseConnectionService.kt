@@ -58,12 +58,28 @@ class ReverseConnectionService : Service() {
         Log.i(TAG, "Service Destroyed")
     }
 
+    fun buildHeaders(): MutableMap<String, String> {
+        val authToken = configManager.reverseConnectionToken
+
+        val headers = mutableMapOf<String, String>()
+        if (authToken.isNotBlank())
+            headers["Authorization"] = "Bearer $authToken"
+
+        val userID = configManager.userID
+        if (userID.isNotBlank())
+            headers["X-User-ID"] = userID
+
+        headers["X-Device-ID"] = configManager.deviceID
+        headers["X-Device-Name"] = configManager.deviceName
+        headers["X-Device-Country"] = configManager.deviceCountryCode
+
+        return headers
+    }
+
     private fun connectToHost() {
         if (!isServiceRunning.get()) return
 
         val hostUrl = configManager.reverseConnectionUrl
-        val authToken = configManager.reverseConnectionToken
-
         if (hostUrl.isBlank()) {
             Log.w(TAG, "No host URL configured")
             // Don't stop self, maybe user will config later? 
@@ -73,15 +89,7 @@ class ReverseConnectionService : Service() {
 
         try {
             val uri = URI(hostUrl)
-            val headers = mutableMapOf<String, String>()
-            if (authToken.isNotBlank())
-                headers["Authorization"] = "Bearer $authToken"
-
-            headers["X-User-ID"] = "7785b089-b9aa-458d-a32e-baec315e5e16"
-            headers["X-Device-ID"] = configManager.deviceID
-            headers["X-Device-Name"] = configManager.deviceID
-            headers["X-Device-Country"] = "de"
-
+            val headers = buildHeaders()
 
             webSocketClient = object : WebSocketClient(uri, headers) {
                 override fun onOpen(handshakedata: ServerHandshake?) {

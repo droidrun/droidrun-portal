@@ -2,8 +2,9 @@ package com.droidrun.portal.config
 
 import android.content.Context
 import android.content.SharedPreferences
-import com.droidrun.portal.events.model.EventType
+import android.os.Build
 import androidx.core.content.edit
+import com.droidrun.portal.events.model.EventType
 
 /**
  * Centralized configuration manager for Droidrun Portal
@@ -144,6 +145,33 @@ class ConfigManager private constructor(private val context: Context) {
         get() = sharedPrefs.getString(KEY_REVERSE_CONNECTION_TOKEN, "") ?: ""
         set(value) {
             sharedPrefs.edit { putString(KEY_REVERSE_CONNECTION_TOKEN, value) }
+        }
+
+    val deviceName: String
+        get() {
+            val manufacturer = Build.MANUFACTURER
+            val model = Build.MODEL
+
+            return if (model.startsWith(manufacturer)) {
+                capitalize(model)
+            } else {
+                capitalize(manufacturer) + " " + model
+            }
+        }
+
+    fun capitalize(str: String): String {
+        return str.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+    }
+
+    val deviceCountryCode: String
+        get() {
+            // TODO:
+            return "de"
+        }
+
+    val userID: String
+        get() {
+            return "7785b089-b9aa-458d-a32e-baec315e5e16"
         }
 
     var reverseConnectionEnabled: Boolean = false
