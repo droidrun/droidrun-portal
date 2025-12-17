@@ -30,4 +30,6 @@ class StateRepository(private val service: DroidrunAccessibilityService) {
         service.takeScreenshotBase64(hideOverlay)
 
     fun updateSocketServerPort(port: Int): Boolean = service.updateSocketServerPort(port)
+
+    fun inputText(text: String, clear: Boolean): Boolean = service.inputText(text, clear)
 }

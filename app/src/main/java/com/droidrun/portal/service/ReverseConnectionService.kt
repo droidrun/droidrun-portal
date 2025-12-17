@@ -88,6 +88,7 @@ class ReverseConnectionService : Service() {
         }
 
         try {
+            disconnect() // Prevent resource leaks from zombie connections
             val uri = URI(hostUrl)
             val headers = buildHeaders()
 
@@ -157,13 +158,17 @@ class ReverseConnectionService : Service() {
             id = json.getInt("id")
 
             if (!::actionDispatcher.isInitialized) {
-                val service = DroidrunAccessibilityService.getInstance()
-                if (service == null) {
-                    Log.e(TAG, "Accessibility Service not ready, cannot dispatch command")
-                    webSocketClient?.send(ApiResponse.Error("Accessibility Service not ready, cannot dispatch command").toJson(id))
-                    return
+                synchronized(this) {
+                    if (!::actionDispatcher.isInitialized) {
+                        val service = DroidrunAccessibilityService.getInstance()
+                        if (service == null) {
+                            Log.e(TAG, "Accessibility Service not ready, cannot dispatch command")
+                            webSocketClient?.send(ApiResponse.Error("Accessibility Service not ready, cannot dispatch command").toJson(id))
+                            return
+                        }
+                        actionDispatcher = service.getActionDispatcher()
+                    }
                 }
-                actionDispatcher = service.getActionDispatcher()
             }
 
             val method = json.getString("method")

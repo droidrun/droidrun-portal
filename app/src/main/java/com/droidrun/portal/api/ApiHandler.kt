@@ -12,15 +12,25 @@ import com.droidrun.portal.service.GestureController
 import com.droidrun.portal.service.DroidrunAccessibilityService
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.InputStream
+import android.content.pm.PackageInstaller
+import android.app.PendingIntent
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.IntentFilter
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 class ApiHandler(
     private val stateRepo: StateRepository,
     private val getKeyboardIME: () -> DroidrunKeyboardIME?,
     private val getPackageManager: () -> PackageManager,
-    private val appVersionProvider: () -> String
+    private val appVersionProvider: () -> String,
+    private val context: Context,
 ) {
     companion object {
         private const val SCREENSHOT_TIMEOUT_SECONDS = 5L
+        private const val TAG = "ApiHandler"
     }
 
     // Queries
@@ -73,11 +83,11 @@ class ApiHandler(
 
 
     fun getPackages(): ApiResponse {
-        Log.d("ApiHandler", "getPackages called")
+        Log.d(TAG, "getPackages called")
         return try {
             val pm = getPackageManager()
             val mainIntent =
-                android.content.Intent(android.content.Intent.ACTION_MAIN, null).apply {
+                Intent(android.content.Intent.ACTION_MAIN, null).apply {
                     addCategory(android.content.Intent.CATEGORY_LAUNCHER)
                 }
 
@@ -150,12 +160,26 @@ class ApiHandler(
 
     // Keyboard actions
     fun keyboardInput(base64Text: String, clear: Boolean): ApiResponse {
-        val ime = getKeyboardIME() ?: return ApiResponse.Error("IME not active")
-        return if (ime.inputB64Text(base64Text, clear)) {
-            ApiResponse.Success("input done (clear=$clear)")
-        } else {
-            ApiResponse.Error("input failed")
+        val ime = getKeyboardIME()
+        if (ime != null) {
+             if (ime.inputB64Text(base64Text, clear)) {
+                return ApiResponse.Success("input done via IME (clear=$clear)")
+             }
         }
+        
+        // Fallback to accessibility services if IME is not active or failed
+        try {
+             val textBytes = android.util.Base64.decode(base64Text, android.util.Base64.DEFAULT)
+             val text = String(textBytes, java.nio.charset.StandardCharsets.UTF_8)
+             
+             if (stateRepo.inputText(text, clear))
+                 return ApiResponse.Success("input done via Accessibility (clear=$clear)")
+
+        } catch (e: Exception) {
+            Log.e("ApiHandler", "Accessibility input fallback failed: ${e.message}")
+        }
+
+        return ApiResponse.Error("input failed (IME not active and Accessiblity fallback failed)")
     }
 
     fun keyboardClear(): ApiResponse {
@@ -318,5 +342,66 @@ class ApiHandler(
 
     fun getTime(): ApiResponse {
         return ApiResponse.Success(System.currentTimeMillis())
+    }
+
+    // TODO fully test it
+    fun installApp(apkStream: InputStream): ApiResponse {
+        return try {
+            val packageInstaller = getPackageManager().packageInstaller
+            val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
+            val sessionId = packageInstaller.createSession(params)
+            val session = packageInstaller.openSession(sessionId)
+
+            session.use {
+                val out = it.openWrite("base_apk", 0, -1)
+                apkStream.use { input ->
+                    input.copyTo(out)
+                }
+                session.fsync(out)
+                out.close()
+
+                val latch = CountDownLatch(1)
+                var success = false
+                var errorMsg = ""
+
+                val receiver = object : BroadcastReceiver() {
+                    override fun onReceive(c: Context?, intent: Intent?) {
+                        val status = intent?.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)
+                        if (status == PackageInstaller.STATUS_SUCCESS) {
+                            success = true
+                        } else {
+                            errorMsg = intent?.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE) ?: "Unknown error"
+                        }
+                        latch.countDown()
+                    }
+                }
+
+                val action = "com.droidrun.portal.INSTALL_COMPLETE_${sessionId}"
+                context.registerReceiver(receiver, IntentFilter(action), Context.RECEIVER_EXPORTED)
+
+                val intent = Intent(action).setPackage(context.packageName)
+                val pendingIntent = PendingIntent.getBroadcast(
+                    context,
+                    sessionId,
+                    intent,
+                    PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                )
+
+                it.commit(pendingIntent.intentSender)
+                
+                // Wait for result
+                latch.await(2, TimeUnit.MINUTES)
+                context.unregisterReceiver(receiver)
+
+                if (success)
+                    ApiResponse.Success("App installed successfully")
+                else
+                    ApiResponse.Error("Install failed: $errorMsg")
+
+            }
+        } catch (e: Exception) {
+            Log.e("ApiHandler", "Install failed", e)
+            ApiResponse.Error("Install exception: ${e.message}")
+        }
     }
 }
