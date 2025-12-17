@@ -10,6 +10,7 @@ import android.util.Log
 import androidx.core.net.toUri
 import com.droidrun.portal.api.ApiHandler
 import com.droidrun.portal.api.ApiResponse
+import com.droidrun.portal.config.ConfigManager
 import com.droidrun.portal.core.StateRepository
 import com.droidrun.portal.input.DroidrunKeyboardIME
 import com.droidrun.portal.service.DroidrunAccessibilityService
@@ -30,6 +31,8 @@ class DroidrunContentProvider : ContentProvider() {
         private const val STATE_FULL = 10
         private const val SOCKET_PORT = 11
         private const val OVERLAY_VISIBLE = 12
+        private const val TOGGLE_WEBSOCKET_SERVER = 13
+        private const val AUTH_TOKEN = 14
 
         private val uriMatcher = UriMatcher(UriMatcher.NO_MATCH).apply {
             addURI(AUTHORITY, "a11y_tree", A11Y_TREE)
@@ -44,14 +47,25 @@ class DroidrunContentProvider : ContentProvider() {
             addURI(AUTHORITY, "version", VERSION)
             addURI(AUTHORITY, "socket_port", SOCKET_PORT)
             addURI(AUTHORITY, "overlay_visible", OVERLAY_VISIBLE)
+            addURI(AUTHORITY, "toggle_websocket_server", TOGGLE_WEBSOCKET_SERVER)
+            addURI(AUTHORITY, "auth_token", AUTH_TOKEN)
         }
     }
+
+    private lateinit var configManager: ConfigManager
     
     private var apiHandler: ApiHandler? = null
 
     override fun onCreate(): Boolean {
-        Log.d(TAG, "DroidrunContentProvider created")
-        return true
+        val appContext = context?.applicationContext
+        return if (appContext != null) {
+            configManager = ConfigManager.getInstance(appContext)
+            Log.d(TAG, "DroidrunContentProvider created")
+            true
+        } else {
+            Log.e(TAG, "Failed to initialize: context is null")
+            false
+        }
     }
     
     private fun getHandler(): ApiHandler? {
@@ -97,6 +111,7 @@ class DroidrunContentProvider : ContentProvider() {
                     STATE_FULL -> handler.getStateFull(uri.getBooleanQueryParameter("filter", true))
                     PACKAGES -> handler.getPackages()
                     VERSION -> handler.getVersion()
+                    AUTH_TOKEN -> ApiResponse.Text(configManager.authToken)
                     else -> ApiResponse.Error("Unknown endpoint: ${uri.path}")
                 }
             }
@@ -142,6 +157,18 @@ class DroidrunContentProvider : ContentProvider() {
                 OVERLAY_VISIBLE -> {
                     val visible = values?.getAsBoolean("visible") ?: true
                     handler.setOverlayVisible(visible)
+                }
+                TOGGLE_WEBSOCKET_SERVER -> {
+                    val port = values?.getAsInteger("port") ?: configManager.websocketPort
+                    val enabled = values?.getAsBoolean("enabled") ?: true
+
+                    // Apply port change first so enabling starts on the requested port.
+                    if (values?.containsKey("port") == true) {
+                        configManager.setWebSocketPortWithNotification(port)
+                    }
+                    configManager.setWebSocketEnabledWithNotification(enabled)
+
+                    ApiResponse.Success("WebSocket server ${if (enabled) "enabled" else "disabled"} on port $port")
                 }
                 else -> ApiResponse.Error("Unsupported insert endpoint")
             }
