@@ -107,7 +107,7 @@ class ConfigManager private constructor(private val context: Context) {
 
     // Socket server enabled (REST API)
     var socketServerEnabled: Boolean
-        get() = sharedPrefs.getBoolean(KEY_SOCKET_SERVER_ENABLED, true)
+        get() = sharedPrefs.getBoolean(KEY_SOCKET_SERVER_ENABLED, false)
         set(value) {
             sharedPrefs.edit { putBoolean(KEY_SOCKET_SERVER_ENABLED, value) }
         }

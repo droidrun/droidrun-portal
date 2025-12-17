@@ -107,29 +107,8 @@ class PortalWebSocketServer(
                     payload.flip()
                     conn?.send(payload)
                 } else {
-                    // Text Response
-                    val response = JSONObject()
-                    response.put("id", id)
-
-                    val apiResponseJson = JSONObject(result.toJson())
-
-                    if (apiResponseJson.getString("status") == "success") {
-                        response.put("status", "success")
-                        // If "data" exists, use it. Otherwise use the whole object (for legacy/raw endpoints like packages)
-                        if (apiResponseJson.has("data")) {
-                            response.put("result", apiResponseJson.get("data"))
-                        } else {
-                            // For getPackages, the result IS the root object (containing "packages" array)
-                            response.put("result", apiResponseJson)
-                        }
-                        response.put("error", JSONObject.NULL)
-                    } else {
-                        response.put("status", "error")
-                        response.put("result", JSONObject.NULL)
-                        response.put("error", apiResponseJson.opt("error") ?: "Unknown error")
-                    }
-
-                    conn?.send(response.toString())
+                    // ApiResponse knows how to format itself with the id
+                    conn?.send(result.toJson(id))
                 }
 
             } else {

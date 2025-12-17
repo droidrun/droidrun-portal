@@ -24,7 +24,7 @@ sealed class ApiResponse {
 
     data class Text(val data: String) : ApiResponse()
 
-    fun toJson(id: Int? = null): String = when (this) {
+    fun toJson(id: Any? = null): String = when (this) {
         is Success -> JSONObject().apply {
             id?.let { put("id", id) }
             put("status", "success")

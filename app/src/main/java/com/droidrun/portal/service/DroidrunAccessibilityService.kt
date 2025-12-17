@@ -33,7 +33,7 @@ import com.droidrun.portal.events.PortalWebSocketServer
 class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.ConfigChangeListener {
 
     companion object {
-        private const val TAG = "DroidrunA11yService"
+        const val TAG = "DroidrunAccessibility"
         private var instance: DroidrunAccessibilityService? = null
         private const val MIN_ELEMENT_SIZE = 5
 
@@ -42,6 +42,22 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
         private const val MIN_FRAME_TIME_MS = 16L // Minimum time between frames (roughly 60 FPS)
 
         fun getInstance(): DroidrunAccessibilityService? = instance
+
+        fun calculateInputText(
+            currentText: String?,
+            hintText: String?,
+            newText: String,
+            clear: Boolean
+        ): String {
+            if (clear) return newText
+
+            val safeCurrentText = currentText.orEmpty()
+
+            // If the current text matches the hint text, treat it as empty.
+            if (hintText != null && safeCurrentText == hintText) return newText
+
+            return safeCurrentText + newText
+        }
     }
 
     private lateinit var overlayManager: OverlayManager
@@ -82,16 +98,17 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
         // Initialize SocketServer with ApiHandler
         val stateRepo = StateRepository(this)
         val apiHandler = ApiHandler(
-            stateRepo = stateRepo,
-            getKeyboardIME = { DroidrunKeyboardIME.getInstance() },
-            getPackageManager = { packageManager },
-            appVersionProvider = {
+            stateRepo,
+            { DroidrunKeyboardIME.getInstance() },
+            { packageManager },
+            {
                 try {
                     packageManager.getPackageInfo(packageName, 0).versionName
                 } catch (e: Exception) {
                     "unknown"
                 }
-            }
+            },
+            this
         )
 
         actionDispatcher = ActionDispatcher(apiHandler)
@@ -600,6 +617,69 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
                 Log.i(TAG, "Socket server stopped")
             }
         }
+    }
+
+    fun inputText(text: String, clear: Boolean): Boolean {
+        val root = rootInActiveWindow ?: return false
+
+        // Strategy 1: Find focused input directly
+        var targetNode = findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+
+        // Strategy 2: If no focus, try to find editable node in the tree
+        if (targetNode == null) {
+            // Simple DFS search for first editable node
+            // Use a helper function
+            targetNode = findEditableNode(root)
+        }
+
+        if (targetNode == null) return false
+
+        try {
+            // Logic to support both Replace (clear=true) and Append (clear=false).
+
+            // Delegate logic to pure function for testability
+            val currentText = targetNode.text?.toString()
+            val hintText = targetNode.hintText?.toString()
+            val finalText = calculateInputText(currentText, hintText, text, clear)
+
+            // Note: ACTION_SET_TEXT always replaces existing content with the argument.
+            // So for clear=true, we just set 'text'.
+            // For clear=false, we set 'oldText + text'.
+
+            val arguments = android.os.Bundle()
+            arguments.putCharSequence(
+                AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
+                finalText
+            )
+            return targetNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error setting text via accessibility: ${e.message}")
+            return false
+        } finally {
+            // Don't recycle targetNode if it's root (unlikely for focus) but standard practice
+            // findFocus returns a node that MUST be recycled.
+            // rootInActiveWindow returns a node that MUST be recycled. 
+            // We should handle recycling carefully.
+            try {
+                if (targetNode != root) targetNode.recycle()
+                root.recycle()
+            } catch (e: Exception) {
+            }
+        }
+    }
+
+    private fun findEditableNode(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        if (node.isEditable) return node
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            val found = findEditableNode(child)
+            if (found != null) {
+                if (found != child) child.recycle() // Recycle intermediate if not the one
+                return found
+            }
+            child.recycle()
+        }
+        return null
     }
 
     fun getSocketServerStatus(): String {

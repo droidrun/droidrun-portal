@@ -16,6 +16,8 @@ import java.net.SocketException
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import java.io.PipedInputStream
+import java.io.PipedOutputStream
 
 class SocketServer(
     private val apiHandler: ApiHandler,
@@ -144,7 +146,12 @@ class SocketServer(
 
                 when (method) {
                     "GET" -> handleGetRequest(path, outputStream)
-                    "POST" -> handlePostRequest(path, reader, outputStream)
+                    "POST" -> {
+                        if (path == "/install")
+                            handleInstallRequest(reader, outputStream)
+                        else
+                            handlePostRequest(path, reader, outputStream)
+                    }
                     else -> sendHttpResponse(
                         outputStream,
                         ApiResponse.Error("Method not allowed: $method").toJson(),
@@ -343,6 +350,54 @@ class SocketServer(
             outputStream.flush()
         } catch (e: Exception) {
             Log.e(TAG, "Error sending error response", e)
+        }
+    }
+    private fun handleInstallRequest(reader: BufferedReader, outputStream: OutputStream) {
+        try {
+            Log.i(TAG, "Handling /install request")
+            
+            val pipedOut = PipedOutputStream()
+            val pipedIn = PipedInputStream(pipedOut)
+
+            val future = executorService?.submit<ApiResponse> {
+                val decoded = android.util.Base64InputStream(pipedIn, android.util.Base64.DEFAULT)
+                apiHandler.installApp(decoded)
+            }
+
+            try {
+                val buffer = CharArray(4096) 
+                var bytesRead: Int
+                
+                // read large chunks
+                while (reader.ready()) {
+                    bytesRead = reader.read(buffer)
+                    if (bytesRead > 0) {
+                        // Convert to bytes (Base64 is ASCII safe)
+                        val bytes = ByteArray(bytesRead)
+                        for (i in 0 until bytesRead) {
+                            bytes[i] = buffer[i].code.toByte()
+                        }
+                        pipedOut.write(bytes)
+                    } else {
+                        break
+                    }
+                }
+                pipedOut.close()
+                
+            } catch (e: Exception) {
+                Log.e(TAG, "Error writing to pipe", e)
+                try { pipedOut.close() } catch (ignored: Exception) {}
+            }
+
+            val response = future?.get() ?: ApiResponse.Error("Install task failed or null")
+            sendHttpResponse(outputStream, response.toJson())
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in handleInstallRequest", e)
+            sendHttpResponse(
+                outputStream,
+                ApiResponse.Error("Internal server error: ${e.message}").toJson(),
+            )
         }
     }
 }

@@ -67,7 +67,8 @@ class DroidrunContentProvider : ContentProvider() {
                     try {
                         context!!.packageManager.getPackageInfo(context!!.packageName, 0).versionName
                     } catch (e: Exception) { "unknown" }
-                }
+                },
+                context = context!!
             )
         }
         return apiHandler
