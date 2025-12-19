@@ -7,6 +7,7 @@ import android.os.Build
 import android.content.Intent
 import android.util.Log
 import android.view.KeyEvent
+import android.view.accessibility.AccessibilityNodeInfo
 import com.droidrun.portal.input.DroidrunKeyboardIME
 import com.droidrun.portal.core.JsonBuilders
 import com.droidrun.portal.core.StateRepository
@@ -249,7 +250,7 @@ class ApiHandler(
     }
 
     fun keyboardKey(keyCode: Int): ApiResponse {
-        // Prefer global actions for system navigation keys (works even without IME).
+        // Prefer global actions for system navigation keys , with and without IME
         val globalAction = when (keyCode) {
             KeyEvent.KEYCODE_BACK -> AccessibilityService.GLOBAL_ACTION_BACK
             KeyEvent.KEYCODE_HOME -> AccessibilityService.GLOBAL_ACTION_HOME
@@ -260,8 +261,71 @@ class ApiHandler(
             return performGlobalAction(globalAction)
         }
 
+        // without IME
+        if (keyCode == KeyEvent.KEYCODE_ENTER) {
+            val state = stateRepo.getPhoneState()
+            val focusedNode = state.focusedElement
+
+            try {
+                if (focusedNode != null) {
+                    if (focusedNode.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)) {
+                        return ApiResponse.Success("Enter performed via Accessibility")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Accessibility enter failed", e)
+            } finally {
+                try {
+                    focusedNode?.recycle()
+                } catch (_: Exception) {
+                }
+            }
+
+            // Fallback: some multiline fields accept newline via ACTION_SET_TEXT.
+            return if (stateRepo.inputText("\n", clear = false))
+                ApiResponse.Success("Newline inserted via Accessibility")
+            else
+                ApiResponse.Error("Enter failed (IME not active and Accessibility fallback failed)")
+        }
+
+        if (keyCode == KeyEvent.KEYCODE_DEL) {
+            val state = stateRepo.getPhoneState()
+            val focusedNode = state.focusedElement
+
+            val currentText: String?
+            val hintText: String?
+            try {
+                currentText = focusedNode?.text?.toString()
+                hintText = focusedNode?.hintText?.toString()
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to read focused text for delete", e)
+                return ApiResponse.Error("Delete failed (could not read focused text)")
+            } finally {
+                try {
+                    focusedNode?.recycle()
+                } catch (_: Exception) {
+                }
+            }
+
+            val effectiveText =
+                if (!hintText.isNullOrEmpty() && currentText == hintText) "" else currentText.orEmpty()
+
+            if (effectiveText.isEmpty())
+                return ApiResponse.Success("Delete noop (field is empty)")
+
+
+            val updatedText = effectiveText.dropLast(1)
+            return if (stateRepo.inputText(updatedText, clear = true))
+                ApiResponse.Success("Delete performed via Accessibility")
+            else
+                ApiResponse.Error("Delete failed (IME not active and Accessibility fallback failed)")
+
+        }
+
         val ime = getKeyboardIME()
-            ?: return ApiResponse.Error("DroidrunKeyboardIME not active or available")
+            ?: return ApiResponse.Error(
+                "DroidrunKeyboardIME not active or available. Use keyboard/input for text, or supported keys like back/home/recents/enter/delete.",
+            )
 
         if (!ime.hasInputConnection()) {
             return ApiResponse.Error("No input connection available - keyboard may not be focused on an input field")
