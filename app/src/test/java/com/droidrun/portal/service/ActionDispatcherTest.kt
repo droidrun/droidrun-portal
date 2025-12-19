@@ -5,6 +5,7 @@ import com.droidrun.portal.api.ApiResponse
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -89,5 +90,58 @@ class ActionDispatcherTest {
             dispatcher.dispatch("does_not_exist", JSONObject()),
         )
     }
-}
 
+    @Test
+    fun dispatch_install_supportsUrlsList_andHideOverlayFlag() {
+        val apiHandler = mockk<ApiHandler>()
+        every {
+            apiHandler.installFromUrls(listOf("https://example.com/a.apk", "https://example.com/b.apk"), false)
+        } returns ApiResponse.Success("ok")
+        every {
+            apiHandler.installFromUrls(listOf("https://example.com/a.apk", "https://example.com/b.apk"), true)
+        } returns ApiResponse.Success("ok")
+
+        val dispatcher = ActionDispatcher(apiHandler)
+
+        // Default behavior: hideOverlay defaults to false if omitted
+        val defaultParams = JSONObject().apply {
+            put(
+                "urls",
+                JSONArray().apply {
+                    put("https://example.com/a.apk")
+                    put("https://example.com/b.apk")
+                },
+            )
+        }
+
+        assertEquals(ApiResponse.Success("ok"), dispatcher.dispatch("install", defaultParams))
+        assertEquals(
+            ApiResponse.Error("Install is only supported over WebSocket"),
+            dispatcher.dispatch("install", defaultParams, ActionDispatcher.Origin.HTTP),
+        )
+
+        verify(exactly = 1) {
+            apiHandler.installFromUrls(listOf("https://example.com/a.apk", "https://example.com/b.apk"), false)
+        }
+
+        // Explicitly passing hideOverlay=true should propagate
+        val explicitParams = JSONObject(defaultParams.toString()).apply {
+            put("hideOverlay", true)
+        }
+
+        assertEquals(ApiResponse.Success("ok"), dispatcher.dispatch("install", explicitParams))
+        verify(exactly = 1) {
+            apiHandler.installFromUrls(listOf("https://example.com/a.apk", "https://example.com/b.apk"), true)
+        }
+
+        // Explicitly passing hideOverlay=false should propagate
+        val falseParams = JSONObject(defaultParams.toString()).apply {
+            put("hideOverlay", false)
+        }
+
+        assertEquals(ApiResponse.Success("ok"), dispatcher.dispatch("install", falseParams))
+        verify(exactly = 2) {
+            apiHandler.installFromUrls(listOf("https://example.com/a.apk", "https://example.com/b.apk"), false)
+        }
+    }
+}

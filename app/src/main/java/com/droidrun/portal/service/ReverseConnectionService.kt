@@ -13,6 +13,7 @@ import org.java_websocket.client.WebSocketClient
 import org.java_websocket.handshake.ServerHandshake
 import org.json.JSONObject
 import java.net.URI
+import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
 class ReverseConnectionService : Service() {
@@ -29,6 +30,7 @@ class ReverseConnectionService : Service() {
     private var webSocketClient: WebSocketClient? = null
     private var isServiceRunning = AtomicBoolean(false)
     private val handler = Handler(Looper.getMainLooper())
+    private val installExecutor = Executors.newSingleThreadExecutor()
 
     inner class LocalBinder : Binder() {
         fun getService(): ReverseConnectionService = this@ReverseConnectionService
@@ -55,6 +57,10 @@ class ReverseConnectionService : Service() {
         isServiceRunning.set(false)
         handler.removeCallbacksAndMessages(null)
         disconnect()
+        try {
+            installExecutor.shutdownNow()
+        } catch (_: Exception) {
+        }
         Log.i(TAG, "Service Destroyed")
     }
 
@@ -163,7 +169,10 @@ class ReverseConnectionService : Service() {
                         val service = DroidrunAccessibilityService.getInstance()
                         if (service == null) {
                             Log.e(TAG, "Accessibility Service not ready, cannot dispatch command")
-                            webSocketClient?.send(ApiResponse.Error("Accessibility Service not ready, cannot dispatch command").toJson(id))
+                            webSocketClient?.send(
+                                ApiResponse.Error("Accessibility Service not ready, cannot dispatch command")
+                                    .toJson(id)
+                            )
                             return
                         }
                         actionDispatcher = service.getActionDispatcher()
@@ -172,9 +181,35 @@ class ReverseConnectionService : Service() {
             }
 
             val method = json.getString("method")
-            val params = json.optJSONArray("params")?.optJSONObject(0) ?: JSONObject()
+            val params =
+                json.optJSONObject("params")
+                    ?: json.optJSONArray("params")?.optJSONObject(0)
+                    ?: JSONObject()
 
             Log.d(TAG, "Dispatching $method (id=$id,params=$params)")
+
+            val normalizedMethod =
+                method.removePrefix("/action/").removePrefix("action.").removePrefix("/")
+
+            // Don't block ws
+            if (normalizedMethod == "install") {
+                val requestId = id
+                installExecutor.submit {
+                    try {
+                        val result = actionDispatcher.dispatch(method, params)
+                        webSocketClient?.send(result.toJson(requestId))
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Install task failed", e)
+                        try {
+                            webSocketClient?.send(
+                                ApiResponse.Error(e.message ?: "Install failed").toJson(requestId),
+                            )
+                        } catch (_: Exception) {
+                        }
+                    }
+                }
+                return
+            }
 
             // Execute
             val result = actionDispatcher.dispatch(method, params)
@@ -187,7 +222,9 @@ class ReverseConnectionService : Service() {
             Log.e(TAG, "Error processing message", e)
             if (id != null) {
                 try {
-                    webSocketClient?.send(ApiResponse.Error(e.message ?: "unknown exception").toJson(id))
+                    webSocketClient?.send(
+                        ApiResponse.Error(e.message ?: "unknown exception").toJson(id)
+                    )
                 } catch (e: Exception) {
                     Log.e(TAG, "Error responding with an error")
                 }

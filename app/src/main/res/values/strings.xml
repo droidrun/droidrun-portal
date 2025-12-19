@@ -50,8 +50,8 @@
     <!-- Sheet Settings -->
     <string name="websocket_settings_header">WebSocket Settings</string>
     <string name="server_configuration_header">SERVER CONFIGURATION</string>
-    <string name="enable_server_label">Enable Server</string>
-    <string name="allow_external_connections_label">Allow external connections</string>
+    <string name="enable_ws_server_label">Enable WS Server</string>
+    <string name="allow_external_connections_label">Allow external connections WS</string>
     <string name="port_label">Port</string>
     <string name="reverse_connection_header">REVERSE CONNECTION (CLIENT MODE)</string>
     <string name="connect_to_host_label">Connect to Host</string>
