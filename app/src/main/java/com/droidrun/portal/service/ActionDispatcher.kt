@@ -2,6 +2,7 @@ package com.droidrun.portal.service
 
 import com.droidrun.portal.api.ApiHandler
 import com.droidrun.portal.api.ApiResponse
+import org.json.JSONArray
 import org.json.JSONObject
 
 /**
@@ -15,6 +16,11 @@ class ActionDispatcher(private val apiHandler: ApiHandler) {
         private const val DEFAULT_SWIPE_DURATION_MS = 300
     }
 
+    enum class Origin {
+        HTTP,
+        WEBSOCKET,
+    }
+
     /**
      * Dispatch a command based on the action name and parameters.
      *
@@ -22,9 +28,16 @@ class ActionDispatcher(private val apiHandler: ApiHandler) {
      * @param params The JSON parameters for the action
      * @return ApiResponse result
      */
-    fun dispatch(action: String, params: JSONObject): ApiResponse {
+    fun dispatch(
+        action: String,
+        params: JSONObject,
+        origin: Origin = Origin.WEBSOCKET
+    ): ApiResponse {
         // Normalize action name (handle both "action.tap" and "/action/tap" styles)
-        return when (val method = action.removePrefix("/action/").removePrefix("action.")) {
+        return when (
+            val method =
+                action.removePrefix("/action/").removePrefix("action.").removePrefix("/")
+        ) {
             "tap" -> {
                 val x = params.optInt("x", 0)
                 val y = params.optInt("y", 0)
@@ -101,6 +114,28 @@ class ActionDispatcher(private val apiHandler: ApiHandler) {
 
             "time" -> {
                 apiHandler.getTime()
+            }
+
+            "install" -> {
+                if (origin == Origin.HTTP)
+                    return ApiResponse.Error("Install is only supported over WebSocket")
+
+                val hideOverlay = params.optBoolean("hideOverlay", false)
+
+                val urlsArray: JSONArray? = params.optJSONArray("urls")
+                if (urlsArray == null || urlsArray.length() == 0)
+                    return ApiResponse.Error("Missing required param: 'urls'")
+
+                val urls = mutableListOf<String>()
+                for (i in 0 until urlsArray.length()) {
+                    val url = urlsArray.optString(i, "").trim()
+                    if (url.isNotEmpty()) urls.add(url)
+                }
+
+                if (urls.isEmpty())
+                    ApiResponse.Error("Missing required param: 'urls'")
+                else
+                    apiHandler.installFromUrls(urls, hideOverlay)
             }
 
             else -> ApiResponse.Error("Unknown method: $method")

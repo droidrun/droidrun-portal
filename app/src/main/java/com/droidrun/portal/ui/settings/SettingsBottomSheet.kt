@@ -35,6 +35,29 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
         configManager = ConfigManager.getInstance(requireContext())
 
         // Server Settings
+        // HTTP Server
+        binding.switchSocketServerEnabled.isChecked = configManager.socketServerEnabled
+        binding.switchSocketServerEnabled.setOnCheckedChangeListener { _, isChecked ->
+            configManager.setSocketServerEnabledWithNotification(isChecked)
+        }
+
+        binding.inputSocketServerPort.setText(configManager.socketServerPort.toString())
+        binding.inputSocketServerPort.setOnEditorActionListener { v, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_DONE) {
+                val port = v.text.toString().toIntOrNull()
+                if (port != null && port in MIN_PORT..MAX_PORT) {
+                    configManager.setSocketServerPortWithNotification(port)
+                    binding.inputSocketServerPort.clearFocus()
+                } else {
+                    binding.inputSocketServerPort.error = "Invalid Port"
+                }
+                true
+            } else {
+                false
+            }
+        }
+
+        // WebSocket Settings
         binding.switchWsEnabled.isChecked = configManager.websocketEnabled
         binding.switchWsEnabled.setOnCheckedChangeListener { _, isChecked ->
             configManager.setWebSocketEnabledWithNotification(isChecked)

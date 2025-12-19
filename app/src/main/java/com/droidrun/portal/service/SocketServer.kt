@@ -16,8 +16,6 @@ import java.net.SocketException
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
-import java.io.PipedInputStream
-import java.io.PipedOutputStream
 
 class SocketServer(
     private val apiHandler: ApiHandler,
@@ -130,9 +128,13 @@ class SocketServer(
 
                 // Consume headers
                 var line = reader.readLine()
+                var contentLength = 0
+                
                 while (!line.isNullOrEmpty()) {
                     if (line.startsWith(AUTHORIZATION_HEADER_PREFIX, ignoreCase = true)) {
                         authToken = line.substring(14).trim().removePrefix(BEARER_PREFIX).trim()
+                    } else if (line.startsWith("Content-Length:", ignoreCase = true)) {
+                        contentLength = line.substring(15).trim().toIntOrNull() ?: 0
                     }
                     line = reader.readLine()
                 }
@@ -147,10 +149,7 @@ class SocketServer(
                 when (method) {
                     "GET" -> handleGetRequest(path, outputStream)
                     "POST" -> {
-                        if (path == "/install")
-                            handleInstallRequest(reader, outputStream)
-                        else
-                            handlePostRequest(path, reader, outputStream)
+                        handlePostRequest(path, reader, outputStream, contentLength)
                     }
                     else -> sendHttpResponse(
                         outputStream,
@@ -181,7 +180,7 @@ class SocketServer(
                     } else true
                     val params = JSONObject()
                     params.put("hideOverlay", hideOverlay)
-                    actionDispatcher.dispatch("screenshot", params)
+                    actionDispatcher.dispatch("screenshot", params, ActionDispatcher.Origin.HTTP)
                 }
                 // Fallback to legacy logic for other endpoints for now
                 // or map them to dispatcher if possible
@@ -215,15 +214,19 @@ class SocketServer(
         path: String,
         reader: BufferedReader,
         outputStream: OutputStream,
+        contentLength: Int,
     ) {
         try {
             val postData = StringBuilder()
-            if (reader.ready()) {
-                val char = CharArray(POST_BODY_BUFFER_SIZE)
-                val bytesRead = reader.read(char)
-                if (bytesRead > 0) {
-                    postData.append(char, 0, bytesRead)
-                }
+            val charBuffer = CharArray(POST_BODY_BUFFER_SIZE)
+            var totalRead = 0
+            
+            while (totalRead < contentLength) {
+                val toRead = minOf(charBuffer.size, contentLength - totalRead)
+                val read = reader.read(charBuffer, 0, toRead)
+                if (read == -1) break 
+                postData.append(charBuffer, 0, read)
+                totalRead += read
             }
 
             // Convert ContentValues to JSONObject for Dispatcher
@@ -234,7 +237,7 @@ class SocketServer(
                 params.put(key, value)
             }
 
-            val response = actionDispatcher.dispatch(path, params)
+            val response = actionDispatcher.dispatch(path, params, ActionDispatcher.Origin.HTTP)
 
             if (response is ApiResponse.Binary) {
                 sendBinaryResponse(outputStream, response.data, "application/octet-stream")
@@ -350,54 +353,6 @@ class SocketServer(
             outputStream.flush()
         } catch (e: Exception) {
             Log.e(TAG, "Error sending error response", e)
-        }
-    }
-    private fun handleInstallRequest(reader: BufferedReader, outputStream: OutputStream) {
-        try {
-            Log.i(TAG, "Handling /install request")
-            
-            val pipedOut = PipedOutputStream()
-            val pipedIn = PipedInputStream(pipedOut)
-
-            val future = executorService?.submit<ApiResponse> {
-                val decoded = android.util.Base64InputStream(pipedIn, android.util.Base64.DEFAULT)
-                apiHandler.installApp(decoded)
-            }
-
-            try {
-                val buffer = CharArray(4096) 
-                var bytesRead: Int
-                
-                // read large chunks
-                while (reader.ready()) {
-                    bytesRead = reader.read(buffer)
-                    if (bytesRead > 0) {
-                        // Convert to bytes (Base64 is ASCII safe)
-                        val bytes = ByteArray(bytesRead)
-                        for (i in 0 until bytesRead) {
-                            bytes[i] = buffer[i].code.toByte()
-                        }
-                        pipedOut.write(bytes)
-                    } else {
-                        break
-                    }
-                }
-                pipedOut.close()
-                
-            } catch (e: Exception) {
-                Log.e(TAG, "Error writing to pipe", e)
-                try { pipedOut.close() } catch (ignored: Exception) {}
-            }
-
-            val response = future?.get() ?: ApiResponse.Error("Install task failed or null")
-            sendHttpResponse(outputStream, response.toJson())
-
-        } catch (e: Exception) {
-            Log.e(TAG, "Error in handleInstallRequest", e)
-            sendHttpResponse(
-                outputStream,
-                ApiResponse.Error("Internal server error: ${e.message}").toJson(),
-            )
         }
     }
 }

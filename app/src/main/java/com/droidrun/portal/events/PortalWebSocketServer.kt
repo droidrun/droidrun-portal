@@ -11,6 +11,7 @@ import java.nio.ByteBuffer
 import com.droidrun.portal.service.ActionDispatcher
 import com.droidrun.portal.config.ConfigManager
 import org.json.JSONObject
+import java.util.concurrent.Executors
 
 class PortalWebSocketServer(
     port: Int,
@@ -27,6 +28,8 @@ class PortalWebSocketServer(
         private const val EXPECTED_REQUEST_ID_BYTES = 36
         private const val UNAUTHORIZED = "Unauthorized"
     }
+
+    private val installExecutor = Executors.newSingleThreadExecutor()
 
     // TODO test it
     override fun onWebsocketHandshakeReceivedAsServer(
@@ -85,6 +88,32 @@ class PortalWebSocketServer(
             if (id.isNotEmpty() && method.isNotEmpty()) {
                 // Command Request
                 val params = json.optJSONObject("params") ?: JSONObject()
+
+                val normalizedMethod =
+                    method.removePrefix("/action/").removePrefix("action.").removePrefix("/")
+
+                // Don't block ws
+                if (normalizedMethod == "install") {
+                    installExecutor.submit {
+                        try {
+                            val result = actionDispatcher.dispatch(method, params)
+                            if (conn?.isOpen == true) conn.send(result.toJson(id))
+
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Install task failed: ${e.message}", e)
+                            try {
+                                if (conn?.isOpen == true) {
+                                    conn.send(
+                                        com.droidrun.portal.api.ApiResponse.Error(
+                                            e.message ?: "Install failed",
+                                        ).toJson(id),
+                                    )
+                                }
+                            } catch (_: Exception) { }
+                        }
+                    }
+                    return
+                }
 
                 val result = actionDispatcher.dispatch(method, params)
 
@@ -157,6 +186,12 @@ class PortalWebSocketServer(
             stop()
         } catch (e: Exception) {
             Log.e(TAG, "Error stopping server", e)
+        } finally {
+            try {
+                installExecutor.shutdownNow()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error stopping install executor", e)
+            }
         }
     }
 }
