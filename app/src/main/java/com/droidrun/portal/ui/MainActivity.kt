@@ -29,6 +29,9 @@ import com.droidrun.portal.databinding.ActivityMainBinding
 import com.droidrun.portal.ui.settings.SettingsBottomSheet
 import androidx.core.net.toUri
 import androidx.core.graphics.toColorInt
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.result.contract.ActivityResultContracts
 
 class MainActivity : AppCompatActivity() {
 
@@ -118,6 +121,7 @@ class MainActivity : AppCompatActivity() {
         updateStatusIndicators()
         syncUIWithAccessibilityService()
         updateSocketServerStatus()
+        setupPostNotificationsButton()
     }
 
     override fun onResume() {
@@ -164,6 +168,7 @@ class MainActivity : AppCompatActivity() {
     private fun updateStatusIndicators() {
         updateAccessibilityStatusIndicator()
         updateNotificationStatusIndicator()
+        updatePostNotificationsStatusIndicator()
     }
 
     private fun syncUIWithAccessibilityService() {
@@ -513,6 +518,42 @@ class MainActivity : AppCompatActivity() {
             }
         } catch (e: Exception) {
             Log.w("MainActivity", "Error updating notification status UI: ${e.message}")
+        }
+    }
+
+    private val requestNotificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        updatePostNotificationsStatusIndicator()
+        if (isGranted) {
+            Toast.makeText(this, "Notification permission granted", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun setupPostNotificationsButton() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            binding.postNotificationsBanner.setOnClickListener {
+                requestNotificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+            }
+            binding.enablePostNotificationsButton.setOnClickListener {
+                requestNotificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
+
+    private fun updatePostNotificationsStatusIndicator() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val isGranted = checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+            if (isGranted) {
+                // Hide both (clean look, permission granted)
+                binding.postNotificationsBanner.visibility = View.GONE
+            } else {
+                // Show the warning banner
+                binding.postNotificationsBanner.visibility = View.VISIBLE
+            }
+        } else {
+            // Pre-API 33, no runtime permission needed, hide banner
+            binding.postNotificationsBanner.visibility = View.GONE
         }
     }
 

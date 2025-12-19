@@ -21,6 +21,11 @@ class ReverseConnectionService : Service() {
     companion object {
         private const val TAG = "ReverseConnService"
         private const val RECONNECT_DELAY_MS = 3000L
+
+        @Volatile
+        private var instance: ReverseConnectionService? = null
+
+        fun getInstance(): ReverseConnectionService? = instance
     }
 
     private val binder = LocalBinder()
@@ -40,6 +45,7 @@ class ReverseConnectionService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        instance = this
         configManager = ConfigManager.getInstance(this)
         Log.d(TAG, "Service Created")
     }
@@ -54,6 +60,7 @@ class ReverseConnectionService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        instance = null
         isServiceRunning.set(false)
         handler.removeCallbacksAndMessages(null)
         disconnect()
@@ -62,6 +69,13 @@ class ReverseConnectionService : Service() {
         } catch (_: Exception) {
         }
         Log.i(TAG, "Service Destroyed")
+    }
+
+
+    fun sendText(text: String) {
+        webSocketClient?.let { client ->
+            if (client.isOpen) client.send(text)
+        }
     }
 
     fun buildHeaders(): MutableMap<String, String> {
@@ -157,11 +171,12 @@ class ReverseConnectionService : Service() {
         Log.d(TAG, "Received message: $message")
         if (message == null) return
 
-        var id: Int? = null
+        var id: Any? = null
 
         try {
             val json = JSONObject(message)
-            id = json.getInt("id")
+            // Support both integer and string IDs (e.g., UUIDs)
+            id = json.opt("id")?.takeIf { it != JSONObject.NULL }
 
             if (!::actionDispatcher.isInitialized) {
                 synchronized(this) {
@@ -180,7 +195,20 @@ class ReverseConnectionService : Service() {
                 }
             }
 
-            val method = json.getString("method")
+            // TODO Check for method - may be empty for JSON-RPC responses to outgoing messages
+            val method = json.optString("method", "")
+            
+            if (method.isEmpty()) {
+                if (json.has("result")) {
+                    Log.d(TAG, "Received JSON-RPC result for id=$id")
+                } else if (json.has("error")) {
+                    Log.w(TAG, "Received JSON-RPC error for id=$id: ${json.opt("error")}")
+                } else {
+                    Log.w(TAG, "Received message without method, result, or error: $message")
+                }
+                return
+            }
+            
             val params =
                 json.optJSONObject("params")
                     ?: json.optJSONArray("params")?.optJSONObject(0)

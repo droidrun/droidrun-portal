@@ -30,6 +30,12 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import androidx.core.net.toUri
+import com.droidrun.portal.service.ScreenCaptureService
+import com.droidrun.portal.streaming.WebRtcManager
+import org.webrtc.IceCandidate
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import androidx.core.app.NotificationCompat
 
 class ApiHandler(
     private val stateRepo: StateRepository,
@@ -796,5 +802,90 @@ class ApiHandler(
         }
 
         return ApiResponse.RawObject(summary)
+    }
+
+    fun startStream(params: JSONObject): ApiResponse {
+        val width = params.optInt("width", 720)
+        val height = params.optInt("height", 1280)
+        val fps = params.optInt("fps", 30)
+        // TODO: Handle ICE servers from params
+
+        val intent = Intent(context, com.droidrun.portal.ui.ScreenCaptureActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(ScreenCaptureService.EXTRA_WIDTH, width)
+            putExtra(ScreenCaptureService.EXTRA_HEIGHT, height)
+            putExtra(ScreenCaptureService.EXTRA_FPS, fps)
+        }
+
+        try {
+             context.startActivity(intent)
+             return ApiResponse.Success("prompting_user")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to start ScreenCaptureActivity directly: ${e.message}. Trying notification trampoline.")
+            
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                val notificationPermission = context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
+                if (notificationPermission != PackageManager.PERMISSION_GRANTED) {
+                    Log.e(TAG, "POST_NOTIFICATIONS permission not granted, opening app notification settings")
+                    
+                    try {
+                        val settingsIntent = Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
+                        }
+                        context.startActivity(settingsIntent)
+                    } catch (settingsEx: Exception) {
+                        Log.e(TAG, "Failed to open notification settings: ${settingsEx.message}")
+                    }
+                    
+                    return ApiResponse.Error("stream_start_failed: Notification permission required. Please enable notifications and try again.")
+                }
+            }
+            
+            val pendingIntent = PendingIntent.getActivity(
+                context, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            
+            val channelId = "stream_start_channel"
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val channel = NotificationChannel(channelId, "Start Streaming", NotificationManager.IMPORTANCE_HIGH)
+                val nm = context.getSystemService(NotificationManager::class.java)
+                nm.createNotificationChannel(channel)
+            }
+            
+            val notification = NotificationCompat.Builder(context, channelId)
+                .setSmallIcon(android.R.drawable.ic_menu_camera)
+                .setContentTitle("Start Screen Streaming")
+                .setContentText("Tap to allow cloud screen sharing")
+                .setContentIntent(pendingIntent)
+                .setAutoCancel(true)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .build()
+                
+            val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            nm.notify(3001, notification)
+            
+            return ApiResponse.Success("waiting_for_user_notification_tap")
+        }
+    }
+
+    fun stopStream(): ApiResponse {
+        val intent = Intent(context, ScreenCaptureService::class.java).apply {
+            action = ScreenCaptureService.ACTION_STOP_STREAM
+        }
+        context.startService(intent)
+        return ApiResponse.Success("Stop stream requested")
+    }
+
+    fun handleWebRtcAnswer(sdp: String): ApiResponse {
+        WebRtcManager.getInstance(context).handleAnswer(sdp)
+        return ApiResponse.Success("SDP Answer processed")
+    }
+
+    fun handleWebRtcIce(candidateSdp: String, sdpMid: String, sdpMLineIndex: Int): ApiResponse {
+        WebRtcManager.getInstance(context).handleIceCandidate(
+            IceCandidate(sdpMid, sdpMLineIndex, candidateSdp)
+        )
+        return ApiResponse.Success("ICE Candidate processed")
     }
 }

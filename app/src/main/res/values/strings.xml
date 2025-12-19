@@ -13,6 +13,8 @@
     <string name="notification_access_not_granted">Notification Access Not Granted</string>
     <string name="enable">Enable</string>
     <string name="notification_listener">Notification Listener</string>
+    <string name="post_notifications_not_granted">Notification Permission Required (for streaming)</string>
+    <string name="post_notifications_enabled">Notification Permission</string>
     <string name="controls_header">Controls</string>
     <string name="overlay_label">Overlay</string>
     <string name="overlay_offset_label">Overlay Offset</string>

@@ -132,10 +132,32 @@ class ActionDispatcher(private val apiHandler: ApiHandler) {
                     if (url.isNotEmpty()) urls.add(url)
                 }
 
-                if (urls.isEmpty())
+                if (urls.isEmpty()) {
                     ApiResponse.Error("Missing required param: 'urls'")
-                else
+                } else {
                     apiHandler.installFromUrls(urls, hideOverlay)
+                }
+            }
+
+            // Streaming Commands
+            "stream/start" -> {
+                apiHandler.startStream(params)
+            }
+
+            "stream/stop" -> {
+                apiHandler.stopStream()
+            }
+
+            "webrtc/answer" -> {
+                val sdp = params.getString("sdp")
+                apiHandler.handleWebRtcAnswer(sdp)
+            }
+
+            "webrtc/ice" -> {
+                val candidateSdp = params.getString("candidate")
+                val sdpMid = params.optString("sdpMid")
+                val sdpMLineIndex = params.optInt("sdpMLineIndex")
+                apiHandler.handleWebRtcIce(candidateSdp, sdpMid, sdpMLineIndex)
             }
 
             else -> ApiResponse.Error("Unknown method: $method")
