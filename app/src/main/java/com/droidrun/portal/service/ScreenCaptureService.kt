@@ -8,7 +8,9 @@ import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.droidrun.portal.streaming.WebRtcManager
@@ -18,7 +20,8 @@ class ScreenCaptureService : Service() {
     companion object {
         private const val TAG = "ScreenCaptureService"
         private const val CHANNEL_ID = "screen_capture_channel"
-        private const val NOTIFICATION_ID = 2001
+        private const val STOP_TIMEOUT_MS = 3000L
+        const val NOTIFICATION_ID = 2001
         
         const val ACTION_START_STREAM = "com.droidrun.portal.action.START_STREAM"
         const val ACTION_STOP_STREAM = "com.droidrun.portal.action.STOP_STREAM"
@@ -33,6 +36,10 @@ class ScreenCaptureService : Service() {
     }
 
     private lateinit var webRtcManager: WebRtcManager
+    private var stopRequested = false
+    private var stopFinalized = false
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val stopTimeoutRunnable = Runnable { finalizeStop("cleanup_timeout") }
 
     override fun onCreate() {
         super.onCreate()
@@ -55,6 +62,7 @@ class ScreenCaptureService : Service() {
                 val fps = intent.getIntExtra(EXTRA_FPS, 30)
 
                 if (resultCode == -1 && resultData != null) {
+                    stopRequested = false
                     startForeground(NOTIFICATION_ID, createNotification(), 
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                              ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
@@ -113,20 +121,43 @@ class ScreenCaptureService : Service() {
     }
     
     private fun stopStream() {
-        webRtcManager.stopStream()
-        stopForeground(true)
-        stopSelf()
+        if (stopRequested) {
+            Log.i(TAG, "Stop already requested; finalizing")
+            finalizeStop("duplicate_stop")
+            return
+        }
+        stopRequested = true
+        Log.i(TAG, "Stop requested; scheduling cleanup")
+        webRtcManager.notifyStreamStoppedAsync("user_stop")
+        webRtcManager.stopStreamAsync {
+            Log.i(TAG, "WebRTC cleanup completed")
+            finalizeStop("cleanup_complete")
+        }
+        mainHandler.postDelayed(stopTimeoutRunnable, STOP_TIMEOUT_MS)
     }
 
     override fun onDestroy() {
         super.onDestroy()
         Log.d(TAG, "ScreenCaptureService Destroyed")
-        webRtcManager.stopStream()
-        @Suppress("DEPRECATION")
-        stopForeground(true) // Ensure notification is cleared
+        if (!stopRequested) {
+            stopRequested = true
+            webRtcManager.notifyStreamStoppedAsync("service_destroyed")
+            webRtcManager.stopStreamAsync()
+        }
+        finalizeStop("service_destroyed")
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+    
+    private fun finalizeStop(reason: String) {
+        if (stopFinalized) return
+        stopFinalized = true
+        mainHandler.removeCallbacks(stopTimeoutRunnable)
+        Log.i(TAG, "Finalizing stop ($reason)")
+        @Suppress("DEPRECATION")
+        stopForeground(true)
+        stopSelf()
+    }
     
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -141,11 +172,14 @@ class ScreenCaptureService : Service() {
     }
 
     private fun createNotification(): Notification {
-        val stopIntent = Intent(this, ScreenCaptureService::class.java).apply {
+        val stopIntent = Intent(this, ScreenCaptureStopReceiver::class.java).apply {
             action = ACTION_STOP_STREAM
         }
-        val stopPendingIntent = PendingIntent.getService(
-            this, 0, stopIntent, PendingIntent.FLAG_IMMUTABLE
+        val stopPendingIntent = PendingIntent.getBroadcast(
+            this,
+            0,
+            stopIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)

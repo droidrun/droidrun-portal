@@ -3,6 +3,7 @@ package com.droidrun.portal.streaming
 import android.content.Context
 import android.media.projection.MediaProjection
 import android.os.Handler
+import android.os.HandlerThread
 import android.os.Looper
 import android.util.Log
 import com.droidrun.portal.service.ReverseConnectionService
@@ -52,8 +53,11 @@ class WebRtcManager private constructor(private val context: Context) {
     // for all peerConnection lifecycle operations
     private val streamLock = Any()
     
+    private val stopThread = HandlerThread("WebRtcStop").apply { start() }
+    private val stopHandler = Handler(stopThread.looper)
     private val mainHandler = Handler(Looper.getMainLooper())
-    private var streamGeneration = 0
+    private val streamGeneration = AtomicInteger(0)
+    @Volatile
     private var streamRequestId: Any? = null
 
     init {
@@ -65,12 +69,10 @@ class WebRtcManager private constructor(private val context: Context) {
     }
 
     fun setStreamRequestId(requestId: Any?) {
-        synchronized(streamLock) {
-            streamRequestId = requestId
-        }
+        streamRequestId = requestId
     }
 
-    fun getStreamRequestId(): Any? = synchronized(streamLock) { streamRequestId }
+    fun getStreamRequestId(): Any? = streamRequestId
 
     fun isStreamActive(): Boolean = synchronized(streamLock) { peerConnection != null }
 
@@ -96,13 +98,13 @@ class WebRtcManager private constructor(private val context: Context) {
         fps: Int,
         iceServers: List<PeerConnection.IceServer>? = null
     ) {
+        Log.i(TAG, "Starting WebRTC Stream: ${width}x${height} @ $fps fps")
+        val streamId = streamGeneration.incrementAndGet()
+        val staleResources = synchronized(streamLock) {
+            detachStreamResourcesLocked()
+        }
+        cleanupStreamResources(staleResources)
         synchronized(streamLock) {
-            Log.i(TAG, "Starting WebRTC Stream: ${width}x${height} @ $fps fps")
-            streamGeneration += 1
-            val streamId = streamGeneration
-            // Clean up first
-            stopStreamInternal()
-
             createPeerConnection(iceServers, streamId)
             createVideoTrack(permissionResultData, width, height, fps, streamId)
             
@@ -115,107 +117,184 @@ class WebRtcManager private constructor(private val context: Context) {
     }
 
     fun stopStream() {
-        synchronized(streamLock) {
-            streamGeneration += 1
-            stopStreamInternal()
+        val resources = synchronized(streamLock) {
+            streamGeneration.incrementAndGet()
             streamRequestId = null
+            detachStreamResourcesLocked()
+        }
+        cleanupStreamResources(resources)
+    }
+
+    fun stopStreamAsync(onStopped: (() -> Unit)? = null) {
+        val stopGeneration = streamGeneration.get()
+        Log.i(TAG, "stopStreamAsync requested (gen=$stopGeneration)")
+        stopHandler.post {
+            var invokeCallback = false
+            val resources = synchronized(streamLock) {
+                val currentGeneration = streamGeneration.get()
+                if (stopGeneration != currentGeneration) {
+                    Log.w(TAG, "stopStreamAsync superseded (gen=$stopGeneration current=$currentGeneration)")
+                    invokeCallback = true
+                    null
+                } else {
+                    streamGeneration.incrementAndGet()
+                    streamRequestId = null
+                    invokeCallback = true
+                    detachStreamResourcesLocked()
+                }
+            }
+            if (resources != null) {
+                cleanupStreamResources(resources)
+            }
+            if (invokeCallback && onStopped != null) {
+                mainHandler.post { onStopped() }
+            }
+            Log.i(TAG, "stopStreamAsync finished (gen=$stopGeneration)")
         }
     }
     
-    private fun stopStreamInternal() {
+    private data class StreamResources(
+        val screenCapturer: VideoCapturer?,
+        val videoSource: VideoSource?,
+        val videoTrack: VideoTrack?,
+        val surfaceTextureHelper: SurfaceTextureHelper?,
+        val peerConnection: PeerConnection?
+    )
+
+    private fun detachStreamResourcesLocked(): StreamResources {
+        val resources = StreamResources(
+            screenCapturer = screenCapturer,
+            videoSource = videoSource,
+            videoTrack = videoTrack,
+            surfaceTextureHelper = surfaceTextureHelper,
+            peerConnection = peerConnection
+        )
+        screenCapturer = null
+        videoSource = null
+        videoTrack = null
+        surfaceTextureHelper = null
+        peerConnection = null
+        pendingIceCandidates.clear()
+        isRemoteDescriptionSet = false
+        return resources
+    }
+
+    private fun cleanupStreamResources(resources: StreamResources) {
         Log.i(TAG, "Stopping WebRTC Stream")
-        
+
         try {
-            screenCapturer?.stopCapture()
+            Log.d(TAG, "Stopping screen capturer")
+            resources.screenCapturer?.stopCapture()
+            Log.d(TAG, "Screen capturer stopped")
         } catch (e: Exception) {
             Log.e(TAG, "Error stopping capturer", e)
         }
-        
+
         try {
-            screenCapturer?.dispose()
+            resources.screenCapturer?.dispose()
         } catch (e: Exception) {
             Log.e(TAG, "Error disposing capturer", e)
         }
-        screenCapturer = null
 
         try {
-            videoSource?.dispose()
+            resources.videoSource?.dispose()
         } catch (e: Exception) {
             Log.e(TAG, "Error disposing videoSource", e)
         }
-        videoSource = null
         
         try {
-            videoTrack?.dispose()
+            resources.videoTrack?.dispose()
         } catch (e: Exception) {
             Log.e(TAG, "Error disposing videoTrack", e)
         }
-        videoTrack = null
 
         try {
-            surfaceTextureHelper?.dispose()
+            resources.surfaceTextureHelper?.dispose()
         } catch (e: Exception) {
             Log.e(TAG, "Error disposing surfaceTextureHelper", e)
         }
-        surfaceTextureHelper = null
 
         try {
-            peerConnection?.close()
+            Log.d(TAG, "Closing peerConnection")
+            resources.peerConnection?.close()
+            Log.d(TAG, "peerConnection closed")
         } catch (e: Exception) {
             Log.e(TAG, "Error closing peerConnection", e)
         }
-        peerConnection = null
-
-        pendingIceCandidates.clear()
-        isRemoteDescriptionSet = false
     }
 
     fun handleAnswer(sdp: String) {
+        Log.d(TAG, "Handling Remote Answer")
+        var connection: PeerConnection? = null
+        var generation = 0
         synchronized(streamLock) {
-            Log.d(TAG, "Handling Remote Answer")
             if (peerConnection == null) {
                 Log.w(TAG, "handleAnswer called but no active PeerConnection")
-                return
+            } else {
+                connection = peerConnection
+                generation = streamGeneration.get()
             }
-            peerConnection?.setRemoteDescription(
-                object : SimpleSdpObserver("setRemoteDescription") {
-                    override fun onSetSuccess() {
-                        super.onSetSuccess()
-                        synchronized(streamLock) {
+        }
+        val activeConnection = connection ?: return
+        activeConnection.setRemoteDescription(
+            object : SimpleSdpObserver("setRemoteDescription") {
+                override fun onSetSuccess() {
+                    super.onSetSuccess()
+                    var pending: List<IceCandidate>? = null
+                    var shouldReturn = false
+                    synchronized(streamLock) {
+                        if (peerConnection !== activeConnection || streamGeneration.get() != generation) {
+                            Log.w(TAG, "Remote description set on stale PeerConnection")
+                            shouldReturn = true
+                        } else {
                             isRemoteDescriptionSet = true
-                            drainPendingIceCandidates()
+                            pending = drainPendingIceCandidatesLocked()
                         }
                     }
-                },
-                SessionDescription(SessionDescription.Type.ANSWER, sdp)
-            )
-        }
+                    if (shouldReturn) return
+                    pending?.let { candidates ->
+                        for (candidate in candidates) {
+                            activeConnection.addIceCandidate(candidate)
+                        }
+                    }
+                }
+            },
+            SessionDescription(SessionDescription.Type.ANSWER, sdp)
+        )
     }
 
     fun handleIceCandidate(candidate: IceCandidate) {
+        var connection: PeerConnection? = null
+        var shouldReturn = false
         synchronized(streamLock) {
             if (peerConnection == null) {
                 Log.w(TAG, "handleIceCandidate called but no active PeerConnection")
-                return
-            }
-            if (isRemoteDescriptionSet) {
-                peerConnection?.addIceCandidate(candidate)
-            } else {
+                shouldReturn = true
+            } else if (!isRemoteDescriptionSet) {
                 Log.d(TAG, "Queueing ICE candidate (remote description not set)")
                 pendingIceCandidates.add(candidate)
+                shouldReturn = true
+            } else {
+                connection = peerConnection
             }
         }
+        if (shouldReturn) return
+        connection?.addIceCandidate(candidate)
     }
     
-    private fun drainPendingIceCandidates() {
-        Log.d(TAG, "Draining ${pendingIceCandidates.size} pending ICE candidates")
-        while (pendingIceCandidates.isNotEmpty()) {
-            peerConnection?.addIceCandidate(pendingIceCandidates.poll())
+    private fun drainPendingIceCandidatesLocked(): List<IceCandidate> {
+        if (pendingIceCandidates.isEmpty()) return emptyList()
+        val drained = ArrayList<IceCandidate>()
+        while (true) {
+            val candidate = pendingIceCandidates.poll() ?: break
+            drained.add(candidate)
         }
+        Log.d(TAG, "Drained ${drained.size} pending ICE candidates")
+        return drained
     }
 
     private fun isCurrentStreamLocked(streamId: Int): Boolean {
-        return streamId == streamGeneration && peerConnection != null
+        return streamId == streamGeneration.get() && peerConnection != null
     }
 
     private fun isCurrentStream(streamId: Int): Boolean {
@@ -223,13 +302,17 @@ class WebRtcManager private constructor(private val context: Context) {
     }
 
     private fun postStopStreamIfCurrent(streamId: Int) {
-        mainHandler.post {
-            synchronized(streamLock) {
-                if (!isCurrentStreamLocked(streamId)) return@post
-                streamGeneration += 1
-                stopStreamInternal()
-                streamRequestId = null
-            }
+        stopHandler.post {
+            val resources = synchronized(streamLock) {
+                if (!isCurrentStreamLocked(streamId)) {
+                    null
+                } else {
+                    streamGeneration.incrementAndGet()
+                    streamRequestId = null
+                    detachStreamResourcesLocked()
+                }
+            } ?: return@post
+            cleanupStreamResources(resources)
         }
     }
 
@@ -312,15 +395,22 @@ class WebRtcManager private constructor(private val context: Context) {
         peerConnection?.createOffer(object : SimpleSdpObserver("createOffer") {
             override fun onCreateSuccess(desc: SessionDescription) {
                 super.onCreateSuccess(desc)
+                var connection: PeerConnection? = null
                 synchronized(streamLock) {
                     if (!isCurrentStreamLocked(streamId)) {
                         Log.w(TAG, "Offer created for stale stream; ignoring")
-                        return
+                    } else {
+                        connection = peerConnection
                     }
-                    Log.d(TAG, "Offer Created")
-                    peerConnection?.setLocalDescription(SimpleSdpObserver("setLocalDescription"), desc)
-                    sendOffer(desc.description)
                 }
+                val activeConnection = connection ?: return
+                Log.d(TAG, "Offer Created")
+                activeConnection.setLocalDescription(SimpleSdpObserver("setLocalDescription"), desc)
+                if (!isCurrentStream(streamId)) {
+                    Log.w(TAG, "Offer created for stale stream after setLocalDescription; ignoring")
+                    return
+                }
+                sendOffer(desc.description)
             }
         }, constraints)
     }
@@ -366,6 +456,35 @@ class WebRtcManager private constructor(private val context: Context) {
             Log.d(TAG, "Sent stream/error: $error - $message")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to send stream error", e)
+        }
+    }
+
+    fun notifyStreamStopped(reason: String? = null) {
+        sendStreamStopped(reason, getStreamRequestId())
+    }
+
+    fun notifyStreamStoppedAsync(reason: String? = null) {
+        val requestId = getStreamRequestId()
+        stopHandler.post { sendStreamStopped(reason, requestId) }
+    }
+
+    private fun sendStreamStopped(reason: String?, requestId: Any?) {
+        try {
+            val json = JSONObject().apply {
+                put("method", "stream/stopped")
+                put("params", JSONObject().apply {
+                    if (!reason.isNullOrBlank()) {
+                        put("reason", reason)
+                    }
+                    if (requestId != null) {
+                        put("request_id", requestId)
+                    }
+                })
+            }
+            reverseConnectionService?.sendText(json.toString())
+            Log.d(TAG, "Sent stream/stopped${if (reason.isNullOrBlank()) "" else ": $reason"}")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to send stream stopped", e)
         }
     }
 
