@@ -185,10 +185,10 @@ class ScreenCaptureService : Service() {
     }
 
     private fun createNotification(): Notification {
-        val stopIntent = Intent(this, ScreenCaptureStopReceiver::class.java).apply {
+        val stopIntent = Intent(this, ScreenCaptureService::class.java).apply {
             action = ACTION_STOP_STREAM
         }
-        val stopPendingIntent = PendingIntent.getBroadcast(
+        val stopPendingIntent = PendingIntent.getService(
             this,
             0,
             stopIntent,

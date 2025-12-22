@@ -69,11 +69,6 @@
             android:exported="false"
             android:foregroundServiceType="mediaProjection" />
 
-        <receiver
-            android:name=".service.ScreenCaptureStopReceiver"
-            android:enabled="true"
-            android:exported="false" />
-
         <activity
             android:name=".ui.ScreenCaptureActivity"
             android:theme="@style/Theme.Transparent"
