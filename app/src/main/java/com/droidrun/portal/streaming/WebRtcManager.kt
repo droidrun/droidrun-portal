@@ -11,6 +11,8 @@ import org.json.JSONObject
 import org.webrtc.*
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.Locale
+import kotlin.math.max
 
 // TODO fully refactor
 
@@ -23,6 +25,8 @@ class WebRtcManager private constructor(private val context: Context) {
     companion object {
         private const val TAG = "WebRtcManager"
         private const val VIDEO_TRACK_ID = "ARDAMSv0"
+        private const val H264_CODEC_NAME = "H264/90000"
+        private const val STATS_INTERVAL_MS = 5000L
 
         @Volatile
         private var instance: WebRtcManager? = null
@@ -55,10 +59,15 @@ class WebRtcManager private constructor(private val context: Context) {
     
     private val stopThread = HandlerThread("WebRtcStop").apply { start() }
     private val stopHandler = Handler(stopThread.looper)
+    private val statsThread = HandlerThread("WebRtcStats").apply { start() }
+    private val statsHandler = Handler(statsThread.looper)
     private val mainHandler = Handler(Looper.getMainLooper())
     private val streamGeneration = AtomicInteger(0)
     @Volatile
     private var streamRequestId: Any? = null
+    private var statsRunnable: Runnable? = null
+    private var lastStatsBytesSent: Long? = null
+    private var lastStatsTimestampMs: Long? = null
 
     init {
         initializePeerConnectionFactory()
@@ -109,9 +118,11 @@ class WebRtcManager private constructor(private val context: Context) {
             createVideoTrack(permissionResultData, width, height, fps, streamId)
             
             videoTrack?.let { track ->
-                peerConnection?.addTrack(track, listOf(VIDEO_TRACK_ID))
+                val sender = peerConnection?.addTrack(track, listOf(VIDEO_TRACK_ID))
+                configureVideoSender(sender, width, height, fps)
             }
 
+            startStatsLogging(streamId)
             createOffer(streamId)
         }
     }
@@ -174,6 +185,7 @@ class WebRtcManager private constructor(private val context: Context) {
         videoTrack = null
         surfaceTextureHelper = null
         peerConnection = null
+        stopStatsLogging()
         pendingIceCandidates.clear()
         isRemoteDescriptionSet = false
         return resources
@@ -405,14 +417,251 @@ class WebRtcManager private constructor(private val context: Context) {
                 }
                 val activeConnection = connection ?: return
                 Log.d(TAG, "Offer Created")
-                activeConnection.setLocalDescription(SimpleSdpObserver("setLocalDescription"), desc)
-                if (!isCurrentStream(streamId)) {
-                    Log.w(TAG, "Offer created for stale stream after setLocalDescription; ignoring")
-                    return
+                val mungedSdp = preferH264(desc.description)
+                val offer = if (mungedSdp == desc.description) {
+                    desc
+                } else {
+                    Log.i(TAG, "Reordered SDP to prefer H264")
+                    SessionDescription(desc.type, mungedSdp)
                 }
-                sendOffer(desc.description)
+                setLocalDescriptionAndSendOffer(activeConnection, streamId, offer, desc, offer != desc)
             }
         }, constraints)
+    }
+
+    private fun setLocalDescriptionAndSendOffer(
+        connection: PeerConnection,
+        streamId: Int,
+        offer: SessionDescription,
+        fallback: SessionDescription,
+        allowFallback: Boolean,
+    ) {
+        connection.setLocalDescription(object : SimpleSdpObserver("setLocalDescription") {
+            override fun onSetSuccess() {
+                if (!isCurrentStream(streamId)) {
+                    Log.w(TAG, "Offer set for stale stream; ignoring")
+                    return
+                }
+                sendOffer(offer.description)
+            }
+
+            override fun onSetFailure(p0: String?) {
+                Log.e(TAG, "setLocalDescription failed: $p0")
+                if (!allowFallback || !isCurrentStream(streamId)) {
+                    return
+                }
+                Log.w(TAG, "Retrying setLocalDescription with original SDP")
+                setLocalDescriptionAndSendOffer(connection, streamId, fallback, fallback, false)
+            }
+        }, offer)
+    }
+
+    private fun configureVideoSender(sender: RtpSender?, width: Int, height: Int, fps: Int) {
+        if (sender == null) return
+        val parameters = sender.parameters
+        var updated = false
+        val maxBitrateBps = computeMaxBitrateBps(width, height, fps)
+        for (encoding in parameters.encodings) {
+            val currentMax = encoding.maxBitrateBps
+            if (currentMax == null || currentMax > maxBitrateBps) {
+                encoding.maxBitrateBps = maxBitrateBps
+                updated = true
+            }
+            val currentFps = encoding.maxFramerate
+            if (currentFps == null || currentFps > fps) {
+                encoding.maxFramerate = fps
+                updated = true
+            }
+        }
+        if (parameters.degradationPreference != RtpParameters.DegradationPreference.BALANCED) {
+            parameters.degradationPreference = RtpParameters.DegradationPreference.BALANCED
+            updated = true
+        }
+        if (updated) {
+            val success = sender.setParameters(parameters)
+            Log.i(
+                TAG,
+                "Applied sender params (maxBitrate=$maxBitrateBps, maxFps=$fps, success=$success)"
+            )
+        }
+    }
+
+    private fun computeMaxBitrateBps(width: Int, height: Int, fps: Int): Int {
+        val maxDim = max(width, height)
+        val base = when {
+            maxDim >= 1080 -> 4_000_000
+            maxDim >= 720 -> 1_500_000
+            maxDim >= 480 -> 1_200_000
+            else -> 800_000
+        }
+        return when {
+            fps <= 10 -> base * 3 / 5
+            fps <= 15 -> base * 3 / 4
+            else -> base
+        }
+    }
+
+    private fun preferH264(sdp: String): String {
+        val lines = sdp.split("\r\n").toMutableList()
+        val mLineIndex = lines.indexOfFirst { it.startsWith("m=video ") }
+        if (mLineIndex == -1) return sdp
+
+        val h264Payloads = mutableSetOf<String>()
+        val rtxAptMap = mutableMapOf<String, String>()
+        for (line in lines) {
+            if (line.startsWith("a=rtpmap:") && line.contains(H264_CODEC_NAME)) {
+                val payload = line.substringAfter("a=rtpmap:").substringBefore(' ').trim()
+                if (payload.isNotEmpty()) {
+                    h264Payloads.add(payload)
+                }
+            } else if (line.startsWith("a=fmtp:") && line.contains("apt=")) {
+                val payload = line.substringAfter("a=fmtp:").substringBefore(' ').trim()
+                val aptValue = line.substringAfter("apt=", "").substringBefore(';').trim()
+                if (payload.isNotEmpty() && aptValue.isNotEmpty()) {
+                    rtxAptMap[payload] = aptValue
+                }
+            }
+        }
+        if (h264Payloads.isEmpty()) return sdp
+
+        val rtxPayloads = rtxAptMap.filter { it.value in h264Payloads }.keys
+        val parts = lines[mLineIndex].split(" ").filter { it.isNotBlank() }
+        if (parts.size <= 3) return sdp
+
+        val header = parts.take(3)
+        val payloads = parts.drop(3)
+        val preferred = payloads.filter { it in h264Payloads || it in rtxPayloads }
+        if (preferred.isEmpty()) return sdp
+
+        val remaining = payloads.filter { it !in h264Payloads && it !in rtxPayloads }
+        val newLine = (header + preferred + remaining).joinToString(" ")
+        if (newLine == lines[mLineIndex]) return sdp
+
+        lines[mLineIndex] = newLine
+        val munged = lines.joinToString("\r\n")
+        return if (sdp.endsWith("\r\n")) "$munged\r\n" else munged
+    }
+
+    private fun startStatsLogging(streamId: Int) {
+        stopStatsLogging()
+        lastStatsBytesSent = null
+        lastStatsTimestampMs = null
+        val runnable = object : Runnable {
+            override fun run() {
+                val connection = synchronized(streamLock) {
+                    if (isCurrentStreamLocked(streamId)) peerConnection else null
+                } ?: return
+                connection.getStats { report ->
+                    if (!isCurrentStream(streamId)) return@getStats
+                    logStats(report)
+                    statsHandler.postDelayed(this, STATS_INTERVAL_MS)
+                }
+            }
+        }
+        statsRunnable = runnable
+        statsHandler.postDelayed(runnable, STATS_INTERVAL_MS)
+    }
+
+    private fun stopStatsLogging() {
+        statsRunnable?.let { statsHandler.removeCallbacks(it) }
+        statsRunnable = null
+        lastStatsBytesSent = null
+        lastStatsTimestampMs = null
+    }
+
+    private fun logStats(report: RTCStatsReport) {
+        val statsMap = report.statsMap
+        val outboundVideo = statsMap.values.firstOrNull { stats ->
+            stats.type == "outbound-rtp" &&
+                !getBooleanMember(stats.members, "isRemote", false) &&
+                isVideoStats(stats.members)
+        } ?: return
+
+        val members = outboundVideo.members
+        val bytesSent = getLongMember(members, "bytesSent")
+        val framesSent = getLongMember(members, "framesSent") ?: getLongMember(members, "framesEncoded")
+        val framesDropped = getLongMember(members, "framesDropped")
+        val fps = getDoubleMember(members, "framesPerSecond")
+        val width = getLongMember(members, "frameWidth")
+        val height = getLongMember(members, "frameHeight")
+        val qualityReason = members["qualityLimitationReason"] as? String
+        val codecId = members["codecId"] as? String
+        val codecMime = codecId?.let { statsMap[it]?.members?.get("mimeType") as? String }
+
+        val timestampMs = (outboundVideo.timestampUs / 1000.0).toLong()
+        val bitrateKbps = if (bytesSent != null && lastStatsBytesSent != null && lastStatsTimestampMs != null) {
+            val deltaBytes = bytesSent - lastStatsBytesSent!!
+            val deltaMs = timestampMs - lastStatsTimestampMs!!
+            if (deltaMs > 0 && deltaBytes >= 0) {
+                ((deltaBytes * 8.0) / deltaMs).toInt()
+            } else {
+                null
+            }
+        } else {
+            null
+        }
+        lastStatsBytesSent = bytesSent
+        lastStatsTimestampMs = timestampMs
+
+        val candidatePair = statsMap.values.firstOrNull { stats ->
+            stats.type == "candidate-pair" &&
+                getStringMember(stats.members, "state") == "succeeded" &&
+                getBooleanMember(stats.members, "nominated", false)
+        }
+        val rttMs = candidatePair?.let { getDoubleMember(it.members, "currentRoundTripTime") }?.times(1000.0)
+        val availableOutKbps = candidatePair?.let {
+            getDoubleMember(it.members, "availableOutgoingBitrate")
+        }?.div(1000.0)
+
+        val parts = ArrayList<String>(8)
+        codecMime?.let { parts.add("codec=$it") }
+        bitrateKbps?.let { parts.add("send=${it}kbps") }
+        if (width != null && height != null) {
+            parts.add("res=${width}x$height")
+        }
+        fps?.let { parts.add("fps=${String.format(Locale.US, "%.1f", it)}") }
+        framesSent?.let { parts.add("sent=$it") }
+        framesDropped?.let { parts.add("dropped=$it") }
+        rttMs?.let { parts.add("rtt=${String.format(Locale.US, "%.0f", it)}ms") }
+        availableOutKbps?.let { parts.add("avail=${String.format(Locale.US, "%.0f", it)}kbps") }
+        qualityReason?.let { parts.add("qlim=$it") }
+
+        if (parts.isNotEmpty()) {
+            Log.i(TAG, "Stats: ${parts.joinToString(" | ")}")
+        }
+    }
+
+    private fun isVideoStats(members: Map<String, Any>): Boolean {
+        val kind = (members["kind"] ?: members["mediaType"]) as? String
+        return kind == "video"
+    }
+
+    private fun getStringMember(members: Map<String, Any>, key: String): String? {
+        return members[key] as? String
+    }
+
+    private fun getBooleanMember(members: Map<String, Any>, key: String, default: Boolean): Boolean {
+        return when (val value = members[key]) {
+            is Boolean -> value
+            is String -> value.toBooleanStrictOrNull() ?: default
+            else -> default
+        }
+    }
+
+    private fun getLongMember(members: Map<String, Any>, key: String): Long? {
+        return when (val value = members[key]) {
+            is Number -> value.toLong()
+            is String -> value.toLongOrNull()
+            else -> null
+        }
+    }
+
+    private fun getDoubleMember(members: Map<String, Any>, key: String): Double? {
+        return when (val value = members[key]) {
+            is Number -> value.toDouble()
+            is String -> value.toDoubleOrNull()
+            else -> null
+        }
     }
 
     private fun sendOffer(sdp: String) {
