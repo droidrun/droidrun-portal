@@ -508,20 +508,30 @@ class WebRtcManager private constructor(private val context: Context) {
 
         val h264Payloads = mutableSetOf<String>()
         val rtxAptMap = mutableMapOf<String, String>()
+        
+        // Regex to parse a=rtpmap:<payload> <codec>/<clock>...
+        val rtpmapRegex = Regex("^a=rtpmap:(\\d+) ([a-zA-Z0-9-]+)/\\d+.*")
+        // Regex to parse a=fmtp:<payload> apt=<apt-payload>...
+        val fmtpRegex = Regex("^a=fmtp:(\\d+) apt=(\\d+).*")
+
         for (line in lines) {
-            if (line.startsWith("a=rtpmap:") && line.contains(H264_CODEC_NAME)) {
-                val payload = line.substringAfter("a=rtpmap:").substringBefore(' ').trim()
-                if (payload.isNotEmpty()) {
+            val rtpmapMatch = rtpmapRegex.find(line)
+            if (rtpmapMatch != null) {
+                val payload = rtpmapMatch.groupValues[1]
+                val codec = rtpmapMatch.groupValues[2]
+                if (codec.equals("H264", ignoreCase = true)) {
                     h264Payloads.add(payload)
                 }
-            } else if (line.startsWith("a=fmtp:") && line.contains("apt=")) {
-                val payload = line.substringAfter("a=fmtp:").substringBefore(' ').trim()
-                val aptValue = line.substringAfter("apt=", "").substringBefore(';').trim()
-                if (payload.isNotEmpty() && aptValue.isNotEmpty()) {
-                    rtxAptMap[payload] = aptValue
+            } else {
+                val fmtpMatch = fmtpRegex.find(line)
+                if (fmtpMatch != null) {
+                    val payload = fmtpMatch.groupValues[1]
+                    val apt = fmtpMatch.groupValues[2]
+                    rtxAptMap[payload] = apt
                 }
             }
         }
+        
         if (h264Payloads.isEmpty()) return sdp
 
         val rtxPayloads = rtxAptMap.filter { it.value in h264Payloads }.keys
@@ -530,16 +540,18 @@ class WebRtcManager private constructor(private val context: Context) {
 
         val header = parts.take(3)
         val payloads = parts.drop(3)
+        
         val preferred = payloads.filter { it in h264Payloads || it in rtxPayloads }
         if (preferred.isEmpty()) return sdp
 
         val remaining = payloads.filter { it !in h264Payloads && it !in rtxPayloads }
         val newLine = (header + preferred + remaining).joinToString(" ")
+        
         if (newLine == lines[mLineIndex]) return sdp
 
         lines[mLineIndex] = newLine
-        val munged = lines.joinToString("\r\n")
-        return if (sdp.endsWith("\r\n")) "$munged\r\n" else munged
+        
+        return lines.joinToString("\r\n")
     }
 
     private fun startStatsLogging(streamId: Int) {
