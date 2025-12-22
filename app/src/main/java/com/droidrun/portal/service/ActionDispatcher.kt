@@ -18,7 +18,8 @@ class ActionDispatcher(private val apiHandler: ApiHandler) {
 
     enum class Origin {
         HTTP,
-        WEBSOCKET,
+        WEBSOCKET_LOCAL,
+        WEBSOCKET_REVERSE,
     }
 
     /**
@@ -31,7 +32,8 @@ class ActionDispatcher(private val apiHandler: ApiHandler) {
     fun dispatch(
         action: String,
         params: JSONObject,
-        origin: Origin = Origin.WEBSOCKET
+        origin: Origin = Origin.WEBSOCKET_LOCAL,
+        requestId: Any? = null,
     ): ApiResponse {
         // Normalize action name (handle both "action.tap" and "/action/tap" styles)
         return when (
@@ -139,25 +141,41 @@ class ActionDispatcher(private val apiHandler: ApiHandler) {
                 }
             }
 
-            // Streaming Commands
+            // Streaming Commands (websocket required)
             "stream/start" -> {
-                apiHandler.startStream(params)
+                if (origin != Origin.WEBSOCKET_REVERSE) {
+                    ApiResponse.Error("Streaming commands require reverse WebSocket connection")
+                } else {
+                    apiHandler.startStream(params, requestId)
+                }
             }
 
             "stream/stop" -> {
-                apiHandler.stopStream()
+                if (origin == Origin.HTTP) {
+                    ApiResponse.Error("Streaming commands require WebSocket connection")
+                } else {
+                    apiHandler.stopStream()
+                }
             }
 
             "webrtc/answer" -> {
-                val sdp = params.getString("sdp")
-                apiHandler.handleWebRtcAnswer(sdp)
+                if (origin != Origin.WEBSOCKET_REVERSE) {
+                    ApiResponse.Error("WebRTC signaling requires reverse WebSocket connection")
+                } else {
+                    val sdp = params.getString("sdp")
+                    apiHandler.handleWebRtcAnswer(sdp)
+                }
             }
 
             "webrtc/ice" -> {
-                val candidateSdp = params.getString("candidate")
-                val sdpMid = params.optString("sdpMid")
-                val sdpMLineIndex = params.optInt("sdpMLineIndex")
-                apiHandler.handleWebRtcIce(candidateSdp, sdpMid, sdpMLineIndex)
+                if (origin != Origin.WEBSOCKET_REVERSE) {
+                    ApiResponse.Error("WebRTC signaling requires reverse WebSocket connection")
+                } else {
+                    val candidateSdp = params.getString("candidate")
+                    val sdpMid = params.optString("sdpMid")
+                    val sdpMLineIndex = params.optInt("sdpMLineIndex")
+                    apiHandler.handleWebRtcIce(candidateSdp, sdpMid, sdpMLineIndex)
+                }
             }
 
             else -> ApiResponse.Error("Unknown method: $method")

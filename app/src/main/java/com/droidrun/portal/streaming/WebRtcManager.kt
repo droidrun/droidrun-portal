@@ -2,12 +2,14 @@ package com.droidrun.portal.streaming
 
 import android.content.Context
 import android.media.projection.MediaProjection
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import com.droidrun.portal.service.ReverseConnectionService
 import org.json.JSONObject
 import org.webrtc.*
-import java.util.LinkedList
-import java.util.Queue
+import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.atomic.AtomicInteger
 
 // TODO fully refactor
 
@@ -40,11 +42,19 @@ class WebRtcManager private constructor(private val context: Context) {
     private var videoSource: VideoSource? = null
     private var videoTrack: VideoTrack? = null
     
-    // signaling
+    @Volatile
     private var reverseConnectionService: ReverseConnectionService? = null
-    private val pendingIceCandidates: Queue<IceCandidate> = LinkedList()
+    private val pendingIceCandidates = ConcurrentLinkedQueue<IceCandidate>()
+    @Volatile
     private var isRemoteDescriptionSet = false
-    private var outgoingMessageId = 0
+    private val outgoingMessageId = AtomicInteger(0)
+    
+    // for all peerConnection lifecycle operations
+    private val streamLock = Any()
+    
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var streamGeneration = 0
+    private var streamRequestId: Any? = null
 
     init {
         initializePeerConnectionFactory()
@@ -53,6 +63,16 @@ class WebRtcManager private constructor(private val context: Context) {
     fun setReverseConnectionService(service: ReverseConnectionService) {
         this.reverseConnectionService = service
     }
+
+    fun setStreamRequestId(requestId: Any?) {
+        synchronized(streamLock) {
+            streamRequestId = requestId
+        }
+    }
+
+    fun getStreamRequestId(): Any? = synchronized(streamLock) { streamRequestId }
+
+    fun isStreamActive(): Boolean = synchronized(streamLock) { peerConnection != null }
 
     private fun initializePeerConnectionFactory() {
         Log.d(TAG, "Initializing PeerConnectionFactory")
@@ -76,66 +96,114 @@ class WebRtcManager private constructor(private val context: Context) {
         fps: Int,
         iceServers: List<PeerConnection.IceServer>? = null
     ) {
-        Log.i(TAG, "Starting WebRTC Stream: ${width}x${height} @ $fps fps")
-        // clean
-        stopStream()
+        synchronized(streamLock) {
+            Log.i(TAG, "Starting WebRTC Stream: ${width}x${height} @ $fps fps")
+            streamGeneration += 1
+            val streamId = streamGeneration
+            // Clean up first
+            stopStreamInternal()
 
-        createPeerConnection(iceServers)
-        createVideoTrack(permissionResultData, width, height, fps)
-        
-        videoTrack?.let { track ->
-            peerConnection?.addTrack(track, listOf(VIDEO_TRACK_ID))
+            createPeerConnection(iceServers, streamId)
+            createVideoTrack(permissionResultData, width, height, fps, streamId)
+            
+            videoTrack?.let { track ->
+                peerConnection?.addTrack(track, listOf(VIDEO_TRACK_ID))
+            }
+
+            createOffer(streamId)
         }
-
-        createOffer()
     }
 
     fun stopStream() {
+        synchronized(streamLock) {
+            streamGeneration += 1
+            stopStreamInternal()
+            streamRequestId = null
+        }
+    }
+    
+    private fun stopStreamInternal() {
         Log.i(TAG, "Stopping WebRTC Stream")
+        
         try {
             screenCapturer?.stopCapture()
-            screenCapturer?.dispose()
-            screenCapturer = null
-
-            videoSource?.dispose()
-            videoSource = null
-            
-            videoTrack?.dispose()
-            videoTrack = null
-
-            surfaceTextureHelper?.dispose()
-            surfaceTextureHelper = null
-
-            peerConnection?.close()
-            peerConnection = null
-
-            pendingIceCandidates.clear()
-            isRemoteDescriptionSet = false
         } catch (e: Exception) {
-            Log.e(TAG, "Error stopping stream", e)
+            Log.e(TAG, "Error stopping capturer", e)
         }
+        
+        try {
+            screenCapturer?.dispose()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error disposing capturer", e)
+        }
+        screenCapturer = null
+
+        try {
+            videoSource?.dispose()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error disposing videoSource", e)
+        }
+        videoSource = null
+        
+        try {
+            videoTrack?.dispose()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error disposing videoTrack", e)
+        }
+        videoTrack = null
+
+        try {
+            surfaceTextureHelper?.dispose()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error disposing surfaceTextureHelper", e)
+        }
+        surfaceTextureHelper = null
+
+        try {
+            peerConnection?.close()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error closing peerConnection", e)
+        }
+        peerConnection = null
+
+        pendingIceCandidates.clear()
+        isRemoteDescriptionSet = false
     }
 
     fun handleAnswer(sdp: String) {
-        Log.d(TAG, "Handling Remote Answer")
-        peerConnection?.setRemoteDescription(
-            object : SimpleSdpObserver("setRemoteDescription") {
-                override fun onSetSuccess() {
-                    super.onSetSuccess()
-                    isRemoteDescriptionSet = true
-                    drainPendingIceCandidates()
-                }
-            },
-            SessionDescription(SessionDescription.Type.ANSWER, sdp)
-        )
+        synchronized(streamLock) {
+            Log.d(TAG, "Handling Remote Answer")
+            if (peerConnection == null) {
+                Log.w(TAG, "handleAnswer called but no active PeerConnection")
+                return
+            }
+            peerConnection?.setRemoteDescription(
+                object : SimpleSdpObserver("setRemoteDescription") {
+                    override fun onSetSuccess() {
+                        super.onSetSuccess()
+                        synchronized(streamLock) {
+                            isRemoteDescriptionSet = true
+                            drainPendingIceCandidates()
+                        }
+                    }
+                },
+                SessionDescription(SessionDescription.Type.ANSWER, sdp)
+            )
+        }
     }
 
     fun handleIceCandidate(candidate: IceCandidate) {
-        if (isRemoteDescriptionSet) {
-            peerConnection?.addIceCandidate(candidate)
-        } else {
-            Log.d(TAG, "Queueing ICE candidate (remote description not set)")
-            pendingIceCandidates.add(candidate)
+        synchronized(streamLock) {
+            if (peerConnection == null) {
+                Log.w(TAG, "handleIceCandidate called but no active PeerConnection")
+                return
+            }
+            if (isRemoteDescriptionSet) {
+                peerConnection?.addIceCandidate(candidate)
+            } else {
+                Log.d(TAG, "Queueing ICE candidate (remote description not set)")
+                pendingIceCandidates.add(candidate)
+            }
         }
     }
     
@@ -146,7 +214,26 @@ class WebRtcManager private constructor(private val context: Context) {
         }
     }
 
-    private fun createPeerConnection(customIceServers: List<PeerConnection.IceServer>?) {
+    private fun isCurrentStreamLocked(streamId: Int): Boolean {
+        return streamId == streamGeneration && peerConnection != null
+    }
+
+    private fun isCurrentStream(streamId: Int): Boolean {
+        return synchronized(streamLock) { isCurrentStreamLocked(streamId) }
+    }
+
+    private fun postStopStreamIfCurrent(streamId: Int) {
+        mainHandler.post {
+            synchronized(streamLock) {
+                if (!isCurrentStreamLocked(streamId)) return@post
+                streamGeneration += 1
+                stopStreamInternal()
+                streamRequestId = null
+            }
+        }
+    }
+
+    private fun createPeerConnection(customIceServers: List<PeerConnection.IceServer>?, streamId: Int) {
         val iceServers = ArrayList<PeerConnection.IceServer>()
         if (customIceServers != null && customIceServers.isNotEmpty()) {
              iceServers.addAll(customIceServers)
@@ -164,56 +251,83 @@ class WebRtcManager private constructor(private val context: Context) {
         }
 
         peerConnection = peerConnectionFactory?.createPeerConnection(rtcConfig, object : CustomPeerConnectionObserver() {
-            override fun onIceCandidate(candidate: IceCandidate) {
-                Log.d(TAG, "Generated ICE Candidate: ${candidate.sdpMid}")
-                sendIceCandidate(candidate)
+            override fun onIceCandidate(p0: IceCandidate) {
+                Log.d(TAG, "Generated ICE Candidate: ${p0.sdpMid}")
+                if (!isCurrentStream(streamId)) {
+                    Log.w(TAG, "ICE candidate on stale stream; ignoring")
+                    return
+                }
+                sendIceCandidate(p0)
             }
 
-            override fun onIceConnectionChange(newState: PeerConnection.IceConnectionState?) {
-                Log.d(TAG, "ICE Connection State: $newState")
-                if (newState == PeerConnection.IceConnectionState.DISCONNECTED || newState == PeerConnection.IceConnectionState.FAILED) {
-                    // handle disconnect? TODO check
+            override fun onIceConnectionChange(p0: PeerConnection.IceConnectionState?) {
+                Log.d(TAG, "ICE Connection State: $p0")
+                if (p0 == PeerConnection.IceConnectionState.FAILED) {
+                    if (!isCurrentStream(streamId)) {
+                        Log.w(TAG, "ICE failure on stale stream; ignoring")
+                        return
+                    }
+                    Log.e(TAG, "ICE connection failed - stopping stream")
+                    sendStreamError("ice_connection_failed", "ICE connection failed")
+                    postStopStreamIfCurrent(streamId)
+                } else if (p0 == PeerConnection.IceConnectionState.DISCONNECTED) {
+                    Log.w(TAG, "ICE connection disconnected (may be transient)")
                 }
             }
         })
     }
     
-    private fun createVideoTrack(permissionResultData: android.content.Intent, width: Int, height: Int, fps: Int) {
-        // Create Screen Capturer
+    private fun createVideoTrack(
+        permissionResultData: android.content.Intent,
+        width: Int,
+        height: Int,
+        fps: Int,
+        streamId: Int,
+    ) {
         screenCapturer = ScreenCapturerAndroid(permissionResultData, object : MediaProjection.Callback() {
             override fun onStop() {
                 Log.e(TAG, "MediaProjection stopped externally")
-                stopStream() // Or notify service to stop
+                postStopStreamIfCurrent(streamId)
             }
         })
 
-        // Create Video Source
         videoSource = peerConnectionFactory?.createVideoSource(screenCapturer!!.isScreencast)
         
         // Start Capture
         surfaceTextureHelper = SurfaceTextureHelper.create("CaptureThread", eglBase.eglBaseContext)
         screenCapturer?.initialize(surfaceTextureHelper, context, videoSource?.capturerObserver)
-        screenCapturer?.startCapture(width, height, fps)
+        try {
+            screenCapturer?.startCapture(width, height, fps)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start capture", e)
+            stopStream()
+            throw RuntimeException("Failed to start screen capture: ${e.message}", e)
+        }
 
-        // Create Video Track
-        videoTrack = peerConnectionFactory?.createVideoTrack("ARDAMSv0", videoSource)
+        videoTrack = peerConnectionFactory?.createVideoTrack(VIDEO_TRACK_ID, videoSource)
     }
 
-    private fun createOffer() {
+    private fun createOffer(streamId: Int) {
         val constraints = MediaConstraints()
         peerConnection?.createOffer(object : SimpleSdpObserver("createOffer") {
             override fun onCreateSuccess(desc: SessionDescription) {
                 super.onCreateSuccess(desc)
-                Log.d(TAG, "Offer Created")
-                peerConnection?.setLocalDescription(SimpleSdpObserver("setLocalDescription"), desc)
-                sendOffer(desc.description)
+                synchronized(streamLock) {
+                    if (!isCurrentStreamLocked(streamId)) {
+                        Log.w(TAG, "Offer created for stale stream; ignoring")
+                        return
+                    }
+                    Log.d(TAG, "Offer Created")
+                    peerConnection?.setLocalDescription(SimpleSdpObserver("setLocalDescription"), desc)
+                    sendOffer(desc.description)
+                }
             }
         }, constraints)
     }
 
     private fun sendOffer(sdp: String) {
         val json = JSONObject().apply {
-            put("id", outgoingMessageId++)
+            put("id", outgoingMessageId.getAndIncrement())
             put("method", "webrtc/offer")
             put("params", JSONObject().apply {
                 put("sdp", sdp)
@@ -224,7 +338,7 @@ class WebRtcManager private constructor(private val context: Context) {
 
     private fun sendIceCandidate(candidate: IceCandidate) {
         val json = JSONObject().apply {
-            put("id", outgoingMessageId++)
+            put("id", outgoingMessageId.getAndIncrement())
             put("method", "webrtc/ice")
             put("params", JSONObject().apply {
                 put("candidate", candidate.sdp)
@@ -233,6 +347,26 @@ class WebRtcManager private constructor(private val context: Context) {
             })
         }
         reverseConnectionService?.sendText(json.toString())
+    }
+
+    private fun sendStreamError(error: String, message: String) {
+        try {
+            val requestId = getStreamRequestId()
+            val json = JSONObject().apply {
+                put("method", "stream/error")
+                put("params", JSONObject().apply {
+                    put("error", error)
+                    put("message", message)
+                    if (requestId != null) {
+                        put("request_id", requestId)
+                    }
+                })
+            }
+            reverseConnectionService?.sendText(json.toString())
+            Log.d(TAG, "Sent stream/error: $error - $message")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to send stream error", e)
+        }
     }
 
     open class CustomPeerConnectionObserver : PeerConnection.Observer {

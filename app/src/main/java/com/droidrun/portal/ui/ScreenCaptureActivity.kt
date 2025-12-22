@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.util.Log
 import com.droidrun.portal.service.ReverseConnectionService
 import com.droidrun.portal.service.ScreenCaptureService
+import com.droidrun.portal.streaming.WebRtcManager
 import org.json.JSONObject
 
 /**
@@ -63,11 +64,17 @@ class ScreenCaptureActivity : Activity() {
         try {
             val service = ReverseConnectionService.getInstance()
             if (service != null) {
+                val requestId = WebRtcManager
+                    .getInstance(this)
+                    .getStreamRequestId()
+
                 val errorMessage = JSONObject().apply {
                     put("method", "stream/error")
                     put("params", JSONObject().apply {
                         put("error", "permission_denied")
                         put("message", "User denied screen capture permission")
+                        if (requestId != null) put("request_id", requestId)
+
                     })
                 }
                 service.sendText(errorMessage.toString())
@@ -75,6 +82,9 @@ class ScreenCaptureActivity : Activity() {
             } else {
                 Log.w(TAG, "ReverseConnectionService not available to notify cloud")
             }
+            WebRtcManager
+                .getInstance(this)
+                .setStreamRequestId(null)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to notify cloud of permission denial", e)
         }

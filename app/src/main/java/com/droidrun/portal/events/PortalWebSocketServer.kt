@@ -83,6 +83,7 @@ class PortalWebSocketServer(
         try {
             val json = JSONObject(message)
             val id = json.optString("id")
+            val requestId = id.takeIf { it.isNotEmpty() }
             val method = json.optString("method")
 
             if (id.isNotEmpty() && method.isNotEmpty()) {
@@ -96,7 +97,12 @@ class PortalWebSocketServer(
                 if (normalizedMethod == "install") {
                     installExecutor.submit {
                         try {
-                            val result = actionDispatcher.dispatch(method, params)
+                            val result = actionDispatcher.dispatch(
+                                method,
+                                params,
+                                origin = ActionDispatcher.Origin.WEBSOCKET_LOCAL,
+                                requestId = requestId,
+                            )
                             if (conn?.isOpen == true) conn.send(result.toJson(id))
 
                         } catch (e: Exception) {
@@ -115,7 +121,12 @@ class PortalWebSocketServer(
                     return
                 }
 
-                val result = actionDispatcher.dispatch(method, params)
+                val result = actionDispatcher.dispatch(
+                    method,
+                    params,
+                    origin = ActionDispatcher.Origin.WEBSOCKET_LOCAL,
+                    requestId = requestId,
+                )
 
                 if (result is com.droidrun.portal.api.ApiResponse.Binary) {
                     // Binary Response: [UUID (36 bytes)] + [Data]

@@ -804,11 +804,13 @@ class ApiHandler(
         return ApiResponse.RawObject(summary)
     }
 
-    fun startStream(params: JSONObject): ApiResponse {
-        val width = params.optInt("width", 720)
-        val height = params.optInt("height", 1280)
-        val fps = params.optInt("fps", 30)
+    fun startStream(params: JSONObject, requestId: Any? = null): ApiResponse {
+        val width = params.optInt("width", 720).coerceIn(144, 1920)
+        val height = params.optInt("height", 1280).coerceIn(256, 3840)
+        val fps = params.optInt("fps", 30).coerceIn(1, 60)
         // TODO: Handle ICE servers from params
+        val manager = WebRtcManager.getInstance(context)
+        manager.setStreamRequestId(requestId)
 
         val intent = Intent(context, com.droidrun.portal.ui.ScreenCaptureActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -838,6 +840,7 @@ class ApiHandler(
                         Log.e(TAG, "Failed to open notification settings: ${settingsEx.message}")
                     }
                     
+                    manager.setStreamRequestId(null)
                     return ApiResponse.Error("stream_start_failed: Notification permission required. Please enable notifications and try again.")
                 }
             }
@@ -873,17 +876,26 @@ class ApiHandler(
         val intent = Intent(context, ScreenCaptureService::class.java).apply {
             action = ScreenCaptureService.ACTION_STOP_STREAM
         }
-        context.startService(intent)
+        // stopService instead of startService to avoid IllegalStateException on API 26+
+        context.stopService(intent)
         return ApiResponse.Success("Stop stream requested")
     }
 
     fun handleWebRtcAnswer(sdp: String): ApiResponse {
-        WebRtcManager.getInstance(context).handleAnswer(sdp)
+        val manager = WebRtcManager.getInstance(context)
+        if (!manager.isStreamActive())
+            return ApiResponse.Error("No active stream")
+
+        manager.handleAnswer(sdp)
         return ApiResponse.Success("SDP Answer processed")
     }
 
     fun handleWebRtcIce(candidateSdp: String, sdpMid: String, sdpMLineIndex: Int): ApiResponse {
-        WebRtcManager.getInstance(context).handleIceCandidate(
+        val manager = WebRtcManager.getInstance(context)
+        if (!manager.isStreamActive())
+            return ApiResponse.Error("No active stream")
+
+        manager.handleIceCandidate(
             IceCandidate(sdpMid, sdpMLineIndex, candidateSdp)
         )
         return ApiResponse.Success("ICE Candidate processed")

@@ -63,13 +63,43 @@ class ScreenCaptureService : Service() {
                         }
                     )
                     
-                    ReverseConnectionService.getInstance()?.let {
-                        webRtcManager.setReverseConnectionService(it)
+                    val rcs = ReverseConnectionService.getInstance()
+                    if (rcs == null) {
+                        Log.e(TAG, "ReverseConnectionService is null - cannot send signaling messages, aborting stream")
+                        webRtcManager.setStreamRequestId(null)
+                        stopSelf()
+                        return START_NOT_STICKY
                     }
-                    
-                    webRtcManager.startStream(resultData, width, height, fps)
+                    webRtcManager.setReverseConnectionService(rcs)
+
+                    val streamRequestId = webRtcManager.getStreamRequestId()
+                    try {
+                        webRtcManager.startStream(resultData, width, height, fps)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to start stream", e)
+                        try {
+                            val errorJson = org.json.JSONObject().apply {
+                                put("method", "stream/error")
+                                put("params", org.json.JSONObject().apply {
+                                    put("error", "capture_failed")
+                                    put("message", e.message ?: "Failed to start screen capture")
+                                    if (streamRequestId != null) put("request_id", streamRequestId)
+
+                                })
+                            }
+                            rcs.sendText(errorJson.toString())
+                        } catch (jsonEx: Exception) {
+                            Log.e(TAG, "Failed to send stream error", jsonEx)
+                        }
+                        webRtcManager.setStreamRequestId(null)
+                        @Suppress("DEPRECATION")
+                        stopForeground(true)
+                        stopSelf()
+                        return START_NOT_STICKY
+                    }
                 } else {
                     Log.e(TAG, "Invalid permission result")
+                    webRtcManager.setStreamRequestId(null)
                     stopSelf()
                 }
             }
@@ -92,6 +122,8 @@ class ScreenCaptureService : Service() {
         super.onDestroy()
         Log.d(TAG, "ScreenCaptureService Destroyed")
         webRtcManager.stopStream()
+        @Suppress("DEPRECATION")
+        stopForeground(true) // Ensure notification is cleared
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

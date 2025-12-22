@@ -224,7 +224,12 @@ class ReverseConnectionService : Service() {
                 val requestId = id
                 installExecutor.submit {
                     try {
-                        val result = actionDispatcher.dispatch(method, params)
+                        val result = actionDispatcher.dispatch(
+                            method,
+                            params,
+                            origin = ActionDispatcher.Origin.WEBSOCKET_REVERSE,
+                            requestId = requestId,
+                        )
                         webSocketClient?.send(result.toJson(requestId))
                     } catch (e: Exception) {
                         Log.e(TAG, "Install task failed", e)
@@ -240,7 +245,12 @@ class ReverseConnectionService : Service() {
             }
 
             // Execute
-            val result = actionDispatcher.dispatch(method, params)
+            val result = actionDispatcher.dispatch(
+                method,
+                params,
+                origin = ActionDispatcher.Origin.WEBSOCKET_REVERSE,
+                requestId = id,
+            )
             Log.d(TAG, "Command executed. Result type: ${result.javaClass.simpleName}")
 
             val resp = result.toJson(id)
