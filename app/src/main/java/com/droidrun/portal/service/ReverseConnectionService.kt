@@ -168,8 +168,10 @@ class ReverseConnectionService : Service() {
     }
 
     private fun handleMessage(message: String?) {
-        Log.d(TAG, "Received message: $message")
         if (message == null) return
+        // Truncate log to avoid spamming with large SDP/ICE payloads
+        val logMsg = if (message.length > 200) message.take(200) + "..." else message
+        Log.d(TAG, "Received message: $logMsg")
 
         var id: Any? = null
 
@@ -195,7 +197,7 @@ class ReverseConnectionService : Service() {
                 }
             }
 
-            // TODO Check for method - may be empty for JSON-RPC responses to outgoing messages
+            // Method may be empty for JSON-RPC responses to outgoing messages (e.g., webrtc/offer)
             val method = json.optString("method", "")
             
             if (method.isEmpty()) {
@@ -214,7 +216,9 @@ class ReverseConnectionService : Service() {
                     ?: json.optJSONArray("params")?.optJSONObject(0)
                     ?: JSONObject()
 
-            Log.d(TAG, "Dispatching $method (id=$id,params=$params)")
+            // Truncate params log to avoid spamming with large SDP/ICE payloads
+            val paramsLog = params.toString().let { if (it.length > 100) it.take(100) + "..." else it }
+            Log.d(TAG, "Dispatching $method (id=$id, params=$paramsLog)")
 
             val normalizedMethod =
                 method.removePrefix("/action/").removePrefix("action.").removePrefix("/")

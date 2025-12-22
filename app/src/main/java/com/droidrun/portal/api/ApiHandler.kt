@@ -49,6 +49,8 @@ class ApiHandler(
         private const val TAG = "ApiHandler"
         private const val MAX_APK_BYTES = 2L * 1024 * 1024 * 1024 // 2 GB
         private const val INSTALL_FREE_SPACE_MARGIN_BYTES = 200L * 1024 * 1024 // 200 MiB
+        private const val INSTALL_UI_DELAY_MS = 1000L
+        private const val MAX_ERROR_BODY_SIZE = 2048
     }
 
     private val installLock = Any()
@@ -474,7 +476,6 @@ class ApiHandler(
         return ApiResponse.Success(System.currentTimeMillis())
     }
 
-    // TODO fully test it
     fun installApp(
         apkStream: InputStream,
         hideOverlay: Boolean = false,
@@ -626,7 +627,7 @@ class ApiHandler(
                     context.startActivity(foregroundIntent)
 
                     try {
-                        Thread.sleep(1000) // TODO add const
+                        Thread.sleep(INSTALL_UI_DELAY_MS)
                     } catch (ignored: InterruptedException) {
                     }
 
@@ -707,7 +708,7 @@ class ApiHandler(
                             val errorBody =
                                 connection.errorStream?.bufferedReader()?.use { reader ->
                                     val text = reader.readText()
-                                    if (text.length > 2048) text.take(2048) else text // TODO put consts
+                                    if (text.length > MAX_ERROR_BODY_SIZE) text.take(MAX_ERROR_BODY_SIZE) else text
                                 }
                             result.put("success", false)
                             result.put(
@@ -758,7 +759,7 @@ class ApiHandler(
                                 installApp(stream, hideOverlay, expectedSizeBytes = contentLength)
                             }
 
-                        when (installResponse) { // TODO consts here and below
+                        when (installResponse) {
                             is ApiResponse.Success -> {
                                 successCount += 1
                                 result.put("success", true)
@@ -808,7 +809,7 @@ class ApiHandler(
         val width = params.optInt("width", 720).coerceIn(144, 1920)
         val height = params.optInt("height", 1280).coerceIn(256, 3840)
         val fps = params.optInt("fps", 30).coerceIn(1, 60)
-        // TODO: Handle ICE servers from params
+        // ICE servers can be passed in params if custom TURN/STUN servers are needed
         val manager = WebRtcManager.getInstance(context)
         manager.setStreamRequestId(requestId)
 

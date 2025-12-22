@@ -33,6 +33,19 @@ class ScreenCaptureService : Service() {
         const val EXTRA_WIDTH = "width"
         const val EXTRA_HEIGHT = "height"
         const val EXTRA_FPS = "fps"
+        
+        @Volatile
+        private var instance: ScreenCaptureService? = null
+        
+        fun getInstance(): ScreenCaptureService? = instance
+
+        /**
+         * Request the service to stop from external callers (e.g., WebRtcManager on ICE failure).
+         * This is safe to call from any thread.
+         */
+        fun requestStop() {
+            instance?.requestStopInternal()
+        }
     }
 
     private lateinit var webRtcManager: WebRtcManager
@@ -43,10 +56,8 @@ class ScreenCaptureService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        Log.d(TAG, "ScreenCaptureService Created")
-        
+        instance = this
         webRtcManager = WebRtcManager.getInstance(this)
-        
         createNotificationChannel()
     }
 
@@ -92,7 +103,6 @@ class ScreenCaptureService : Service() {
                                     put("error", "capture_failed")
                                     put("message", e.message ?: "Failed to start screen capture")
                                     if (streamRequestId != null) put("request_id", streamRequestId)
-
                                 })
                             }
                             rcs.sendText(errorJson.toString())
@@ -122,15 +132,12 @@ class ScreenCaptureService : Service() {
     
     private fun stopStream() {
         if (stopRequested) {
-            Log.i(TAG, "Stop already requested; finalizing")
             finalizeStop("duplicate_stop")
             return
         }
         stopRequested = true
-        Log.i(TAG, "Stop requested; scheduling cleanup")
         webRtcManager.notifyStreamStoppedAsync("user_stop")
         webRtcManager.stopStreamAsync {
-            Log.i(TAG, "WebRTC cleanup completed")
             finalizeStop("cleanup_complete")
         }
         mainHandler.postDelayed(stopTimeoutRunnable, STOP_TIMEOUT_MS)
@@ -138,7 +145,7 @@ class ScreenCaptureService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
-        Log.d(TAG, "ScreenCaptureService Destroyed")
+        instance = null
         if (!stopRequested) {
             stopRequested = true
             webRtcManager.notifyStreamStoppedAsync("service_destroyed")
@@ -146,14 +153,20 @@ class ScreenCaptureService : Service() {
         }
         finalizeStop("service_destroyed")
     }
+    
+    private fun requestStopInternal() {
+        mainHandler.post {
+            if (!stopFinalized) stopStream()
+        }
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
     
+    @Suppress("UNUSED_PARAMETER")
     private fun finalizeStop(reason: String) {
         if (stopFinalized) return
         stopFinalized = true
         mainHandler.removeCallbacks(stopTimeoutRunnable)
-        Log.i(TAG, "Finalizing stop ($reason)")
         @Suppress("DEPRECATION")
         stopForeground(true)
         stopSelf()

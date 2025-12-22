@@ -11,8 +11,6 @@ class ScreenCaptureStopReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         if (intent?.action != ScreenCaptureService.ACTION_STOP_STREAM) return
 
-        Log.i(TAG, "Stop stream requested from notification")
-
         val serviceIntent = Intent(context, ScreenCaptureService::class.java).apply {
             action = ScreenCaptureService.ACTION_STOP_STREAM
         }

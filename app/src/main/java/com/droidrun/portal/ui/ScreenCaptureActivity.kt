@@ -27,15 +27,11 @@ class ScreenCaptureActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         mediaProjectionManager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        
-        Log.d(TAG, "Requesting MediaProjection permission")
         startActivityForResult(mediaProjectionManager.createScreenCaptureIntent(), REQUEST_CODE_CAPTURE_PERM)
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         if (requestCode == REQUEST_CODE_CAPTURE_PERM) {
-            Log.d(TAG, "MediaProjection permission result: $resultCode")
-            
             if (resultCode == Activity.RESULT_OK && data != null) {
                 // Pass the permission result to the service
                 val serviceIntent = Intent(this, ScreenCaptureService::class.java).apply {
@@ -74,11 +70,9 @@ class ScreenCaptureActivity : Activity() {
                         put("error", "permission_denied")
                         put("message", "User denied screen capture permission")
                         if (requestId != null) put("request_id", requestId)
-
                     })
                 }
                 service.sendText(errorMessage.toString())
-                Log.d(TAG, "Notified cloud of permission denial")
             } else {
                 Log.w(TAG, "ReverseConnectionService not available to notify cloud")
             }
