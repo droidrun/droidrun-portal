@@ -30,6 +30,7 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import androidx.core.net.toUri
+import com.droidrun.portal.config.ConfigManager
 
 class ApiHandler(
     private val stateRepo: StateRepository,
@@ -46,6 +47,7 @@ class ApiHandler(
     }
 
     private val installLock = Any()
+    private val configManager: ConfigManager = ConfigManager.getInstance(context)
 
     private fun getAvailableInternalBytes(): Long? {
         return try {
@@ -796,5 +798,10 @@ class ApiHandler(
         }
 
         return ApiResponse.RawObject(summary)
+    }
+
+    fun reset(): ApiResponse {
+        configManager.resetDeviceID()
+        return ApiResponse.Success("device-id reseted")
     }
 }

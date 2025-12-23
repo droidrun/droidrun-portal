@@ -46,6 +46,9 @@
     <string name="endpoint_keyboard_key">/keyboard/key</string>
     <string name="endpoint_overlay_offset">/overlay_offset</string>
     <string name="logs_link_text">Logs</string>
+    <string name="reverse_connection_connected">Connected</string>
+    <string name="reverse_connection_connecting">Connecting...</string>
+    <string name="reverse_connection_disconnected">Disconnected</string>
 
     <!-- Sheet Settings -->
     <string name="websocket_settings_header">WebSocket Settings</string>

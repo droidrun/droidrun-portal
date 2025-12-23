@@ -37,6 +37,32 @@
                     android:scaleType="fitStart"
                     android:src="@drawable/logo" />
 
+                <LinearLayout
+                    android:id="@+id/reverse_connection_indicator_container"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="12dp"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:visibility="gone">
+
+                    <View
+                        android:id="@+id/reverse_connection_indicator_dot"
+                        android:layout_width="10dp"
+                        android:layout_height="10dp"
+                        android:background="@drawable/circle_indicator_gray" />
+
+                    <TextView
+                        android:id="@+id/reverse_connection_indicator_text"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="6dp"
+                        android:text="@string/reverse_connection_disconnected"
+                        android:textColor="@color/text_gray"
+                        android:textSize="12sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
                 <ImageButton
                     android:id="@+id/settings_button"
                     android:layout_width="48dp"

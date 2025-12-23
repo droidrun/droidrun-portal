@@ -18,9 +18,22 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 class ReverseConnectionService : Service() {
 
+    enum class ReverseConnectionStatus {
+        CONNECTED,
+        CONNECTING,
+        DISCONNECTED
+    }
+
     companion object {
         private const val TAG = "ReverseConnService"
         private const val RECONNECT_DELAY_MS = 3000L
+        const val ACTION_CONNECTION_STATUS = "com.droidrun.portal.REVERSE_CONNECTION_STATUS"
+        const val EXTRA_CONNECTION_STATUS = "status"
+
+        @Volatile
+        private var lastKnownStatus: ReverseConnectionStatus = ReverseConnectionStatus.DISCONNECTED
+
+        fun getLastKnownStatus(): ReverseConnectionStatus = lastKnownStatus
     }
 
     private val binder = LocalBinder()
@@ -47,6 +60,7 @@ class ReverseConnectionService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (!isServiceRunning.getAndSet(true)) {
             Log.i(TAG, "Starting Reverse Connection Service")
+            updateConnectionStatus(ReverseConnectionStatus.CONNECTING)
             connectToHost()
         }
         return START_STICKY
@@ -61,6 +75,7 @@ class ReverseConnectionService : Service() {
             installExecutor.shutdownNow()
         } catch (_: Exception) {
         }
+        updateConnectionStatus(ReverseConnectionStatus.DISCONNECTED)
         Log.i(TAG, "Service Destroyed")
     }
 
@@ -88,6 +103,7 @@ class ReverseConnectionService : Service() {
         val hostUrl = configManager.reverseConnectionUrl
         if (hostUrl.isBlank()) {
             Log.w(TAG, "No host URL configured")
+            updateConnectionStatus(ReverseConnectionStatus.DISCONNECTED)
             // Don't stop self, maybe user will config later? 
             // Or stop and let UI restart it.
             return
@@ -95,12 +111,15 @@ class ReverseConnectionService : Service() {
 
         try {
             disconnect() // Prevent resource leaks from zombie connections
-            val uri = URI(hostUrl)
+
+            val uri = URI(hostUrl.replace("{deviceId}", configManager.deviceID))
             val headers = buildHeaders()
 
+            updateConnectionStatus(ReverseConnectionStatus.CONNECTING)
             webSocketClient = object : WebSocketClient(uri, headers) {
                 override fun onOpen(handshakedata: ServerHandshake?) {
                     Log.i(TAG, "Connected to Host: $hostUrl")
+                    updateConnectionStatus(ReverseConnectionStatus.CONNECTED)
                 }
 
                 override fun onMessage(message: String?) {
@@ -109,11 +128,13 @@ class ReverseConnectionService : Service() {
 
                 override fun onClose(code: Int, reason: String?, remote: Boolean) {
                     Log.w(TAG, "Disconnected from Host: $reason")
+                    updateConnectionStatus(ReverseConnectionStatus.DISCONNECTED)
                     scheduleReconnect()
                 }
 
                 override fun onError(ex: Exception?) {
                     Log.e(TAG, "Connection Error: ${ex?.message}")
+                    updateConnectionStatus(ReverseConnectionStatus.DISCONNECTED)
                     scheduleReconnect()
                 }
             }
@@ -122,6 +143,7 @@ class ReverseConnectionService : Service() {
             Log.i(TAG, "websocket connection established")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to initiate connection", e)
+            updateConnectionStatus(ReverseConnectionStatus.DISCONNECTED)
             scheduleReconnect()
         }
     }
@@ -229,6 +251,18 @@ class ReverseConnectionService : Service() {
                     Log.e(TAG, "Error responding with an error")
                 }
             }
+        }
+    }
+
+    private fun updateConnectionStatus(status: ReverseConnectionStatus) {
+        lastKnownStatus = status
+        try {
+            val intent = Intent(ACTION_CONNECTION_STATUS).apply {
+                putExtra(EXTRA_CONNECTION_STATUS, status.name)
+            }
+            sendBroadcast(intent)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to broadcast connection status: ${e.message}")
         }
     }
 }

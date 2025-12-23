@@ -3,9 +3,13 @@ package com.droidrun.portal.ui
 import com.droidrun.portal.config.ConfigManager
 import com.droidrun.portal.service.DroidrunAccessibilityService
 import com.droidrun.portal.service.DroidrunNotificationListener
+import com.droidrun.portal.service.ReverseConnectionService
+import com.droidrun.portal.R
 
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.os.Bundle
 import android.util.Log
 import android.widget.TextView
@@ -29,10 +33,12 @@ import com.droidrun.portal.databinding.ActivityMainBinding
 import com.droidrun.portal.ui.settings.SettingsBottomSheet
 import androidx.core.net.toUri
 import androidx.core.graphics.toColorInt
+import androidx.core.content.ContextCompat
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
+    private lateinit var configManager: ConfigManager
 
     private var responseText: String = ""
 
@@ -42,6 +48,24 @@ class MainActivity : AppCompatActivity() {
     // Flag to prevent infinite update loops
     private var isProgrammaticUpdate = false
     private val mainHandler = Handler(Looper.getMainLooper())
+
+    private var reverseConnectionReceiverRegistered = false
+    private val reverseConnectionStatusReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != ReverseConnectionService.ACTION_CONNECTION_STATUS) return
+
+            val statusName =
+                intent.getStringExtra(ReverseConnectionService.EXTRA_CONNECTION_STATUS)
+            val status = try {
+                statusName?.let { ReverseConnectionService.ReverseConnectionStatus.valueOf(it) }
+            } catch (e: Exception) {
+                Log.w("MainActivity", "Unknown reverse connection status: $statusName")
+                null
+            } ?: ReverseConnectionService.ReverseConnectionStatus.DISCONNECTED
+
+            updateReverseConnectionIndicator(status)
+        }
+    }
 
     // Constants for the position offset slider
     companion object {
@@ -53,6 +77,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        configManager = ConfigManager.getInstance(this)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
@@ -118,6 +143,8 @@ class MainActivity : AppCompatActivity() {
         updateStatusIndicators()
         syncUIWithAccessibilityService()
         updateSocketServerStatus()
+        registerReverseConnectionReceiver()
+        syncReverseConnectionIndicator()
     }
 
     override fun onResume() {
@@ -126,11 +153,16 @@ class MainActivity : AppCompatActivity() {
         updateStatusIndicators()
         syncUIWithAccessibilityService()
         updateSocketServerStatus()
+        registerReverseConnectionReceiver()
+        syncReverseConnectionIndicator()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        unregisterReverseConnectionReceiver()
     }
 
     private fun setupNetworkInfo() {
-        val configManager = ConfigManager.getInstance(this)
-
         binding.authTokenText.text = configManager.authToken
 
         binding.btnCopyToken.setOnClickListener {
@@ -164,6 +196,77 @@ class MainActivity : AppCompatActivity() {
     private fun updateStatusIndicators() {
         updateAccessibilityStatusIndicator()
         updateNotificationStatusIndicator()
+    }
+
+    private fun registerReverseConnectionReceiver() {
+        if (reverseConnectionReceiverRegistered) return
+        try {
+            androidx.core.content.ContextCompat.registerReceiver(
+                this,
+                reverseConnectionStatusReceiver,
+                IntentFilter(ReverseConnectionService.ACTION_CONNECTION_STATUS),
+                androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED,
+            )
+            reverseConnectionReceiverRegistered = true
+        } catch (e: Exception) {
+            Log.w("MainActivity", "Failed to register reverse connection receiver: ${e.message}")
+        }
+    }
+
+    private fun unregisterReverseConnectionReceiver() {
+        if (!reverseConnectionReceiverRegistered) return
+        try {
+            unregisterReceiver(reverseConnectionStatusReceiver)
+        } catch (e: Exception) {
+            Log.w("MainActivity", "Failed to unregister reverse connection receiver: ${e.message}")
+        } finally {
+            reverseConnectionReceiverRegistered = false
+        }
+    }
+
+    private fun updateReverseConnectionIndicator(
+        status: ReverseConnectionService.ReverseConnectionStatus,
+    ) {
+        val isFeatureEnabled = configManager.reverseConnectionEnabled ||
+            status != ReverseConnectionService.ReverseConnectionStatus.DISCONNECTED
+        if (!isFeatureEnabled) {
+            binding.reverseConnectionIndicatorContainer.visibility = View.GONE
+            return
+        }
+
+        binding.reverseConnectionIndicatorContainer.visibility = View.VISIBLE
+
+        val (label, indicatorDrawable, textColor) =
+            when (status) {
+                ReverseConnectionService.ReverseConnectionStatus.CONNECTED -> Triple(
+                    R.string.reverse_connection_connected,
+                    R.drawable.circle_indicator_green,
+                    R.color.text_white,
+                )
+
+                ReverseConnectionService.ReverseConnectionStatus.CONNECTING -> Triple(
+                    R.string.reverse_connection_connecting,
+                    R.drawable.circle_indicator_yellow,
+                    R.color.droidrun_warning,
+                )
+
+                ReverseConnectionService.ReverseConnectionStatus.DISCONNECTED -> Triple(
+                    R.string.reverse_connection_disconnected,
+                    R.drawable.circle_indicator_gray,
+                    R.color.text_gray,
+                )
+            }
+
+        binding.reverseConnectionIndicatorDot.setBackgroundResource(indicatorDrawable)
+        binding.reverseConnectionIndicatorText.setText(label)
+        binding.reverseConnectionIndicatorText.setTextColor(
+            ContextCompat.getColor(this, textColor),
+        )
+    }
+
+    private fun syncReverseConnectionIndicator() {
+        val latestStatus = ReverseConnectionService.getLastKnownStatus()
+        updateReverseConnectionIndicator(latestStatus)
     }
 
     private fun syncUIWithAccessibilityService() {
@@ -595,7 +698,6 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateSocketServerPort(port: Int) {
         try {
-            val configManager = ConfigManager.getInstance(this)
             configManager.setSocketServerPortWithNotification(port)
 
             updateAdbForwardCommand()
@@ -635,7 +737,6 @@ class MainActivity : AppCompatActivity() {
                 val command = accessibilityService.getAdbForwardCommand()
                 binding.adbForwardCommand.text = command
             } else {
-                val configManager = ConfigManager.getInstance(this)
                 val port = configManager.socketServerPort
                 binding.adbForwardCommand.text = "adb forward tcp:$port tcp:$port"
             }

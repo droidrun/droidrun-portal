@@ -50,7 +50,8 @@ class ConfigManager private constructor(private val context: Context) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     init {
-        if (sharedPrefs.contains(KEY_REVERSE_CONNECTION_ENABLED)) {
+        // Ensure reverse connection flag has a defined default
+        if (!sharedPrefs.contains(KEY_REVERSE_CONNECTION_ENABLED)) {
             sharedPrefs.edit { putBoolean(KEY_REVERSE_CONNECTION_ENABLED, false) }
         }
     }
@@ -76,6 +77,12 @@ class ConfigManager private constructor(private val context: Context) {
             }
             return id
         }
+
+    fun resetDeviceID() {
+        sharedPrefs.edit {
+            putString(KEY_DEVICE_ID, null)
+        }
+    }
 
     // Overlay visibility
     var overlayVisible: Boolean
@@ -174,7 +181,11 @@ class ConfigManager private constructor(private val context: Context) {
             return "7785b089-b9aa-458d-a32e-baec315e5e16"
         }
 
-    var reverseConnectionEnabled: Boolean = false
+    var reverseConnectionEnabled: Boolean
+        get() = sharedPrefs.getBoolean(KEY_REVERSE_CONNECTION_ENABLED, false)
+        set(value) {
+            sharedPrefs.edit { putBoolean(KEY_REVERSE_CONNECTION_ENABLED, value) }
+        }
 
     // Dynamic Event Toggles
     fun isEventEnabled(type: EventType): Boolean {

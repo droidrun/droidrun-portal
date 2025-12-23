@@ -138,6 +138,10 @@ class ActionDispatcher(private val apiHandler: ApiHandler) {
                     apiHandler.installFromUrls(urls, hideOverlay)
             }
 
+            "reset" -> {
+                apiHandler.reset()
+            }
+
             else -> ApiResponse.Error("Unknown method: $method")
         }
     }
