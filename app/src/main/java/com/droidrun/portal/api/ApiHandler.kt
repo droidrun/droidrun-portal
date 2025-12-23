@@ -33,6 +33,7 @@ import androidx.core.net.toUri
 import com.droidrun.portal.service.ScreenCaptureService
 import com.droidrun.portal.streaming.WebRtcManager
 import org.webrtc.IceCandidate
+import org.webrtc.PeerConnection
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import androidx.core.app.NotificationCompat
@@ -809,19 +810,28 @@ class ApiHandler(
         val width = params.optInt("width", 720).coerceIn(144, 1920)
         val height = params.optInt("height", 1280).coerceIn(256, 3840)
         val fps = params.optInt("fps", 30).coerceIn(1, 60)
-        // ICE servers can be passed in params if custom TURN/STUN servers are needed
+        val waitForOffer = params.optBoolean("waitForOffer", false)
+        Log.i(TAG, ">>> startStream: ${width}x${height}@${fps}fps, waitForOffer=$waitForOffer")
         val manager = WebRtcManager.getInstance(context)
         manager.setStreamRequestId(requestId)
+        params.optJSONArray("iceServers")?.let {
+            val servers = parseIceServers(it)
+            Log.i(TAG, ">>> startStream: ${servers.size} ICE servers configured")
+            manager.setPendingIceServers(servers)
+        }
 
+        Log.i(TAG, ">>> startStream: launching ScreenCaptureActivity")
         val intent = Intent(context, com.droidrun.portal.ui.ScreenCaptureActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra(ScreenCaptureService.EXTRA_WIDTH, width)
             putExtra(ScreenCaptureService.EXTRA_HEIGHT, height)
             putExtra(ScreenCaptureService.EXTRA_FPS, fps)
+            putExtra(ScreenCaptureService.EXTRA_WAIT_FOR_OFFER, waitForOffer)
         }
 
         try {
              context.startActivity(intent)
+             Log.i(TAG, ">>> startStream: activity started successfully")
              return ApiResponse.Success("prompting_user")
         } catch (e: Exception) {
             Log.w(TAG, "Failed to start ScreenCaptureActivity directly: ${e.message}. Trying notification trampoline.")
@@ -900,5 +910,32 @@ class ApiHandler(
             IceCandidate(sdpMid, sdpMLineIndex, candidateSdp)
         )
         return ApiResponse.Success("ICE Candidate processed")
+    }
+
+    fun handleWebRtcOffer(sdp: String): ApiResponse {
+        val manager = WebRtcManager.getInstance(context)
+        Log.d(TAG, "handleWebRtcOffer: checking isStreamActive...")
+        val active = manager.isStreamActive()
+        Log.d(TAG, "handleWebRtcOffer: isStreamActive=$active")
+        if (!active)
+            return ApiResponse.Error("No active stream - call stream/start first")
+
+        manager.handleOffer(sdp)
+        return ApiResponse.Success("SDP Offer processed, answer will be sent")
+    }
+
+    private fun parseIceServers(json: JSONArray): List<PeerConnection.IceServer> {
+        return (0 until json.length()).map { i ->
+            val obj = json.getJSONObject(i)
+            val urlsArray = obj.getJSONArray("urls")
+            val urls = (0 until urlsArray.length()).map { urlsArray.getString(it) }
+            if (urls.isEmpty()) {
+                throw IllegalArgumentException("ICE server at index $i has empty urls array")
+            }
+            PeerConnection.IceServer.builder(urls)
+                .setUsername(obj.optString("username", ""))
+                .setPassword(obj.optString("credential", ""))
+                .createIceServer()
+        }
     }
 }

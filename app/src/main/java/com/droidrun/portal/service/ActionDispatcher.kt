@@ -167,6 +167,15 @@ class ActionDispatcher(private val apiHandler: ApiHandler) {
                 }
             }
 
+            "webrtc/offer" -> {
+                if (origin != Origin.WEBSOCKET_REVERSE) {
+                    ApiResponse.Error("WebRTC signaling requires reverse WebSocket connection")
+                } else {
+                    val sdp = params.getString("sdp")
+                    apiHandler.handleWebRtcOffer(sdp)
+                }
+            }
+
             "webrtc/ice" -> {
                 if (origin != Origin.WEBSOCKET_REVERSE) {
                     ApiResponse.Error("WebRTC signaling requires reverse WebSocket connection")

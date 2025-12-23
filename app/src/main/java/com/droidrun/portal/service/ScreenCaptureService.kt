@@ -33,6 +33,7 @@ class ScreenCaptureService : Service() {
         const val EXTRA_WIDTH = "width"
         const val EXTRA_HEIGHT = "height"
         const val EXTRA_FPS = "fps"
+        const val EXTRA_WAIT_FOR_OFFER = "wait_for_offer"
         
         @Volatile
         private var instance: ScreenCaptureService? = null
@@ -71,17 +72,18 @@ class ScreenCaptureService : Service() {
                 val width = intent.getIntExtra(EXTRA_WIDTH, 720)
                 val height = intent.getIntExtra(EXTRA_HEIGHT, 1280)
                 val fps = intent.getIntExtra(EXTRA_FPS, 30)
+                val waitForOffer = intent.getBooleanExtra(EXTRA_WAIT_FOR_OFFER, false)
 
                 if (resultCode == -1 && resultData != null) {
                     stopRequested = false
-                    startForeground(NOTIFICATION_ID, createNotification(), 
+                    startForeground(NOTIFICATION_ID, createNotification(),
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                              ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
                         } else {
                             0
                         }
                     )
-                    
+
                     val rcs = ReverseConnectionService.getInstance()
                     if (rcs == null) {
                         Log.e(TAG, "ReverseConnectionService is null - cannot send signaling messages, aborting stream")
@@ -93,7 +95,7 @@ class ScreenCaptureService : Service() {
 
                     val streamRequestId = webRtcManager.getStreamRequestId()
                     try {
-                        webRtcManager.startStream(resultData, width, height, fps)
+                        webRtcManager.startStream(resultData, width, height, fps, waitForOffer = waitForOffer)
                     } catch (e: Exception) {
                         Log.e(TAG, "Failed to start stream", e)
                         try {
