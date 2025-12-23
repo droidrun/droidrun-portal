@@ -891,14 +891,15 @@ class ApiHandler(
         return ApiResponse.Success("SDP Answer processed")
     }
 
-    fun handleWebRtcIce(candidateSdp: String, sdpMid: String, sdpMLineIndex: Int): ApiResponse {
+    fun handleWebRtcOffer(sdp: String, sessionId: String?): ApiResponse {
         val manager = WebRtcManager.getInstance(context)
-        if (!manager.isStreamActive())
-            return ApiResponse.Error("No active stream")
+        manager.handleOffer(sdp, sessionId)
+        return ApiResponse.Success(if (manager.isStreamActive()) "SDP Offer processed" else "SDP Offer queued")
+    }
 
-        manager.handleIceCandidate(
-            IceCandidate(sdpMid, sdpMLineIndex, candidateSdp)
-        )
-        return ApiResponse.Success("ICE Candidate processed")
+    fun handleWebRtcIce(candidateSdp: String, sdpMid: String, sdpMLineIndex: Int, sessionId: String? = null): ApiResponse {
+        val manager = WebRtcManager.getInstance(context)
+        manager.handleIceCandidate(IceCandidate(sdpMid, sdpMLineIndex, candidateSdp), sessionId)
+        return ApiResponse.Success(if (manager.isStreamActive()) "ICE Candidate processed" else "ICE Candidate queued")
     }
 }

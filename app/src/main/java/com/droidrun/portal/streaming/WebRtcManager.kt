@@ -49,9 +49,27 @@ class WebRtcManager private constructor(private val context: Context) {
     
     @Volatile
     private var reverseConnectionService: ReverseConnectionService? = null
-    private val pendingIceCandidates = ConcurrentLinkedQueue<IceCandidate>()
+
+    private data class PendingIceCandidate(
+        val candidate: IceCandidate,
+        val sessionId: String?,
+    )
+
+    private data class PendingOffer(
+        val sdp: String,
+        val sessionId: String?,
+    )
+
+    private val pendingIceCandidates = ConcurrentLinkedQueue<PendingIceCandidate>()
+    @Volatile
+    private var pendingOffer: PendingOffer? = null
+
     @Volatile
     private var isRemoteDescriptionSet = false
+    @Volatile
+    private var isLocalDescriptionSet = false
+    @Volatile
+    private var currentSessionId: String? = null
     private val outgoingMessageId = AtomicInteger(0)
     
     // for all peerConnection lifecycle operations
@@ -122,7 +140,12 @@ class WebRtcManager private constructor(private val context: Context) {
             }
 
             startStatsLogging(streamId)
-            createOffer(streamId)
+            // Answerer role: do not create offers. We wait for a remote offer via handleOffer().
+            pendingOffer?.let { offer ->
+                Log.i(TAG, "Applying buffered offer after startStream (sessionId=${offer.sessionId})")
+                pendingOffer = null
+                handleOfferLocked(offer.sdp, offer.sessionId, streamId)
+            }
         }
     }
 
@@ -184,6 +207,9 @@ class WebRtcManager private constructor(private val context: Context) {
         stopStatsLogging()
         pendingIceCandidates.clear()
         isRemoteDescriptionSet = false
+        isLocalDescriptionSet = false
+        currentSessionId = null
+        pendingOffer = null
         return resources
     }
 
@@ -265,21 +291,58 @@ class WebRtcManager private constructor(private val context: Context) {
     }
 
     fun handleIceCandidate(candidate: IceCandidate) {
+        handleIceCandidate(candidate, sessionId = null)
+    }
+
+    fun handleIceCandidate(candidate: IceCandidate, sessionId: String?) {
+        val normalizedSessionId = sessionId?.takeIf { it.isNotBlank() }
         var connection: PeerConnection? = null
-        var shouldReturn = false
+        var generation = 0
+        var shouldBuffer = false
+
         synchronized(streamLock) {
+            generation = streamGeneration.get()
             if (peerConnection == null) {
-                Log.w(TAG, "handleIceCandidate called but no active PeerConnection")
-                shouldReturn = true
+                Log.w(TAG, "ICE received but no active PeerConnection; buffering (sessionId=$normalizedSessionId)")
+                shouldBuffer = true
             } else if (!isRemoteDescriptionSet) {
-                pendingIceCandidates.add(candidate)
-                shouldReturn = true
+                shouldBuffer = true
+            } else if (
+                currentSessionId != null &&
+                normalizedSessionId != null &&
+                currentSessionId != normalizedSessionId
+            ) {
+                Log.w(TAG, "Dropping ICE for different sessionId=$normalizedSessionId (currentSessionId=$currentSessionId)")
+                return
             } else {
                 connection = peerConnection
             }
         }
-        if (shouldReturn) return
-        connection?.addIceCandidate(candidate)
+
+        if (shouldBuffer) {
+            pendingIceCandidates.add(PendingIceCandidate(candidate, normalizedSessionId))
+            Log.d(TAG, "Buffered remote ICE (sessionId=$normalizedSessionId, pending=${pendingIceCandidates.size})")
+            return
+        }
+
+        val activeConnection = connection ?: return
+        val ok = try {
+            activeConnection.addIceCandidate(candidate)
+        } catch (e: Exception) {
+            Log.w(TAG, "addIceCandidate threw; buffering and retrying later", e)
+            false
+        }
+        Log.d(TAG, "Applied remote ICE (ok=$ok, sessionId=$normalizedSessionId)")
+        if (!ok) {
+            pendingIceCandidates.add(PendingIceCandidate(candidate, normalizedSessionId))
+            return
+        }
+
+        synchronized(streamLock) {
+            if (peerConnection === activeConnection && streamGeneration.get() == generation) {
+                flushPendingIceCandidatesLocked(activeConnection, generation)
+            }
+        }
     }
     
     private fun drainPendingIceCandidatesLocked(): List<IceCandidate> {
@@ -287,9 +350,43 @@ class WebRtcManager private constructor(private val context: Context) {
         val drained = ArrayList<IceCandidate>()
         while (true) {
             val candidate = pendingIceCandidates.poll() ?: break
-            drained.add(candidate)
+            drained.add(candidate.candidate)
         }
         return drained
+    }
+
+    private fun flushPendingIceCandidatesLocked(connection: PeerConnection, generation: Int) {
+        if (pendingIceCandidates.isEmpty()) return
+        if (peerConnection !== connection || streamGeneration.get() != generation) return
+        if (!isRemoteDescriptionSet) return
+
+        val requeue = ArrayList<PendingIceCandidate>()
+        while (true) {
+            val pending = pendingIceCandidates.poll() ?: break
+            if (currentSessionId != null && pending.sessionId != null && currentSessionId != pending.sessionId) {
+                Log.w(
+                    TAG,
+                    "Dropping buffered ICE for different sessionId=${pending.sessionId} (currentSessionId=$currentSessionId)"
+                )
+                continue
+            }
+            val ok = try {
+                connection.addIceCandidate(pending.candidate)
+            } catch (_: Exception) {
+                false
+            }
+            if (!ok) requeue.add(pending)
+        }
+        for (p in requeue) pendingIceCandidates.add(p)
+
+        if (requeue.isNotEmpty()) {
+            Log.d(
+                TAG,
+                "Pending ICE still blocked; remaining=${requeue.size} (remoteSet=$isRemoteDescriptionSet localSet=$isLocalDescriptionSet)"
+            )
+        } else {
+            Log.d(TAG, "Flushed all pending ICE candidates")
+        }
     }
 
     private fun isCurrentStreamLocked(streamId: Int): Boolean {
@@ -333,12 +430,25 @@ class WebRtcManager private constructor(private val context: Context) {
         }
 
         peerConnection = peerConnectionFactory?.createPeerConnection(rtcConfig, object : CustomPeerConnectionObserver() {
+            override fun onSignalingChange(p0: PeerConnection.SignalingState?) {
+                if (!isCurrentStream(streamId)) return
+                Log.d(TAG, "Signaling state: $p0")
+            }
+
+            override fun onIceGatheringChange(p0: PeerConnection.IceGatheringState?) {
+                if (!isCurrentStream(streamId)) return
+                Log.d(TAG, "ICE gathering state: $p0")
+            }
+
             override fun onIceCandidate(p0: IceCandidate) {
                 if (!isCurrentStream(streamId)) return
-                sendIceCandidate(p0)
+                Log.d(TAG, "Local ICE candidate gathered (mid=${p0.sdpMid}, mline=${p0.sdpMLineIndex})")
+                sendIceCandidate(p0, currentSessionId)
             }
 
             override fun onIceConnectionChange(p0: PeerConnection.IceConnectionState?) {
+                if (!isCurrentStream(streamId)) return
+                Log.i(TAG, "ICE connection state: $p0")
                 if (p0 == PeerConnection.IceConnectionState.FAILED) {
                     if (!isCurrentStream(streamId)) return
                     Log.e(TAG, "ICE connection failed - stopping stream")
@@ -658,7 +768,7 @@ class WebRtcManager private constructor(private val context: Context) {
         reverseConnectionService?.sendText(json.toString())
     }
 
-    private fun sendIceCandidate(candidate: IceCandidate) {
+    private fun sendIceCandidate(candidate: IceCandidate, sessionId: String?) {
         val json = JSONObject().apply {
             put("id", outgoingMessageId.getAndIncrement())
             put("method", "webrtc/ice")
@@ -666,6 +776,23 @@ class WebRtcManager private constructor(private val context: Context) {
                 put("candidate", candidate.sdp)
                 put("sdpMid", candidate.sdpMid)
                 put("sdpMLineIndex", candidate.sdpMLineIndex)
+                if (!sessionId.isNullOrBlank()) {
+                    put("sessionId", sessionId)
+                }
+            })
+        }
+        reverseConnectionService?.sendText(json.toString())
+    }
+
+    private fun sendAnswer(sdp: String, sessionId: String?) {
+        val json = JSONObject().apply {
+            put("id", outgoingMessageId.getAndIncrement())
+            put("method", "webrtc/answer")
+            put("params", JSONObject().apply {
+                put("sdp", sdp)
+                if (!sessionId.isNullOrBlank()) {
+                    put("sessionId", sessionId)
+                }
             })
         }
         reverseConnectionService?.sendText(json.toString())
@@ -739,5 +866,138 @@ class WebRtcManager private constructor(private val context: Context) {
         override fun onSetSuccess() {}
         override fun onCreateFailure(p0: String?) { Log.e(TAG, "$name onCreateFailure: $p0") }
         override fun onSetFailure(p0: String?) { Log.e(TAG, "$name onSetFailure: $p0") }
+    }
+
+    /**
+     * Answerer entrypoint: accept a remote SDP offer, generate an SDP answer, set local description,
+     * and send webrtc/answer back over the reverse websocket.
+     */
+    fun handleOffer(sdp: String, sessionId: String?) {
+        val normalizedSessionId = sessionId?.takeIf { it.isNotBlank() }
+        val connection: PeerConnection?
+        val generation: Int
+
+        synchronized(streamLock) {
+            generation = streamGeneration.get()
+            connection = peerConnection
+            if (connection == null) {
+                Log.i(TAG, "Offer received before startStream; buffering (sessionId=$normalizedSessionId)")
+                pendingOffer = PendingOffer(sdp = sdp, sessionId = normalizedSessionId)
+                return
+            }
+        }
+
+        Log.i(TAG, "Offer received (sessionId=$normalizedSessionId)")
+        val activeConnection = connection ?: return
+        handleOfferWithConnection(activeConnection, generation, sdp, normalizedSessionId)
+    }
+
+    private fun handleOfferLocked(sdp: String, sessionId: String?, generation: Int) {
+        val connection = peerConnection ?: run {
+            pendingOffer = PendingOffer(sdp = sdp, sessionId = sessionId)
+            return
+        }
+        handleOfferWithConnection(connection, generation, sdp, sessionId)
+    }
+
+    private fun handleOfferWithConnection(
+        connection: PeerConnection,
+        generation: Int,
+        sdp: String,
+        sessionId: String?,
+    ) {
+        synchronized(streamLock) {
+            if (peerConnection !== connection || streamGeneration.get() != generation) {
+                Log.w(TAG, "Ignoring offer for stale PeerConnection (sessionId=$sessionId)")
+                return
+            }
+            if (currentSessionId != null && sessionId != null && currentSessionId != sessionId) {
+                Log.w(TAG, "Ignoring offer for different sessionId=$sessionId (currentSessionId=$currentSessionId)")
+                return
+            }
+            // Reset SDP state for current negotiation
+            isRemoteDescriptionSet = false
+            isLocalDescriptionSet = false
+            if (currentSessionId == null) {
+                currentSessionId = sessionId
+            }
+        }
+
+        Log.d(TAG, "Setting remote offer (sessionId=$sessionId)")
+        connection.setRemoteDescription(
+            object : SimpleSdpObserver("setRemoteDescription(offer)") {
+                override fun onSetSuccess() {
+                    super.onSetSuccess()
+                    val ok = synchronized(streamLock) {
+                        if (peerConnection !== connection || streamGeneration.get() != generation) {
+                            false
+                        } else {
+                            isRemoteDescriptionSet = true
+                            true
+                        }
+                    }
+                    if (!ok) {
+                        Log.w(TAG, "setRemoteDescription(offer) succeeded on stale PeerConnection; ignoring")
+                        return
+                    }
+                    Log.i(TAG, "setRemoteDescription(offer) success (sessionId=$sessionId)")
+
+                    synchronized(streamLock) { flushPendingIceCandidatesLocked(connection, generation) }
+
+                    val constraints = MediaConstraints()
+                    connection.createAnswer(object : SimpleSdpObserver("createAnswer") {
+                        override fun onCreateSuccess(desc: SessionDescription) {
+                            super.onCreateSuccess(desc)
+                            val stillCurrent = synchronized(streamLock) {
+                                peerConnection === connection && streamGeneration.get() == generation
+                            }
+                            if (!stillCurrent) {
+                                Log.w(TAG, "createAnswer returned for stale PeerConnection; ignoring")
+                                return
+                            }
+                            Log.i(TAG, "createAnswer success (sessionId=$sessionId)")
+
+                            connection.setLocalDescription(object : SimpleSdpObserver("setLocalDescription(answer)") {
+                                override fun onSetSuccess() {
+                                    super.onSetSuccess()
+                                    val stillCurrent2 = synchronized(streamLock) {
+                                        if (peerConnection !== connection || streamGeneration.get() != generation) {
+                                            false
+                                        } else {
+                                            isLocalDescriptionSet = true
+                                            true
+                                        }
+                                    }
+                                    if (!stillCurrent2) {
+                                        Log.w(TAG, "setLocalDescription(answer) succeeded on stale PeerConnection; ignoring")
+                                        return
+                                    }
+                                    Log.i(TAG, "setLocalDescription(answer) success (sessionId=$sessionId)")
+                                    sendAnswer(desc.description, currentSessionId)
+                                    Log.i(TAG, "Sent webrtc/answer (sessionId=$currentSessionId)")
+                                    synchronized(streamLock) { flushPendingIceCandidatesLocked(connection, generation) }
+                                }
+
+                                override fun onSetFailure(p0: String?) {
+                                    Log.e(TAG, "setLocalDescription(answer) failed: $p0")
+                                    sendStreamError("webrtc_set_local_failed", p0 ?: "unknown")
+                                }
+                            }, desc)
+                        }
+
+                        override fun onCreateFailure(p0: String?) {
+                            Log.e(TAG, "createAnswer failed: $p0")
+                            sendStreamError("webrtc_create_answer_failed", p0 ?: "unknown")
+                        }
+                    }, constraints)
+                }
+
+                override fun onSetFailure(p0: String?) {
+                    Log.e(TAG, "setRemoteDescription(offer) failed: $p0")
+                    sendStreamError("webrtc_set_remote_failed", p0 ?: "unknown")
+                }
+            },
+            SessionDescription(SessionDescription.Type.OFFER, sdp)
+        )
     }
 }

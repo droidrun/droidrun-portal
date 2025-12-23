@@ -167,6 +167,16 @@ class ActionDispatcher(private val apiHandler: ApiHandler) {
                 }
             }
 
+            "webrtc/offer" -> {
+                if (origin != Origin.WEBSOCKET_REVERSE) {
+                    ApiResponse.Error("WebRTC signaling requires reverse WebSocket connection")
+                } else {
+                    val sdp = params.getString("sdp")
+                    val sessionId = params.optString("sessionId").takeIf { it.isNotBlank() }
+                    apiHandler.handleWebRtcOffer(sdp, sessionId)
+                }
+            }
+
             "webrtc/ice" -> {
                 if (origin != Origin.WEBSOCKET_REVERSE) {
                     ApiResponse.Error("WebRTC signaling requires reverse WebSocket connection")
@@ -174,7 +184,8 @@ class ActionDispatcher(private val apiHandler: ApiHandler) {
                     val candidateSdp = params.getString("candidate")
                     val sdpMid = params.optString("sdpMid")
                     val sdpMLineIndex = params.optInt("sdpMLineIndex")
-                    apiHandler.handleWebRtcIce(candidateSdp, sdpMid, sdpMLineIndex)
+                    val sessionId = params.optString("sessionId").takeIf { it.isNotBlank() }
+                    apiHandler.handleWebRtcIce(candidateSdp, sdpMid, sdpMLineIndex, sessionId)
                 }
             }
 
