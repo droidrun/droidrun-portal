@@ -109,7 +109,7 @@ class ReverseConnectionService : Service() {
 
         try {
             disconnect() // Prevent resource leaks from zombie connections
-            val uri = URI(hostUrl)
+            val uri = URI(hostUrl.replace("{deviceId}", configManager.deviceID))
             val headers = buildHeaders()
 
             webSocketClient = object : WebSocketClient(uri, headers) {
