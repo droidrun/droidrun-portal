@@ -812,16 +812,12 @@ class ApiHandler(
         val fps = params.optInt("fps", 30).coerceIn(1, 60)
         val sessionId = params.optString("sessionId")
         val waitForOffer = params.optBoolean("waitForOffer", false)
-        Log.i(TAG, ">>> startStream: ${width}x${height}@${fps}fps, waitForOffer=$waitForOffer")
         val manager = WebRtcManager.getInstance(context)
         manager.setStreamRequestId(sessionId)
         params.optJSONArray("iceServers")?.let {
-            val servers = parseIceServers(it)
-            Log.i(TAG, ">>> startStream: ${servers.size} ICE servers configured")
-            manager.setPendingIceServers(servers)
+            manager.setPendingIceServers(parseIceServers(it))
         }
 
-        Log.i(TAG, ">>> startStream: launching ScreenCaptureActivity")
         val intent = Intent(context, com.droidrun.portal.ui.ScreenCaptureActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra(ScreenCaptureService.EXTRA_WIDTH, width)
@@ -832,7 +828,6 @@ class ApiHandler(
 
         try {
              context.startActivity(intent)
-             Log.i(TAG, ">>> startStream: activity started successfully")
              return ApiResponse.Success("prompting_user")
         } catch (e: Exception) {
             Log.w(TAG, "Failed to start ScreenCaptureActivity directly: ${e.message}. Trying notification trampoline.")
@@ -915,10 +910,7 @@ class ApiHandler(
 
     fun handleWebRtcOffer(sdp: String, sessionId: String): ApiResponse {
         val manager = WebRtcManager.getInstance(context)
-        Log.d(TAG, "handleWebRtcOffer: checking isStreamActive...")
-        val active = manager.isStreamActive()
-        Log.d(TAG, "handleWebRtcOffer: isStreamActive=$active")
-        if (!active)
+        if (!manager.isStreamActive())
             return ApiResponse.Error("No active stream - call stream/start first")
 
         manager.handleOffer(sdp, sessionId)

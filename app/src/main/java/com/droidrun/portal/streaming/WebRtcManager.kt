@@ -45,7 +45,7 @@ class WebRtcManager private constructor(private val context: Context) {
     }
 
     private var peerConnectionFactory: PeerConnectionFactory? = null
-    private var peerConnection: PeerConnection? = null
+    @Volatile private var peerConnection: PeerConnection? = null
     private val eglBase: EglBase by lazy { EglBase.create() }
 
     private var screenCapturer: VideoCapturer? = null
@@ -72,7 +72,7 @@ class WebRtcManager private constructor(private val context: Context) {
     private var statsRunnable: Runnable? = null
     private var lastStatsBytesSent: Long? = null
     private var lastStatsTimestampMs: Long? = null
-    private var controlChannel: DataChannel? = null
+    @Volatile private var controlChannel: DataChannel? = null
     private var scrcpyControlHandler: ScrcpyControlChannel? = null
 
     init {
@@ -99,15 +99,7 @@ class WebRtcManager private constructor(private val context: Context) {
         return servers
     }
 
-    fun isStreamActive(): Boolean =
-            synchronized(streamLock) {
-                val active = peerConnection != null
-                Log.d(
-                        TAG,
-                        "isStreamActive: instance=${this.hashCode()}, peerConnection=${if (peerConnection != null) "exists" else "NULL"}, returning $active"
-                )
-                active
-            }
+    fun isStreamActive(): Boolean = synchronized(streamLock) { peerConnection != null }
 
     private fun initializePeerConnectionFactory() {
         PeerConnectionFactory.initialize(
@@ -167,10 +159,6 @@ class WebRtcManager private constructor(private val context: Context) {
                     put("params", JSONObject().apply { put("sessionId", streamRequestId) })
                 }
         reverseConnectionService?.sendText(json.toString())
-        Log.d(
-                TAG,
-                "Sent stream/ready - instance=${this.hashCode()}, peerConnection=${peerConnection != null}"
-        )
     }
 
     fun stopStream() {
@@ -413,7 +401,6 @@ class WebRtcManager private constructor(private val context: Context) {
                     )
                 }
         reverseConnectionService?.sendText(json.toString())
-        Log.d(TAG, "Sent WebRTC answer for sessionId=$sessionId ${json.toString()}")
     }
 
     fun handleIceCandidate(candidate: IceCandidate) {
@@ -473,7 +460,6 @@ class WebRtcManager private constructor(private val context: Context) {
             customIceServers: List<PeerConnection.IceServer>?,
             streamId: Int
     ) {
-        Log.d(TAG, "createPeerConnection: factory=${peerConnectionFactory != null}")
         val iceServers = ArrayList<PeerConnection.IceServer>()
         if (customIceServers != null && customIceServers.isNotEmpty()) {
             iceServers.addAll(customIceServers)
@@ -517,9 +503,7 @@ class WebRtcManager private constructor(private val context: Context) {
                             }
                         }
                 )
-        Log.d(TAG, "createPeerConnection: peerConnection=${peerConnection != null}")
 
-        // Create scrcpy-compatible control DataChannel
         val dcInit =
                 DataChannel.Init().apply {
                     ordered = true
@@ -530,7 +514,6 @@ class WebRtcManager private constructor(private val context: Context) {
         controlChannel?.let { dc ->
             scrcpyControlHandler = ScrcpyControlChannel()
             dc.registerObserver(scrcpyControlHandler)
-            Log.d(TAG, "Created scrcpy control DataChannel (id=1)")
         }
     }
 
