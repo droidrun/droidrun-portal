@@ -46,6 +46,7 @@ dependencies {
     implementation(libs.androidx.appcompat)
     implementation(libs.material)
     implementation(libs.java.websocket)
+    implementation(libs.webrtc)
     testImplementation(libs.junit)
     testImplementation(libs.json)
     testImplementation(libs.mockk)

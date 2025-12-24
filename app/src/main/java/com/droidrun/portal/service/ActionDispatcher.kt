@@ -18,7 +18,8 @@ class ActionDispatcher(private val apiHandler: ApiHandler) {
 
     enum class Origin {
         HTTP,
-        WEBSOCKET,
+        WEBSOCKET_LOCAL,
+        WEBSOCKET_REVERSE,
     }
 
     /**
@@ -31,7 +32,8 @@ class ActionDispatcher(private val apiHandler: ApiHandler) {
     fun dispatch(
         action: String,
         params: JSONObject,
-        origin: Origin = Origin.WEBSOCKET
+        origin: Origin = Origin.WEBSOCKET_LOCAL,
+        requestId: Any? = null,
     ): ApiResponse {
         // Normalize action name (handle both "action.tap" and "/action/tap" styles)
         return when (
@@ -132,10 +134,61 @@ class ActionDispatcher(private val apiHandler: ApiHandler) {
                     if (url.isNotEmpty()) urls.add(url)
                 }
 
-                if (urls.isEmpty())
+                if (urls.isEmpty()) {
                     ApiResponse.Error("Missing required param: 'urls'")
-                else
+                } else {
                     apiHandler.installFromUrls(urls, hideOverlay)
+                }
+            }
+
+            // Streaming Commands (websocket required)
+            "stream/start" -> {
+                if (origin != Origin.WEBSOCKET_REVERSE) {
+                    ApiResponse.Error("Streaming commands require reverse WebSocket connection")
+                } else {
+                    apiHandler.startStream(params)
+                }
+            }
+
+            "stream/stop" -> {
+                if (origin == Origin.HTTP) {
+                    ApiResponse.Error("Streaming commands require WebSocket connection")
+                } else {
+                    apiHandler.stopStream()
+                }
+            }
+
+            "webrtc/answer" -> {
+                if (origin != Origin.WEBSOCKET_REVERSE) {
+                    ApiResponse.Error("WebRTC signaling requires reverse WebSocket connection")
+                } else {
+                    val sdp = params.getString("sdp")
+                    apiHandler.handleWebRtcAnswer(sdp)
+                }
+            }
+
+            "webrtc/offer" -> {
+                if (origin != Origin.WEBSOCKET_REVERSE) {
+                    ApiResponse.Error("WebRTC signaling requires reverse WebSocket connection")
+                } else {
+                    val sessionId = params.optString("sessionId")
+                    if (sessionId.isNullOrEmpty()) {
+                        return ApiResponse.Error("Missing required param: 'sessionId'")
+                    }
+                    val sdp = params.getString("sdp")
+                    apiHandler.handleWebRtcOffer(sdp, sessionId)
+                }
+            }
+
+            "webrtc/ice" -> {
+                if (origin != Origin.WEBSOCKET_REVERSE) {
+                    ApiResponse.Error("WebRTC signaling requires reverse WebSocket connection")
+                } else {
+                    val candidateSdp = params.getString("candidate")
+                    val sdpMid = params.optString("sdpMid")
+                    val sdpMLineIndex = params.optInt("sdpMLineIndex")
+                    apiHandler.handleWebRtcIce(candidateSdp, sdpMid, sdpMLineIndex)
+                }
             }
 
             else -> ApiResponse.Error("Unknown method: $method")

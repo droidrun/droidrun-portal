@@ -30,6 +30,13 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import androidx.core.net.toUri
+import com.droidrun.portal.service.ScreenCaptureService
+import com.droidrun.portal.streaming.WebRtcManager
+import org.webrtc.IceCandidate
+import org.webrtc.PeerConnection
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import androidx.core.app.NotificationCompat
 
 class ApiHandler(
     private val stateRepo: StateRepository,
@@ -43,6 +50,8 @@ class ApiHandler(
         private const val TAG = "ApiHandler"
         private const val MAX_APK_BYTES = 2L * 1024 * 1024 * 1024 // 2 GB
         private const val INSTALL_FREE_SPACE_MARGIN_BYTES = 200L * 1024 * 1024 // 200 MiB
+        private const val INSTALL_UI_DELAY_MS = 1000L
+        private const val MAX_ERROR_BODY_SIZE = 2048
     }
 
     private val installLock = Any()
@@ -468,7 +477,6 @@ class ApiHandler(
         return ApiResponse.Success(System.currentTimeMillis())
     }
 
-    // TODO fully test it
     fun installApp(
         apkStream: InputStream,
         hideOverlay: Boolean = false,
@@ -620,7 +628,7 @@ class ApiHandler(
                     context.startActivity(foregroundIntent)
 
                     try {
-                        Thread.sleep(1000) // TODO add const
+                        Thread.sleep(INSTALL_UI_DELAY_MS)
                     } catch (ignored: InterruptedException) {
                     }
 
@@ -701,7 +709,7 @@ class ApiHandler(
                             val errorBody =
                                 connection.errorStream?.bufferedReader()?.use { reader ->
                                     val text = reader.readText()
-                                    if (text.length > 2048) text.take(2048) else text // TODO put consts
+                                    if (text.length > MAX_ERROR_BODY_SIZE) text.take(MAX_ERROR_BODY_SIZE) else text
                                 }
                             result.put("success", false)
                             result.put(
@@ -752,7 +760,7 @@ class ApiHandler(
                                 installApp(stream, hideOverlay, expectedSizeBytes = contentLength)
                             }
 
-                        when (installResponse) { // TODO consts here and below
+                        when (installResponse) {
                             is ApiResponse.Success -> {
                                 successCount += 1
                                 result.put("success", true)
@@ -796,5 +804,131 @@ class ApiHandler(
         }
 
         return ApiResponse.RawObject(summary)
+    }
+
+    fun startStream(params: JSONObject): ApiResponse {
+        val width = params.optInt("width", 720).coerceIn(144, 1920)
+        val height = params.optInt("height", 1280).coerceIn(256, 3840)
+        val fps = params.optInt("fps", 30).coerceIn(1, 60)
+        val sessionId = params.optString("sessionId")
+        val waitForOffer = params.optBoolean("waitForOffer", false)
+        val manager = WebRtcManager.getInstance(context)
+        manager.setStreamRequestId(sessionId)
+        params.optJSONArray("iceServers")?.let {
+            manager.setPendingIceServers(parseIceServers(it))
+        }
+
+        val intent = Intent(context, com.droidrun.portal.ui.ScreenCaptureActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra(ScreenCaptureService.EXTRA_WIDTH, width)
+            putExtra(ScreenCaptureService.EXTRA_HEIGHT, height)
+            putExtra(ScreenCaptureService.EXTRA_FPS, fps)
+            putExtra(ScreenCaptureService.EXTRA_WAIT_FOR_OFFER, waitForOffer)
+        }
+
+        try {
+             context.startActivity(intent)
+             return ApiResponse.Success("prompting_user")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to start ScreenCaptureActivity directly: ${e.message}. Trying notification trampoline.")
+            
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                val notificationPermission = context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
+                if (notificationPermission != PackageManager.PERMISSION_GRANTED) {
+                    Log.e(TAG, "POST_NOTIFICATIONS permission not granted, opening app notification settings")
+                    
+                    try {
+                        val settingsIntent = Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                            putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
+                        }
+                        context.startActivity(settingsIntent)
+                    } catch (settingsEx: Exception) {
+                        Log.e(TAG, "Failed to open notification settings: ${settingsEx.message}")
+                    }
+                    
+                    manager.setStreamRequestId(null)
+                    return ApiResponse.Error("stream_start_failed: Notification permission required. Please enable notifications and try again.")
+                }
+            }
+            
+            val pendingIntent = PendingIntent.getActivity(
+                context, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            
+            val channelId = "stream_start_channel"
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val channel = NotificationChannel(channelId, "Start Streaming", NotificationManager.IMPORTANCE_HIGH)
+                val nm = context.getSystemService(NotificationManager::class.java)
+                nm.createNotificationChannel(channel)
+            }
+            
+            val notification = NotificationCompat.Builder(context, channelId)
+                .setSmallIcon(android.R.drawable.ic_menu_camera)
+                .setContentTitle("Start Screen Streaming")
+                .setContentText("Tap to allow cloud screen sharing")
+                .setContentIntent(pendingIntent)
+                .setAutoCancel(true)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .build()
+                
+            val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            nm.notify(3001, notification)
+            
+            return ApiResponse.Success("waiting_for_user_notification_tap")
+        }
+    }
+
+    fun stopStream(): ApiResponse {
+        val intent = Intent(context, ScreenCaptureService::class.java).apply {
+            action = ScreenCaptureService.ACTION_STOP_STREAM
+        }
+        // stopService instead of startService to avoid IllegalStateException on API 26+
+        context.stopService(intent)
+        return ApiResponse.Success("Stop stream requested")
+    }
+
+    fun handleWebRtcAnswer(sdp: String): ApiResponse {
+        val manager = WebRtcManager.getInstance(context)
+        if (!manager.isStreamActive())
+            return ApiResponse.Error("No active stream")
+
+        manager.handleAnswer(sdp)
+        return ApiResponse.Success("SDP Answer processed")
+    }
+
+    fun handleWebRtcIce(candidateSdp: String, sdpMid: String, sdpMLineIndex: Int): ApiResponse {
+        val manager = WebRtcManager.getInstance(context)
+        if (!manager.isStreamActive())
+            return ApiResponse.Error("No active stream")
+
+        manager.handleIceCandidate(
+            IceCandidate(sdpMid, sdpMLineIndex, candidateSdp)
+        )
+        return ApiResponse.Success("ICE Candidate processed")
+    }
+
+    fun handleWebRtcOffer(sdp: String, sessionId: String): ApiResponse {
+        val manager = WebRtcManager.getInstance(context)
+        if (!manager.isStreamActive())
+            return ApiResponse.Error("No active stream - call stream/start first")
+
+        manager.handleOffer(sdp, sessionId)
+        return ApiResponse.Success("SDP Offer processed, answer will be sent")
+    }
+
+    private fun parseIceServers(json: JSONArray): List<PeerConnection.IceServer> {
+        return (0 until json.length()).map { i ->
+            val obj = json.getJSONObject(i)
+            val urlsArray = obj.getJSONArray("urls")
+            val urls = (0 until urlsArray.length()).map { urlsArray.getString(it) }
+            if (urls.isEmpty()) {
+                throw IllegalArgumentException("ICE server at index $i has empty urls array")
+            }
+            PeerConnection.IceServer.builder(urls)
+                .setUsername(obj.optString("username", ""))
+                .setPassword(obj.optString("credential", ""))
+                .createIceServer()
+        }
     }
 }

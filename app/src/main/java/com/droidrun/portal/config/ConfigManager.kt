@@ -175,6 +175,12 @@ class ConfigManager private constructor(private val context: Context) {
         }
 
     var reverseConnectionEnabled: Boolean = false
+    
+    var screenShareAutoAcceptEnabled: Boolean
+        get() = sharedPrefs.getBoolean("screen_share_auto_accept_enabled", true)
+        set(value) {
+            sharedPrefs.edit { putBoolean("screen_share_auto_accept_enabled", value) }
+        }
 
     // Dynamic Event Toggles
     fun isEventEnabled(type: EventType): Boolean {

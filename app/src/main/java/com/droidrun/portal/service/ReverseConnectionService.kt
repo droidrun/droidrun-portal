@@ -21,6 +21,11 @@ class ReverseConnectionService : Service() {
     companion object {
         private const val TAG = "ReverseConnService"
         private const val RECONNECT_DELAY_MS = 3000L
+
+        @Volatile
+        private var instance: ReverseConnectionService? = null
+
+        fun getInstance(): ReverseConnectionService? = instance
     }
 
     private val binder = LocalBinder()
@@ -40,6 +45,7 @@ class ReverseConnectionService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        instance = this
         configManager = ConfigManager.getInstance(this)
         Log.d(TAG, "Service Created")
     }
@@ -54,6 +60,7 @@ class ReverseConnectionService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        instance = null
         isServiceRunning.set(false)
         handler.removeCallbacksAndMessages(null)
         disconnect()
@@ -62,6 +69,13 @@ class ReverseConnectionService : Service() {
         } catch (_: Exception) {
         }
         Log.i(TAG, "Service Destroyed")
+    }
+
+
+    fun sendText(text: String) {
+        webSocketClient?.let { client ->
+            if (client.isOpen) client.send(text)
+        }
     }
 
     fun buildHeaders(): MutableMap<String, String> {
@@ -95,7 +109,7 @@ class ReverseConnectionService : Service() {
 
         try {
             disconnect() // Prevent resource leaks from zombie connections
-            val uri = URI(hostUrl)
+            val uri = URI(hostUrl.replace("{deviceId}", configManager.deviceID))
             val headers = buildHeaders()
 
             webSocketClient = object : WebSocketClient(uri, headers) {
@@ -154,14 +168,17 @@ class ReverseConnectionService : Service() {
     }
 
     private fun handleMessage(message: String?) {
-        Log.d(TAG, "Received message: $message")
         if (message == null) return
+        // Truncate log to avoid spamming with large SDP/ICE payloads
+        val logMsg = if (message.length > 200) message.take(200) + "..." else message
+        Log.d(TAG, "Received message: $logMsg")
 
-        var id: Int? = null
+        var id: Any? = null
 
         try {
             val json = JSONObject(message)
-            id = json.getInt("id")
+            // Support both integer and string IDs (e.g., UUIDs)
+            id = json.opt("id")?.takeIf { it != JSONObject.NULL }
 
             if (!::actionDispatcher.isInitialized) {
                 synchronized(this) {
@@ -180,13 +197,28 @@ class ReverseConnectionService : Service() {
                 }
             }
 
-            val method = json.getString("method")
+            // Method may be empty for JSON-RPC responses to outgoing messages (e.g., webrtc/offer)
+            val method = json.optString("method", "")
+            
+            if (method.isEmpty()) {
+                if (json.has("result")) {
+                    Log.d(TAG, "Received JSON-RPC result for id=$id")
+                } else if (json.has("error")) {
+                    Log.w(TAG, "Received JSON-RPC error for id=$id: ${json.opt("error")}")
+                } else {
+                    Log.w(TAG, "Received message without method, result, or error: $message")
+                }
+                return
+            }
+            
             val params =
                 json.optJSONObject("params")
                     ?: json.optJSONArray("params")?.optJSONObject(0)
                     ?: JSONObject()
 
-            Log.d(TAG, "Dispatching $method (id=$id,params=$params)")
+            // Truncate params log to avoid spamming with large SDP/ICE payloads
+            val paramsLog = params.toString().let { if (it.length > 100) it.take(100) + "..." else it }
+            Log.d(TAG, "Dispatching $method (id=$id, params=$paramsLog)")
 
             val normalizedMethod =
                 method.removePrefix("/action/").removePrefix("action.").removePrefix("/")
@@ -196,7 +228,12 @@ class ReverseConnectionService : Service() {
                 val requestId = id
                 installExecutor.submit {
                     try {
-                        val result = actionDispatcher.dispatch(method, params)
+                        val result = actionDispatcher.dispatch(
+                            method,
+                            params,
+                            origin = ActionDispatcher.Origin.WEBSOCKET_REVERSE,
+                            requestId = requestId,
+                        )
                         webSocketClient?.send(result.toJson(requestId))
                     } catch (e: Exception) {
                         Log.e(TAG, "Install task failed", e)
@@ -212,7 +249,12 @@ class ReverseConnectionService : Service() {
             }
 
             // Execute
-            val result = actionDispatcher.dispatch(method, params)
+            val result = actionDispatcher.dispatch(
+                method,
+                params,
+                origin = ActionDispatcher.Origin.WEBSOCKET_REVERSE,
+                requestId = id,
+            )
             Log.d(TAG, "Command executed. Result type: ${result.javaClass.simpleName}")
 
             val resp = result.toJson(id)
