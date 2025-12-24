@@ -104,7 +104,7 @@ class ScreenCaptureService : Service() {
                                 put("params", org.json.JSONObject().apply {
                                     put("error", "capture_failed")
                                     put("message", e.message ?: "Failed to start screen capture")
-                                    if (streamRequestId != null) put("request_id", streamRequestId)
+                                    if (streamRequestId != null) put("sessionId", streamRequestId)
                                 })
                             }
                             rcs.sendText(errorJson.toString())

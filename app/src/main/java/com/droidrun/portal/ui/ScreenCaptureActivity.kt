@@ -70,7 +70,7 @@ class ScreenCaptureActivity : Activity() {
                     put("params", JSONObject().apply {
                         put("error", "permission_denied")
                         put("message", "User denied screen capture permission")
-                        if (requestId != null) put("request_id", requestId)
+                        if (requestId != null) put("sessionId", requestId)
                     })
                 }
                 service.sendText(errorMessage.toString())

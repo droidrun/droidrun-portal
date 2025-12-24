@@ -87,7 +87,7 @@ class WebRtcManager private constructor(private val context: Context) {
         streamRequestId = requestId
     }
 
-    fun getStreamRequestId(): Any? = streamRequestId
+    fun getStreamRequestId(): String? = streamRequestId
 
     fun setPendingIceServers(servers: List<PeerConnection.IceServer>?) {
         pendingIceServers = servers
