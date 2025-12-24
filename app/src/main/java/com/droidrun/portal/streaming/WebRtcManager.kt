@@ -896,7 +896,7 @@ class WebRtcManager private constructor(private val context: Context) {
                                     put("error", error)
                                     put("message", message)
                                     if (requestId != null) {
-                                        put("request_id", requestId)
+                                        put("sessionId", requestId)
                                     }
                                 }
                         )
@@ -929,7 +929,7 @@ class WebRtcManager private constructor(private val context: Context) {
                                         put("reason", reason)
                                     }
                                     if (requestId != null) {
-                                        put("request_id", requestId)
+                                        put("sessionId", requestId)
                                     }
                                 }
                         )
