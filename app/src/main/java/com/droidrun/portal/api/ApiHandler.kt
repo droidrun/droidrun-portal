@@ -806,14 +806,15 @@ class ApiHandler(
         return ApiResponse.RawObject(summary)
     }
 
-    fun startStream(params: JSONObject, requestId: Any? = null): ApiResponse {
+    fun startStream(params: JSONObject): ApiResponse {
         val width = params.optInt("width", 720).coerceIn(144, 1920)
         val height = params.optInt("height", 1280).coerceIn(256, 3840)
         val fps = params.optInt("fps", 30).coerceIn(1, 60)
+        val sessionId = params.optString("sessionId")
         val waitForOffer = params.optBoolean("waitForOffer", false)
         Log.i(TAG, ">>> startStream: ${width}x${height}@${fps}fps, waitForOffer=$waitForOffer")
         val manager = WebRtcManager.getInstance(context)
-        manager.setStreamRequestId(requestId)
+        manager.setStreamRequestId(sessionId)
         params.optJSONArray("iceServers")?.let {
             val servers = parseIceServers(it)
             Log.i(TAG, ">>> startStream: ${servers.size} ICE servers configured")
@@ -912,7 +913,7 @@ class ApiHandler(
         return ApiResponse.Success("ICE Candidate processed")
     }
 
-    fun handleWebRtcOffer(sdp: String): ApiResponse {
+    fun handleWebRtcOffer(sdp: String, sessionId: String): ApiResponse {
         val manager = WebRtcManager.getInstance(context)
         Log.d(TAG, "handleWebRtcOffer: checking isStreamActive...")
         val active = manager.isStreamActive()
@@ -920,7 +921,7 @@ class ApiHandler(
         if (!active)
             return ApiResponse.Error("No active stream - call stream/start first")
 
-        manager.handleOffer(sdp)
+        manager.handleOffer(sdp, sessionId)
         return ApiResponse.Success("SDP Offer processed, answer will be sent")
     }
 

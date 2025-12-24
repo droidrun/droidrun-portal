@@ -146,7 +146,7 @@ class ActionDispatcher(private val apiHandler: ApiHandler) {
                 if (origin != Origin.WEBSOCKET_REVERSE) {
                     ApiResponse.Error("Streaming commands require reverse WebSocket connection")
                 } else {
-                    apiHandler.startStream(params, requestId)
+                    apiHandler.startStream(params)
                 }
             }
 
@@ -171,8 +171,12 @@ class ActionDispatcher(private val apiHandler: ApiHandler) {
                 if (origin != Origin.WEBSOCKET_REVERSE) {
                     ApiResponse.Error("WebRTC signaling requires reverse WebSocket connection")
                 } else {
+                    val sessionId = params.optString("sessionId")
+                    if (sessionId.isNullOrEmpty()) {
+                        return ApiResponse.Error("Missing required param: 'sessionId'")
+                    }
                     val sdp = params.getString("sdp")
-                    apiHandler.handleWebRtcOffer(sdp)
+                    apiHandler.handleWebRtcOffer(sdp, sessionId)
                 }
             }
 
