@@ -4,7 +4,6 @@ import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.content.res.Resources
 import android.graphics.Path
-import android.util.Log
 import com.droidrun.portal.service.DroidrunAccessibilityService
 import com.droidrun.portal.service.GestureController
 import org.webrtc.DataChannel
@@ -13,8 +12,6 @@ import java.nio.ByteOrder
 
 class ScrcpyControlChannel : DataChannel.Observer {
     companion object {
-        private const val TAG = "ScrcpyControlChannel"
-
         private const val TYPE_INJECT_KEYCODE = 0
         private const val TYPE_INJECT_TEXT = 1
         private const val TYPE_INJECT_TOUCH_EVENT = 2
@@ -40,9 +37,7 @@ class ScrcpyControlChannel : DataChannel.Observer {
 
     override fun onBufferedAmountChange(previousAmount: Long) {}
 
-    override fun onStateChange() {
-        Log.d(TAG, "DataChannel state changed")
-    }
+    override fun onStateChange() {}
 
     override fun onMessage(buffer: DataChannel.Buffer) {
         val data = ByteArray(buffer.data.remaining())
@@ -54,42 +49,35 @@ class ScrcpyControlChannel : DataChannel.Observer {
         if (data.isEmpty()) return
 
         val type = data[0].toInt() and 0xFF
-        try {
-            when (type) {
-                TYPE_INJECT_TOUCH_EVENT -> handleTouch(data)
-                TYPE_INJECT_SCROLL_EVENT -> handleScroll(data)
-                TYPE_BACK_OR_SCREEN_ON -> handleBack(data)
-                TYPE_INJECT_TEXT -> handleText(data)
-                TYPE_INJECT_KEYCODE -> handleKeycode(data)
-                TYPE_SET_CLIPBOARD -> handleSetClipboard(data)
-                TYPE_EXPAND_NOTIFICATION_PANEL -> expandNotificationPanel()
-                TYPE_EXPAND_SETTINGS_PANEL -> expandSettingsPanel()
-                TYPE_COLLAPSE_PANELS -> collapsePanels()
-                else -> Log.w(TAG, "Unknown message type: $type, size=${data.size}")
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error handling message type=$type, size=${data.size}", e)
+        when (type) {
+            TYPE_INJECT_TOUCH_EVENT -> handleTouch(data)
+            TYPE_INJECT_SCROLL_EVENT -> handleScroll(data)
+            TYPE_BACK_OR_SCREEN_ON -> handleBack(data)
+            TYPE_INJECT_TEXT -> handleText(data)
+            TYPE_INJECT_KEYCODE -> handleKeycode(data)
+            TYPE_SET_CLIPBOARD -> handleSetClipboard(data)
+            TYPE_EXPAND_NOTIFICATION_PANEL -> expandNotificationPanel()
+            TYPE_EXPAND_SETTINGS_PANEL -> expandSettingsPanel()
+            TYPE_COLLAPSE_PANELS -> collapsePanels()
         }
     }
 
     private fun handleTouch(data: ByteArray) {
         if (data.size < 32) return
 
-        // @limrun/ui format: [type:1][action:1][pointerId:8 BE][x:4 LE][y:4 LE][width:2 LE][height:2 LE][pressure:2 LE][button:4 LE][buttons:4 LE]
         val buffer = ByteBuffer.wrap(data)
 
         buffer.order(ByteOrder.BIG_ENDIAN)
-        buffer.get() // type
+        buffer.get()
         val action = buffer.get().toInt() and 0xFF
-        buffer.long // pointerId (big-endian, unused)
+        buffer.long
 
         buffer.order(ByteOrder.LITTLE_ENDIAN)
         val x = buffer.int
         val y = buffer.int
         val videoWidth = buffer.short.toInt() and 0xFFFF
         val videoHeight = buffer.short.toInt() and 0xFFFF
-        buffer.short // pressure (unused)
-        // actionButton and buttons also present but unused
+        buffer.short
 
         lastVideoWidth = videoWidth
         lastVideoHeight = videoHeight
@@ -101,7 +89,6 @@ class ScrcpyControlChannel : DataChannel.Observer {
                 touchPath.clear()
                 touchPath.add(Pair(scaledX, scaledY))
                 touchStartTime = System.currentTimeMillis()
-                Log.d(TAG, "Touch DOWN at ($scaledX, $scaledY)")
             }
             ACTION_MOVE -> {
                 touchPath.add(Pair(scaledX, scaledY))
@@ -110,7 +97,6 @@ class ScrcpyControlChannel : DataChannel.Observer {
                 touchPath.add(Pair(scaledX, scaledY))
                 val duration = (System.currentTimeMillis() - touchStartTime)
                     .coerceIn(MIN_GESTURE_DURATION_MS, MAX_GESTURE_DURATION_MS)
-                Log.d(TAG, "Touch UP at ($scaledX, $scaledY), path=${touchPath.size} points, duration=${duration}ms")
                 dispatchPath(touchPath.toList(), duration)
                 touchPath.clear()
             }
@@ -120,27 +106,22 @@ class ScrcpyControlChannel : DataChannel.Observer {
     private fun handleScroll(data: ByteArray) {
         if (data.size < 21) return
 
-        // @limrun/ui format: [type:1][x:4 LE][y:4 LE][width:2 LE][height:2 LE][hScroll:2 LE][vScroll:2 LE][buttons:4 LE]
         val buffer = ByteBuffer.wrap(data)
         buffer.order(ByteOrder.LITTLE_ENDIAN)
 
-        buffer.get() // type
+        buffer.get()
         val x = buffer.int
         val y = buffer.int
         val videoWidth = buffer.short.toInt() and 0xFFFF
         val videoHeight = buffer.short.toInt() and 0xFFFF
-        val hScroll = buffer.short.toInt() // signed (fixed-point)
-        val vScroll = buffer.short.toInt() // signed (fixed-point)
+        val hScroll = buffer.short.toInt()
+        val vScroll = buffer.short.toInt()
 
         val (scaledX, scaledY) = scaleCoordinates(x, y, videoWidth, videoHeight)
 
-        // Convert scroll to swipe gesture
-        // Positive vScroll (wheel up) = scroll content UP = swipe finger DOWN (endY > startY)
         val scrollDistance = 200
         val endY = scaledY + (vScroll * scrollDistance)
         val endX = scaledX + (hScroll * scrollDistance)
-
-        Log.d(TAG, "Scroll at ($scaledX, $scaledY) -> ($endX, $endY), hScroll=$hScroll, vScroll=$vScroll")
 
         GestureController.swipe(
             scaledX.toInt(), scaledY.toInt(),
@@ -157,10 +138,9 @@ class ScrcpyControlChannel : DataChannel.Observer {
     private fun handleText(data: ByteArray) {
         if (data.size < 5) return
 
-        // scrcpy wire format: all big-endian
         val buffer = ByteBuffer.wrap(data)
         buffer.order(ByteOrder.BIG_ENDIAN)
-        buffer.get() // type
+        buffer.get()
         val length = buffer.int
 
         if (data.size < 5 + length) return
@@ -168,43 +148,36 @@ class ScrcpyControlChannel : DataChannel.Observer {
         buffer.get(textBytes)
         val text = String(textBytes, Charsets.UTF_8)
 
-        Log.d(TAG, "Text input: ${text.length} chars")
         typeText(text)
     }
 
     private fun handleKeycode(data: ByteArray) {
         if (data.size < 14) return
 
-        // scrcpy wire format: all big-endian
         val buffer = ByteBuffer.wrap(data)
         buffer.order(ByteOrder.BIG_ENDIAN)
-        buffer.get() // type
+        buffer.get()
         val action = buffer.get().toInt() and 0xFF
         val keycode = buffer.int
-        buffer.int // repeat (unused)
-        buffer.int // metaState (unused)
+        buffer.int
+        buffer.int
 
-        Log.d(TAG, "Keycode: $keycode, action=$action")
-
-        // Only trigger on ACTION_DOWN to avoid double-firing
         if (action != ACTION_DOWN) return
 
-        // Map common keycodes to global actions
         when (keycode) {
-            4 -> GestureController.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK) // KEYCODE_BACK
-            3 -> GestureController.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME) // KEYCODE_HOME
-            187 -> GestureController.performGlobalAction(AccessibilityService.GLOBAL_ACTION_RECENTS) // KEYCODE_APP_SWITCH
+            4 -> GestureController.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
+            3 -> GestureController.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
+            187 -> GestureController.performGlobalAction(AccessibilityService.GLOBAL_ACTION_RECENTS)
         }
     }
 
     private fun handleSetClipboard(data: ByteArray) {
         if (data.size < 14) return
 
-        // scrcpy wire format: all big-endian
         val buffer = ByteBuffer.wrap(data)
         buffer.order(ByteOrder.BIG_ENDIAN)
-        buffer.get() // type
-        buffer.long // sequence (unused)
+        buffer.get()
+        buffer.long
         val paste = buffer.get().toInt() != 0
 
         val length = buffer.int
@@ -214,7 +187,6 @@ class ScrcpyControlChannel : DataChannel.Observer {
         buffer.get(textBytes)
         val text = String(textBytes, Charsets.UTF_8)
 
-        Log.d(TAG, "Clipboard: paste=$paste, ${text.length} chars")
         if (paste) {
             typeText(text)
         }
@@ -240,17 +212,14 @@ class ScrcpyControlChannel : DataChannel.Observer {
     private fun scaleCoordinates(x: Int, y: Int, videoW: Int, videoH: Int): Pair<Float, Float> {
         if (videoW <= 0 || videoH <= 0) return Pair(x.toFloat(), y.toFloat())
 
-        // Get real screen size (includes nav bar)
         val service = DroidrunAccessibilityService.getInstance()
         val wm = service?.getSystemService(android.content.Context.WINDOW_SERVICE) as? android.view.WindowManager
 
         val (screenW, screenH) = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-            // API 31+ (Android 12+)
             val bounds = wm?.maximumWindowMetrics?.bounds
             Pair(bounds?.width() ?: Resources.getSystem().displayMetrics.widthPixels,
                  bounds?.height() ?: Resources.getSystem().displayMetrics.heightPixels)
         } else {
-            // API 30 (Android 11) - use real metrics
             val metrics = android.util.DisplayMetrics()
             @Suppress("DEPRECATION")
             wm?.defaultDisplay?.getRealMetrics(metrics)
@@ -278,8 +247,6 @@ class ScrcpyControlChannel : DataChannel.Observer {
             val gesture = GestureDescription.Builder().addStroke(stroke).build()
 
             service.dispatchGesture(gesture, null, null)
-        } catch (e: Exception) {
-            Log.e(TAG, "dispatchPath error", e)
-        }
+        } catch (_: Exception) {}
     }
 }
