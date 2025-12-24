@@ -131,6 +131,12 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
                 false
             }
         }
+        
+        // Screen Share Auto-Accept
+        binding.switchScreenShareAutoAccept.isChecked = configManager.screenShareAutoAcceptEnabled
+        binding.switchScreenShareAutoAccept.setOnCheckedChangeListener { _, isChecked ->
+            configManager.screenShareAutoAcceptEnabled = isChecked
+        }
 
         // Event Filters
         setupEventToggle(binding.switchEventNotification, EventType.NOTIFICATION)

@@ -172,6 +172,20 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
                 Log.d(TAG, "Activity changed: $currentActivityName")
             }
         }
+        
+        // Auto-accept MediaProjection dialog (only when reverse connection is active and setting is enabled)
+        if (MediaProjectionAutoAccept.isMediaProjectionDialog(event) && 
+            ReverseConnectionService.getInstance() != null &&
+            configManager.screenShareAutoAcceptEnabled) {
+            val rootNode = rootInActiveWindow
+            if (rootNode != null) {
+                try {
+                    MediaProjectionAutoAccept.tryAutoAccept(rootNode)
+                } finally {
+                    rootNode.recycle()
+                }
+            }
+        }
 
         // Trigger update on relevant events
         when (event?.eventType) {

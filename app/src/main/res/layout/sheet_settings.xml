@@ -1,322 +1,364 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:background="@color/background_primary"
-    android:paddingBottom="24dp">
-
-    <View
-        android:layout_width="40dp"
-        android:layout_height="4dp"
-        android:layout_gravity="center_horizontal"
-        android:layout_marginTop="12dp"
-        android:layout_marginBottom="12dp"
-        android:background="@drawable/dark_pill_background"
-        android:backgroundTint="@color/text_gray"
-        android:alpha="0.3" />
-
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/websocket_settings_header"
-        android:textColor="@color/text_white"
-        android:textSize="20sp"
-        android:textStyle="bold"
-        android:paddingHorizontal="24dp"
-        android:paddingBottom="16dp" />
+    android:background="@color/background_primary">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingHorizontal="24dp"
-        android:paddingVertical="12dp">
+        android:orientation="vertical"
+        android:paddingBottom="24dp">
 
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="HTTP Server (REST)"
-                android:textColor="@color/text_white"
-                android:textSize="16sp" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Enable REST API (Actions)"
-                android:textColor="@color/text_gray"
-                android:textSize="14sp" />
-        </LinearLayout>
-
-        <com.google.android.material.switchmaterial.SwitchMaterial
-            android:id="@+id/switch_socket_server_enabled"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content" />
-    </LinearLayout>
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingHorizontal="24dp"
-        android:paddingVertical="12dp">
+        <View
+            android:layout_width="40dp"
+            android:layout_height="4dp"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="12dp"
+            android:layout_marginBottom="12dp"
+            android:background="@drawable/dark_pill_background"
+            android:backgroundTint="@color/text_gray"
+            android:alpha="0.3" />
 
         <TextView
-            android:layout_width="0dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/port_label"
+            android:text="@string/websocket_settings_header"
             android:textColor="@color/text_white"
-            android:textSize="16sp" />
-
-        <com.google.android.material.textfield.TextInputLayout
-            android:layout_width="100dp"
-            android:layout_height="wrap_content"
-            style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
-            app:boxStrokeColor="@color/text_gray"
-            app:hintTextColor="@color/text_gray">
-
-            <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/input_socket_server_port"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:inputType="number"
-                android:textColor="@color/text_white"
-                android:gravity="center" />
-        </com.google.android.material.textfield.TextInputLayout>
-    </LinearLayout>
-
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:background="@color/divider_color"
-        android:layout_marginVertical="8dp" />
-
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/server_configuration_header"
-        android:textColor="@color/text_gray"
-        android:textSize="12sp"
-        android:textStyle="bold"
-        android:paddingHorizontal="24dp"
-        android:paddingVertical="8dp" />
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingHorizontal="24dp"
-        android:paddingVertical="12dp">
+            android:textSize="20sp"
+            android:textStyle="bold"
+            android:paddingHorizontal="24dp"
+            android:paddingBottom="16dp" />
 
         <LinearLayout
-            android:layout_width="0dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical">
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="24dp"
+            android:paddingVertical="12dp">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="HTTP Server (REST)"
+                    android:textColor="@color/text_white"
+                    android:textSize="16sp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Enable REST API (Actions)"
+                    android:textColor="@color/text_gray"
+                    android:textSize="14sp" />
+            </LinearLayout>
+
+            <com.google.android.material.switchmaterial.SwitchMaterial
+                android:id="@+id/switch_socket_server_enabled"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="24dp"
+            android:paddingVertical="12dp">
 
             <TextView
-                android:layout_width="wrap_content"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:text="@string/enable_ws_server_label"
+                android:layout_weight="1"
+                android:text="@string/port_label"
                 android:textColor="@color/text_white"
                 android:textSize="16sp" />
 
-            <TextView
-                android:layout_width="wrap_content"
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="100dp"
                 android:layout_height="wrap_content"
-                android:text="@string/allow_external_connections_label"
-                android:textColor="@color/text_gray"
-                android:textSize="14sp" />
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                app:boxStrokeColor="@color/text_gray"
+                app:hintTextColor="@color/text_gray">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/input_socket_server_port"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="number"
+                    android:textColor="@color/text_white"
+                    android:gravity="center" />
+            </com.google.android.material.textfield.TextInputLayout>
         </LinearLayout>
 
-        <com.google.android.material.switchmaterial.SwitchMaterial
-            android:id="@+id/switch_ws_enabled"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content" />
-    </LinearLayout>
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingHorizontal="24dp"
-        android:paddingVertical="12dp">
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="@color/divider_color"
+            android:layout_marginVertical="8dp" />
 
         <TextView
-            android:layout_width="0dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/port_label"
-            android:textColor="@color/text_white"
-            android:textSize="16sp" />
+            android:text="@string/server_configuration_header"
+            android:textColor="@color/text_gray"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:paddingHorizontal="24dp"
+            android:paddingVertical="8dp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="24dp"
+            android:paddingVertical="12dp">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/enable_ws_server_label"
+                    android:textColor="@color/text_white"
+                    android:textSize="16sp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/allow_external_connections_label"
+                    android:textColor="@color/text_gray"
+                    android:textSize="14sp" />
+            </LinearLayout>
+
+            <com.google.android.material.switchmaterial.SwitchMaterial
+                android:id="@+id/switch_ws_enabled"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="24dp"
+            android:paddingVertical="12dp">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/port_label"
+                android:textColor="@color/text_white"
+                android:textSize="16sp" />
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:layout_width="100dp"
+                android:layout_height="wrap_content"
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                app:boxStrokeColor="@color/text_gray"
+                app:hintTextColor="@color/text_gray">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/input_ws_port"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="number"
+                    android:textColor="@color/text_white"
+                    android:gravity="center" />
+            </com.google.android.material.textfield.TextInputLayout>
+        </LinearLayout>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="@color/divider_color"
+            android:layout_marginVertical="8dp" />
+
+        <!-- Reverse Connection -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/reverse_connection_header"
+            android:textColor="@color/text_gray"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:paddingHorizontal="24dp"
+            android:paddingVertical="8dp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="24dp"
+            android:paddingVertical="12dp">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/connect_to_host_label"
+                    android:textColor="@color/text_white"
+                    android:textSize="16sp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/initiate_outbound_connection_label"
+                    android:textColor="@color/text_gray"
+                    android:textSize="14sp" />
+            </LinearLayout>
+
+            <com.google.android.material.switchmaterial.SwitchMaterial
+                android:id="@+id/switch_reverse_enabled"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
+
+        <!-- Screen Share Auto-Accept -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="24dp"
+            android:paddingVertical="12dp">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Auto-accept Screen Share"
+                    android:textColor="@color/text_white"
+                    android:textSize="16sp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Automatically grant permission"
+                    android:textColor="@color/text_gray"
+                    android:textSize="14sp" />
+            </LinearLayout>
+
+            <com.google.android.material.switchmaterial.SwitchMaterial
+                android:id="@+id/switch_screen_share_auto_accept"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
 
         <com.google.android.material.textfield.TextInputLayout
-            android:layout_width="100dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:paddingHorizontal="24dp"
+            android:paddingBottom="12dp"
             style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
             app:boxStrokeColor="@color/text_gray"
-            app:hintTextColor="@color/text_gray">
+            app:hintTextColor="@color/text_gray"
+            android:hint="@string/host_url_hint">
 
             <com.google.android.material.textfield.TextInputEditText
-                android:id="@+id/input_ws_port"
+                android:id="@+id/input_reverse_url"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:inputType="number"
-                android:textColor="@color/text_white"
-                android:gravity="center" />
+                android:inputType="textUri"
+                android:textColor="@color/text_white" />
         </com.google.android.material.textfield.TextInputLayout>
-    </LinearLayout>
 
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:background="@color/divider_color"
-        android:layout_marginVertical="8dp" />
-
-    <!-- Reverse Connection -->
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/reverse_connection_header"
-        android:textColor="@color/text_gray"
-        android:textSize="12sp"
-        android:textStyle="bold"
-        android:paddingHorizontal="24dp"
-        android:paddingVertical="8dp" />
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingHorizontal="24dp"
-        android:paddingVertical="12dp">
-
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/connect_to_host_label"
-                android:textColor="@color/text_white"
-                android:textSize="16sp" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/initiate_outbound_connection_label"
-                android:textColor="@color/text_gray"
-                android:textSize="14sp" />
-        </LinearLayout>
-
-        <com.google.android.material.switchmaterial.SwitchMaterial
-            android:id="@+id/switch_reverse_enabled"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content" />
-    </LinearLayout>
-
-    <com.google.android.material.textfield.TextInputLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:paddingHorizontal="24dp"
-        android:paddingBottom="12dp"
-        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
-        app:boxStrokeColor="@color/text_gray"
-        app:hintTextColor="@color/text_gray"
-        android:hint="@string/host_url_hint">
-
-        <com.google.android.material.textfield.TextInputEditText
-            android:id="@+id/input_reverse_url"
+        <com.google.android.material.textfield.TextInputLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:inputType="textUri"
-            android:textColor="@color/text_white" />
-    </com.google.android.material.textfield.TextInputLayout>
+            android:paddingHorizontal="24dp"
+            android:paddingBottom="12dp"
+            style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+            app:boxStrokeColor="@color/text_gray"
+            app:hintTextColor="@color/text_gray"
+            android:hint="@string/token_optional_hint">
 
-    <com.google.android.material.textfield.TextInputLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:paddingHorizontal="24dp"
-        android:paddingBottom="12dp"
-        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
-        app:boxStrokeColor="@color/text_gray"
-        app:hintTextColor="@color/text_gray"
-        android:hint="@string/token_optional_hint">
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/input_reverse_token"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="textVisiblePassword"
+                android:textColor="@color/text_white" />
+        </com.google.android.material.textfield.TextInputLayout>
 
-        <com.google.android.material.textfield.TextInputEditText
-            android:id="@+id/input_reverse_token"
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="@color/divider_color"
+            android:layout_marginVertical="8dp" />
+
+        <!-- Event Filters -->
+        <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:inputType="textVisiblePassword"
-            android:textColor="@color/text_white" />
-    </com.google.android.material.textfield.TextInputLayout>
-
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:background="@color/divider_color"
-        android:layout_marginVertical="8dp" />
-
-    <!-- Event Filters -->
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/event_filters_header"
-        android:textColor="@color/text_gray"
-        android:textSize="12sp"
-        android:textStyle="bold"
-        android:paddingHorizontal="24dp"
-        android:paddingVertical="8dp" />
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingHorizontal="24dp"
-        android:paddingVertical="12dp">
+            android:text="@string/event_filters_header"
+            android:textColor="@color/text_gray"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:paddingHorizontal="24dp"
+            android:paddingVertical="8dp" />
 
         <LinearLayout
-            android:layout_width="0dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical">
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="24dp"
+            android:paddingVertical="12dp">
 
-            <TextView
-                android:layout_width="wrap_content"
+            <LinearLayout
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:text="@string/notifications_label"
-                android:textColor="@color/text_white"
-                android:textSize="16sp" />
+                android:layout_weight="1"
+                android:orientation="vertical">
 
-            <TextView
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/notifications_label"
+                    android:textColor="@color/text_white"
+                    android:textSize="16sp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/push_system_notifications_label"
+                    android:textColor="@color/text_gray"
+                    android:textSize="14sp" />
+            </LinearLayout>
+
+            <com.google.android.material.switchmaterial.SwitchMaterial
+                android:id="@+id/switch_event_notification"
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/push_system_notifications_label"
-                android:textColor="@color/text_gray"
-                android:textSize="14sp" />
+                android:layout_height="wrap_content" />
         </LinearLayout>
 
-        <com.google.android.material.switchmaterial.SwitchMaterial
-            android:id="@+id/switch_event_notification"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content" />
     </LinearLayout>
 
-</LinearLayout>
+</ScrollView>
