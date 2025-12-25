@@ -210,11 +210,8 @@ class ReverseConnectionService : Service() {
                 }
                 return
             }
-            
-            val params =
-                json.optJSONObject("params")
-                    ?: json.optJSONArray("params")?.optJSONObject(0)
-                    ?: JSONObject()
+
+            val params = json.optJSONObject("params") ?: JSONObject()
 
             // Truncate params log to avoid spamming with large SDP/ICE payloads
             val paramsLog = params.toString().let { if (it.length > 100) it.take(100) + "..." else it }
