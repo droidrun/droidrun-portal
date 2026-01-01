@@ -534,7 +534,8 @@ class ApiHandler(
                 var success = false
                 var errorMsg = ""
                 var confirmationLaunched = false
-                val shouldHideOverlay = hideOverlay && stateRepo.isOverlayVisible()
+                val wasOverlayVisible = stateRepo.isOverlayVisible()
+                val shouldHideOverlay = hideOverlay && wasOverlayVisible
                 var receiverRegistered = false
 
                 val receiver = object : BroadcastReceiver() {
@@ -649,7 +650,7 @@ class ApiHandler(
                         }
                     }
                     if (shouldHideOverlay) {
-                        stateRepo.setOverlayVisible(true)
+                        stateRepo.setOverlayVisible(wasOverlayVisible)
                     }
                 }
 
