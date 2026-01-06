@@ -125,11 +125,15 @@ class ReverseConnectionService : Service() {
 
                 override fun onClose(code: Int, reason: String?, remote: Boolean) {
                     Log.w(TAG, "Disconnected from Host: $reason")
+                    handleWsDisconnected()
                     scheduleReconnect()
                 }
 
                 override fun onError(ex: Exception?) {
                     Log.e(TAG, "Connection Error: ${ex?.message}")
+                    if (webSocketClient == null || webSocketClient?.isOpen != true)
+                        handleWsDisconnected()
+
                     scheduleReconnect()
                 }
             }
@@ -167,6 +171,10 @@ class ReverseConnectionService : Service() {
         } catch (e: Exception) {
             Log.e(TAG, "Error closing connection", e)
         }
+    }
+
+    private fun handleWsDisconnected() {
+        ScreenCaptureService.requestStop("ws_disconnected")
     }
 
     private fun handleMessage(message: String?) {

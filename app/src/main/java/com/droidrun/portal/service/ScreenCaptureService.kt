@@ -41,11 +41,11 @@ class ScreenCaptureService : Service() {
         fun getInstance(): ScreenCaptureService? = instance
 
         /**
-         * Request the service to stop from external callers (e.g., WebRtcManager on ICE failure).
+         * Request the service to stop from external callers (e.g., idle timeout or WS disconnect).
          * This is safe to call from any thread.
          */
-        fun requestStop() {
-            instance?.requestStopInternal()
+        fun requestStop(reason: String = "user_stop") {
+            instance?.requestStopInternal(reason)
         }
     }
 
@@ -125,20 +125,20 @@ class ScreenCaptureService : Service() {
             }
             ACTION_STOP_STREAM -> {
                 Log.i(TAG, "Stopping Stream via Action")
-                stopStream()
+                stopStream("user_stop")
             }
         }
 
         return START_NOT_STICKY
     }
     
-    private fun stopStream() {
+    private fun stopStream(reason: String) {
         if (stopRequested) {
             finalizeStop("duplicate_stop")
             return
         }
         stopRequested = true
-        webRtcManager.notifyStreamStoppedAsync("user_stop")
+        webRtcManager.notifyStreamStoppedAsync(reason)
         webRtcManager.stopStreamAsync {
             finalizeStop("cleanup_complete")
         }
@@ -156,9 +156,9 @@ class ScreenCaptureService : Service() {
         finalizeStop("service_destroyed")
     }
     
-    private fun requestStopInternal() {
+    private fun requestStopInternal(reason: String) {
         mainHandler.post {
-            if (!stopFinalized) stopStream()
+            if (!stopFinalized) stopStream(reason)
         }
     }
 

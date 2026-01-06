@@ -819,6 +819,16 @@ class ApiHandler(
             manager.setPendingIceServers(parseIceServers(it))
         }
 
+        if (manager.isCaptureActive()) {
+            return try {
+                manager.startStreamWithExistingCapture(width, height, fps, waitForOffer)
+                ApiResponse.Success("reusing_capture")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to reuse active capture", e)
+                ApiResponse.Error("stream_restart_failed: ${e.message}")
+            }
+        }
+
         val intent = Intent(context, com.droidrun.portal.ui.ScreenCaptureActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra(ScreenCaptureService.EXTRA_WIDTH, width)
