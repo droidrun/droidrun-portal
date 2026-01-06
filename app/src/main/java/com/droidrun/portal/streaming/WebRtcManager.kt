@@ -26,14 +26,16 @@ class WebRtcManager private constructor(private val context: Context) {
         private const val VIDEO_TRACK_ID = "ARDAMSv0"
         private const val H264_CODEC_NAME = "H264/90000"
         private const val STATS_INTERVAL_MS = 5000L
+        private const val IDLE_TIMEOUT_MS = 10 * 60 * 1000L
 
-        @Volatile private var instance: WebRtcManager? = null
+        @Volatile
+        private var instance: WebRtcManager? = null
 
         fun getInstance(context: Context): WebRtcManager {
             return instance
-                    ?: synchronized(this) {
-                        instance ?: WebRtcManager(context.applicationContext).also { instance = it }
-                    }
+                ?: synchronized(this) {
+                    instance ?: WebRtcManager(context.applicationContext).also { instance = it }
+                }
         }
 
         fun shutdown() {
@@ -44,8 +46,23 @@ class WebRtcManager private constructor(private val context: Context) {
         }
     }
 
+    private data class PeerResources(
+        val peerConnection: PeerConnection?,
+        val controlChannel: DataChannel?
+    )
+
+    private data class StreamResources(
+        val screenCapturer: VideoCapturer?,
+        val videoSource: VideoSource?,
+        val videoTrack: VideoTrack?,
+        val surfaceTextureHelper: SurfaceTextureHelper?,
+        val peerConnection: PeerConnection?,
+        val controlChannel: DataChannel?
+    )
+
     private var peerConnectionFactory: PeerConnectionFactory? = null
-    @Volatile private var peerConnection: PeerConnection? = null
+    @Volatile
+    private var peerConnection: PeerConnection? = null
     private val eglBase: EglBase by lazy { EglBase.create() }
 
     private var screenCapturer: VideoCapturer? = null
@@ -53,9 +70,11 @@ class WebRtcManager private constructor(private val context: Context) {
     private var videoSource: VideoSource? = null
     private var videoTrack: VideoTrack? = null
 
-    @Volatile private var reverseConnectionService: ReverseConnectionService? = null
+    @Volatile
+    private var reverseConnectionService: ReverseConnectionService? = null
     private val pendingIceCandidates = ConcurrentLinkedQueue<IceCandidate>()
-    @Volatile private var isRemoteDescriptionSet = false
+    @Volatile
+    private var isRemoteDescriptionSet = false
     private val outgoingMessageId = AtomicInteger(0)
 
     // for all peerConnection lifecycle operations
@@ -67,13 +86,20 @@ class WebRtcManager private constructor(private val context: Context) {
     private val statsHandler = Handler(statsThread.looper)
     private val mainHandler = Handler(Looper.getMainLooper())
     private val streamGeneration = AtomicInteger(0)
-    @Volatile private var streamRequestId: String? = null
-    @Volatile private var pendingIceServers: List<PeerConnection.IceServer>? = null
+    @Volatile
+    private var streamRequestId: String? = null
+    @Volatile
+    private var pendingIceServers: List<PeerConnection.IceServer>? = null
+    private var captureWidth = 0
+    private var captureHeight = 0
+    private var captureFps = 0
     private var statsRunnable: Runnable? = null
     private var lastStatsBytesSent: Long? = null
     private var lastStatsTimestampMs: Long? = null
-    @Volatile private var controlChannel: DataChannel? = null
+    @Volatile
+    private var controlChannel: DataChannel? = null
     private var scrcpyControlHandler: ScrcpyControlChannel? = null
+    private var idleStopRunnable: Runnable? = null
 
     init {
         initializePeerConnectionFactory()
@@ -101,34 +127,37 @@ class WebRtcManager private constructor(private val context: Context) {
 
     fun isStreamActive(): Boolean = synchronized(streamLock) { peerConnection != null }
 
+    fun isCaptureActive(): Boolean = synchronized(streamLock) { screenCapturer != null }
+
     private fun initializePeerConnectionFactory() {
         PeerConnectionFactory.initialize(
-                PeerConnectionFactory.InitializationOptions.builder(context)
-                        .setEnableInternalTracer(true)
-                        .createInitializationOptions()
+            PeerConnectionFactory.InitializationOptions.builder(context)
+                .setEnableInternalTracer(true)
+                .createInitializationOptions()
         )
 
         peerConnectionFactory =
-                PeerConnectionFactory.builder()
-                        .setVideoDecoderFactory(DefaultVideoDecoderFactory(eglBase.eglBaseContext))
-                        .setVideoEncoderFactory(
-                                DefaultVideoEncoderFactory(eglBase.eglBaseContext, true, true)
-                        )
-                        .setOptions(PeerConnectionFactory.Options())
-                        .createPeerConnectionFactory()
+            PeerConnectionFactory.builder()
+                .setVideoDecoderFactory(DefaultVideoDecoderFactory(eglBase.eglBaseContext))
+                .setVideoEncoderFactory(
+                    DefaultVideoEncoderFactory(eglBase.eglBaseContext, true, true)
+                )
+                .setOptions(PeerConnectionFactory.Options())
+                .createPeerConnectionFactory()
     }
 
     fun startStream(
-            permissionResultData: android.content.Intent,
-            width: Int,
-            height: Int,
-            fps: Int,
-            iceServers: List<PeerConnection.IceServer>? = null,
-            waitForOffer: Boolean = false
+        permissionResultData: android.content.Intent,
+        width: Int,
+        height: Int,
+        fps: Int,
+        iceServers: List<PeerConnection.IceServer>? = null,
+        waitForOffer: Boolean = false
     ) {
+        cancelIdleStop()
         Log.i(
-                TAG,
-                "Starting WebRTC Stream: ${width}x${height} @ $fps fps, waitForOffer=$waitForOffer"
+            TAG,
+            "Starting WebRTC Stream: ${width}x${height} @ $fps fps, waitForOffer=$waitForOffer"
         )
         val effectiveIceServers = iceServers ?: consumePendingIceServers()
         val streamId = streamGeneration.incrementAndGet()
@@ -144,6 +173,31 @@ class WebRtcManager private constructor(private val context: Context) {
             }
 
             startStatsLogging(streamId)
+            if (!waitForOffer) createOffer(streamId)
+            else sendStreamReady()
+        }
+    }
+
+    fun startStreamWithExistingCapture(
+        width: Int,
+        height: Int,
+        fps: Int,
+        waitForOffer: Boolean = false
+    ) {
+        cancelIdleStop()
+        val effectiveIceServers = consumePendingIceServers()
+        val streamId = streamGeneration.incrementAndGet()
+        val stalePeer = synchronized(streamLock) { detachPeerResourcesLocked() }
+        cleanupPeerResources(stalePeer)
+        updateCaptureFormat(width, height, fps)
+        synchronized(streamLock) {
+            if (videoTrack == null) {
+                throw IllegalStateException("No active capture to reuse")
+            }
+            createPeerConnection(effectiveIceServers, streamId)
+            val sender = peerConnection?.addTrack(videoTrack, listOf(VIDEO_TRACK_ID))
+            configureVideoSender(sender, width, height, fps)
+            startStatsLogging(streamId)
             if (!waitForOffer) {
                 createOffer(streamId)
             } else {
@@ -152,42 +206,66 @@ class WebRtcManager private constructor(private val context: Context) {
         }
     }
 
+    private fun updateCaptureFormat(width: Int, height: Int, fps: Int) {
+        val capturer = synchronized(streamLock) { screenCapturer }
+        if (capturer == null)
+            throw IllegalStateException("No active capture to reconfigure")
+
+        val needsUpdate = synchronized(streamLock) {
+            width != captureWidth || height != captureHeight || fps != captureFps
+        }
+        if (!needsUpdate) return
+        try {
+            capturer.changeCaptureFormat(width, height, fps)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to change capture format", e)
+            throw e
+        }
+        synchronized(streamLock) {
+            captureWidth = width
+            captureHeight = height
+            captureFps = fps
+        }
+    }
+
     private fun sendStreamReady() {
         val json =
-                JSONObject().apply {
-                    put("method", "stream/ready")
-                    put("params", JSONObject().apply { put("sessionId", streamRequestId) })
-                }
+            JSONObject().apply {
+                put("method", "stream/ready")
+                put("params", JSONObject().apply { put("sessionId", streamRequestId) })
+            }
         reverseConnectionService?.sendText(json.toString())
     }
 
     fun stopStream() {
+        cancelIdleStop()
         val resources =
-                synchronized(streamLock) {
-                    streamGeneration.incrementAndGet()
-                    streamRequestId = null
-                    detachStreamResourcesLocked()
-                }
+            synchronized(streamLock) {
+                streamGeneration.incrementAndGet()
+                streamRequestId = null
+                detachStreamResourcesLocked()
+            }
         cleanupStreamResources(resources)
     }
 
     fun stopStreamAsync(onStopped: (() -> Unit)? = null) {
+        cancelIdleStop()
         val stopGeneration = streamGeneration.get()
         stopHandler.post {
             var invokeCallback = false
             val resources =
-                    synchronized(streamLock) {
-                        val currentGeneration = streamGeneration.get()
-                        if (stopGeneration != currentGeneration) {
-                            invokeCallback = true
-                            null
-                        } else {
-                            streamGeneration.incrementAndGet()
-                            streamRequestId = null
-                            invokeCallback = true
-                            detachStreamResourcesLocked()
-                        }
+                synchronized(streamLock) {
+                    val currentGeneration = streamGeneration.get()
+                    if (stopGeneration != currentGeneration) {
+                        invokeCallback = true
+                        null
+                    } else {
+                        streamGeneration.incrementAndGet()
+                        streamRequestId = null
+                        invokeCallback = true
+                        detachStreamResourcesLocked()
                     }
+                }
             if (resources != null) {
                 cleanupStreamResources(resources)
             }
@@ -197,29 +275,49 @@ class WebRtcManager private constructor(private val context: Context) {
         }
     }
 
-    private data class StreamResources(
-            val screenCapturer: VideoCapturer?,
-            val videoSource: VideoSource?,
-            val videoTrack: VideoTrack?,
-            val surfaceTextureHelper: SurfaceTextureHelper?,
-            val peerConnection: PeerConnection?,
-            val controlChannel: DataChannel?
-    )
+    private fun scheduleIdleStop(reason: String) {
+        if (!isCaptureActive()) return
+        idleStopRunnable?.let { stopHandler.removeCallbacks(it) }
+        val runnable = Runnable {
+            idleStopRunnable = null
+            if (isCaptureActive()) {
+                Log.i(TAG, "Idle timeout reached ($reason) - stopping capture")
+                ScreenCaptureService.requestStop("idle_timeout")
+            }
+        }
+        idleStopRunnable = runnable
+        stopHandler.postDelayed(runnable, IDLE_TIMEOUT_MS)
+    }
+
+    private fun cancelIdleStop() {
+        idleStopRunnable?.let { stopHandler.removeCallbacks(it) }
+        idleStopRunnable = null
+    }
+
 
     private fun detachStreamResourcesLocked(): StreamResources {
+        val peerResources = detachPeerResourcesLocked()
         val resources =
-                StreamResources(
-                        screenCapturer = screenCapturer,
-                        videoSource = videoSource,
-                        videoTrack = videoTrack,
-                        surfaceTextureHelper = surfaceTextureHelper,
-                        peerConnection = peerConnection,
-                        controlChannel = controlChannel
-                )
+            StreamResources(
+                screenCapturer = screenCapturer,
+                videoSource = videoSource,
+                videoTrack = videoTrack,
+                surfaceTextureHelper = surfaceTextureHelper,
+                peerConnection = peerResources.peerConnection,
+                controlChannel = peerResources.controlChannel
+            )
         screenCapturer = null
         videoSource = null
         videoTrack = null
         surfaceTextureHelper = null
+        captureWidth = 0
+        captureHeight = 0
+        captureFps = 0
+        return resources
+    }
+
+    private fun detachPeerResourcesLocked(): PeerResources {
+        val resources = PeerResources(peerConnection, controlChannel)
         peerConnection = null
         controlChannel = null
         scrcpyControlHandler = null
@@ -260,6 +358,10 @@ class WebRtcManager private constructor(private val context: Context) {
             Log.e(TAG, "Error disposing surfaceTextureHelper", e)
         }
 
+        cleanupPeerResources(PeerResources(resources.peerConnection, resources.controlChannel))
+    }
+
+    private fun cleanupPeerResources(resources: PeerResources) {
         try {
             resources.controlChannel?.close()
         } catch (e: Exception) {
@@ -286,31 +388,31 @@ class WebRtcManager private constructor(private val context: Context) {
         }
         val activeConnection = connection ?: return
         activeConnection.setRemoteDescription(
-                object : SimpleSdpObserver("setRemoteDescription") {
-                    override fun onSetSuccess() {
-                        super.onSetSuccess()
-                        var pending: List<IceCandidate>? = null
-                        var shouldReturn = false
-                        synchronized(streamLock) {
-                            if (peerConnection !== activeConnection ||
-                                            streamGeneration.get() != generation
-                            ) {
-                                Log.w(TAG, "Remote description set on stale PeerConnection")
-                                shouldReturn = true
-                            } else {
-                                isRemoteDescriptionSet = true
-                                pending = drainPendingIceCandidatesLocked()
-                            }
-                        }
-                        if (shouldReturn) return
-                        pending?.let { candidates ->
-                            for (candidate in candidates) {
-                                activeConnection.addIceCandidate(candidate)
-                            }
+            object : SimpleSdpObserver("setRemoteDescription") {
+                override fun onSetSuccess() {
+                    super.onSetSuccess()
+                    var pending: List<IceCandidate>? = null
+                    var shouldReturn = false
+                    synchronized(streamLock) {
+                        if (peerConnection !== activeConnection ||
+                            streamGeneration.get() != generation
+                        ) {
+                            Log.w(TAG, "Remote description set on stale PeerConnection")
+                            shouldReturn = true
+                        } else {
+                            isRemoteDescriptionSet = true
+                            pending = drainPendingIceCandidatesLocked()
                         }
                     }
-                },
-                SessionDescription(SessionDescription.Type.ANSWER, sdp)
+                    if (shouldReturn) return
+                    pending?.let { candidates ->
+                        for (candidate in candidates) {
+                            activeConnection.addIceCandidate(candidate)
+                        }
+                    }
+                }
+            },
+            SessionDescription(SessionDescription.Type.ANSWER, sdp)
         )
     }
 
@@ -328,78 +430,78 @@ class WebRtcManager private constructor(private val context: Context) {
         val activeConnection = connection ?: return
 
         activeConnection.setRemoteDescription(
-                object : SimpleSdpObserver("setRemoteDescription-offer") {
-                    override fun onSetSuccess() {
-                        super.onSetSuccess()
-                        synchronized(streamLock) {
-                            if (peerConnection !== activeConnection ||
-                                            streamGeneration.get() != generation
-                            ) {
-                                Log.w(TAG, "Remote offer set on stale PeerConnection")
-                                return
-                            }
-                            isRemoteDescriptionSet = true
+            object : SimpleSdpObserver("setRemoteDescription-offer") {
+                override fun onSetSuccess() {
+                    super.onSetSuccess()
+                    synchronized(streamLock) {
+                        if (peerConnection !== activeConnection ||
+                            streamGeneration.get() != generation
+                        ) {
+                            Log.w(TAG, "Remote offer set on stale PeerConnection")
+                            return
                         }
-                        createAnswer(activeConnection, generation, sessionId)
+                        isRemoteDescriptionSet = true
                     }
-                },
-                SessionDescription(SessionDescription.Type.OFFER, sdp)
+                    createAnswer(activeConnection, generation, sessionId)
+                }
+            },
+            SessionDescription(SessionDescription.Type.OFFER, sdp)
         )
     }
 
     private fun createAnswer(connection: PeerConnection, generation: Int, sessionId: String) {
         val constraints = MediaConstraints()
         connection.createAnswer(
-                object : SimpleSdpObserver("createAnswer") {
-                    override fun onCreateSuccess(desc: SessionDescription) {
-                        super.onCreateSuccess(desc)
-                        synchronized(streamLock) {
-                            if (peerConnection !== connection ||
-                                            streamGeneration.get() != generation
-                            ) {
-                                Log.w(TAG, "Answer created on stale PeerConnection")
-                                return
-                            }
+            object : SimpleSdpObserver("createAnswer") {
+                override fun onCreateSuccess(desc: SessionDescription) {
+                    super.onCreateSuccess(desc)
+                    synchronized(streamLock) {
+                        if (peerConnection !== connection ||
+                            streamGeneration.get() != generation
+                        ) {
+                            Log.w(TAG, "Answer created on stale PeerConnection")
+                            return
                         }
-                        connection.setLocalDescription(
-                                object : SimpleSdpObserver("setLocalDescription-answer") {
-                                    override fun onSetSuccess() {
-                                        super.onSetSuccess()
-                                        synchronized(streamLock) {
-                                            if (peerConnection !== connection ||
-                                                            streamGeneration.get() != generation
-                                            )
-                                                    return
-                                        }
-                                        val pending =
-                                                synchronized(streamLock) {
-                                                    drainPendingIceCandidatesLocked()
-                                                }
-                                        pending.forEach { connection.addIceCandidate(it) }
-                                        sendAnswer(desc, sessionId)
-                                    }
-                                },
-                                desc
-                        )
                     }
-                },
-                constraints
+                    connection.setLocalDescription(
+                        object : SimpleSdpObserver("setLocalDescription-answer") {
+                            override fun onSetSuccess() {
+                                super.onSetSuccess()
+                                synchronized(streamLock) {
+                                    if (peerConnection !== connection ||
+                                        streamGeneration.get() != generation
+                                    )
+                                        return
+                                }
+                                val pending =
+                                    synchronized(streamLock) {
+                                        drainPendingIceCandidatesLocked()
+                                    }
+                                pending.forEach { connection.addIceCandidate(it) }
+                                sendAnswer(desc, sessionId)
+                            }
+                        },
+                        desc
+                    )
+                }
+            },
+            constraints
         )
     }
 
     private fun sendAnswer(desc: SessionDescription, sessionId: String) {
         val json =
-                JSONObject().apply {
-                    put("id", outgoingMessageId.getAndIncrement())
-                    put("method", "webrtc/answer")
-                    put(
-                            "params",
-                            JSONObject().apply {
-                                put("sessionId", sessionId)
-                                put("sdp", desc.description)
-                            }
-                    )
-                }
+            JSONObject().apply {
+                put("id", outgoingMessageId.getAndIncrement())
+                put("method", "webrtc/answer")
+                put(
+                    "params",
+                    JSONObject().apply {
+                        put("sessionId", sessionId)
+                        put("sdp", desc.description)
+                    }
+                )
+            }
         reverseConnectionService?.sendText(json.toString())
     }
 
@@ -440,25 +542,41 @@ class WebRtcManager private constructor(private val context: Context) {
     }
 
     private fun postStopStreamIfCurrent(streamId: Int) {
+        cancelIdleStop()
         stopHandler.post {
             val resources =
-                    synchronized(streamLock) {
-                        if (!isCurrentStreamLocked(streamId)) {
-                            null
-                        } else {
-                            streamGeneration.incrementAndGet()
-                            streamRequestId = null
-                            detachStreamResourcesLocked()
-                        }
+                synchronized(streamLock) {
+                    if (!isCurrentStreamLocked(streamId)) {
+                        null
+                    } else {
+                        streamGeneration.incrementAndGet()
+                        streamRequestId = null
+                        detachStreamResourcesLocked()
                     }
-                            ?: return@post
+                }
+                    ?: return@post
             cleanupStreamResources(resources)
         }
     }
 
+    private fun handlePeerDisconnected(streamId: Int, reason: String) {
+        val peerResources = synchronized(streamLock) {
+            if (!isCurrentStreamLocked(streamId)) {
+                null
+            } else {
+                streamGeneration.incrementAndGet()
+                detachPeerResourcesLocked()
+            }
+        }
+        if (peerResources != null) {
+            cleanupPeerResources(peerResources)
+            scheduleIdleStop(reason)
+        }
+    }
+
     private fun createPeerConnection(
-            customIceServers: List<PeerConnection.IceServer>?,
-            streamId: Int
+        customIceServers: List<PeerConnection.IceServer>?,
+        streamId: Int
     ) {
         val iceServers = ArrayList<PeerConnection.IceServer>()
         if (customIceServers != null && customIceServers.isNotEmpty()) {
@@ -466,50 +584,62 @@ class WebRtcManager private constructor(private val context: Context) {
         } else {
             // Default google STUN
             iceServers.add(
-                    PeerConnection.IceServer.builder("stun:stun.l.google.com:19302")
-                            .createIceServer()
+                PeerConnection.IceServer.builder("stun:stun.l.google.com:19302")
+                    .createIceServer()
             )
         }
 
         val rtcConfig =
-                PeerConnection.RTCConfiguration(iceServers).apply {
-                    sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
-                    bundlePolicy = PeerConnection.BundlePolicy.MAXBUNDLE
-                    tcpCandidatePolicy = PeerConnection.TcpCandidatePolicy.DISABLED
-                }
+            PeerConnection.RTCConfiguration(iceServers).apply {
+                sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
+                bundlePolicy = PeerConnection.BundlePolicy.MAXBUNDLE
+                tcpCandidatePolicy = PeerConnection.TcpCandidatePolicy.DISABLED
+            }
 
         peerConnection =
-                peerConnectionFactory?.createPeerConnection(
-                        rtcConfig,
-                        object : CustomPeerConnectionObserver() {
-                            override fun onIceCandidate(p0: IceCandidate) {
-                                if (!isCurrentStream(streamId)) return
-                                sendIceCandidate(p0)
+            peerConnectionFactory?.createPeerConnection(
+                rtcConfig,
+                object : CustomPeerConnectionObserver() {
+                    override fun onIceCandidate(p0: IceCandidate) {
+                        if (!isCurrentStream(streamId)) return
+                        sendIceCandidate(p0)
+                    }
+
+                    override fun onIceConnectionChange(
+                        p0: PeerConnection.IceConnectionState?
+                    ) {
+                        if (!isCurrentStream(streamId)) return
+                        when (p0) {
+                            PeerConnection.IceConnectionState.CONNECTED,
+                            PeerConnection.IceConnectionState.COMPLETED -> {
+                                cancelIdleStop()
                             }
 
-                            override fun onIceConnectionChange(
-                                    p0: PeerConnection.IceConnectionState?
-                            ) {
-                                if (p0 == PeerConnection.IceConnectionState.FAILED) {
-                                    if (!isCurrentStream(streamId)) return
-                                    Log.e(TAG, "ICE connection failed - stopping stream")
-                                    sendStreamError(
-                                            "ice_connection_failed",
-                                            "ICE connection failed"
-                                    )
-                                    postStopStreamIfCurrent(streamId)
-                                    ScreenCaptureService.requestStop()
-                                }
+                            PeerConnection.IceConnectionState.DISCONNECTED,
+                            PeerConnection.IceConnectionState.FAILED,
+                            PeerConnection.IceConnectionState.CLOSED -> {
+                                Log.w(
+                                    TAG,
+                                    "ICE connection ${p0.name} - keeping capture, resetting peer"
+                                )
+                                handlePeerDisconnected(
+                                    streamId,
+                                    p0.name.lowercase(Locale.US)
+                                )
                             }
+
+                            else -> {}
                         }
-                )
+                    }
+                }
+            )
 
         val dcInit =
-                DataChannel.Init().apply {
-                    ordered = true
-                    negotiated = true
-                    id = 1
-                }
+            DataChannel.Init().apply {
+                ordered = true
+                negotiated = true
+                id = 1
+            }
         controlChannel = peerConnection?.createDataChannel("control", dcInit)
         controlChannel?.let { dc ->
             scrcpyControlHandler = ScrcpyControlChannel()
@@ -518,22 +648,22 @@ class WebRtcManager private constructor(private val context: Context) {
     }
 
     private fun createVideoTrack(
-            permissionResultData: android.content.Intent,
-            width: Int,
-            height: Int,
-            fps: Int,
-            streamId: Int,
+        permissionResultData: android.content.Intent,
+        width: Int,
+        height: Int,
+        fps: Int,
+        streamId: Int,
     ) {
         screenCapturer =
-                ScreenCapturerAndroid(
-                        permissionResultData,
-                        object : MediaProjection.Callback() {
-                            override fun onStop() {
-                                postStopStreamIfCurrent(streamId)
-                                ScreenCaptureService.requestStop()
-                            }
-                        }
-                )
+            ScreenCapturerAndroid(
+                permissionResultData,
+                object : MediaProjection.Callback() {
+                    override fun onStop() {
+                        postStopStreamIfCurrent(streamId)
+                        ScreenCaptureService.requestStop("projection_stopped")
+                    }
+                }
+            )
 
         videoSource = peerConnectionFactory?.createVideoSource(screenCapturer!!.isScreencast)
 
@@ -548,74 +678,80 @@ class WebRtcManager private constructor(private val context: Context) {
             throw RuntimeException("Failed to start screen capture: ${e.message}", e)
         }
 
+        synchronized(streamLock) {
+            captureWidth = width
+            captureHeight = height
+            captureFps = fps
+        }
+
         videoTrack = peerConnectionFactory?.createVideoTrack(VIDEO_TRACK_ID, videoSource)
     }
 
     private fun createOffer(streamId: Int) {
         val constraints = MediaConstraints()
         peerConnection?.createOffer(
-                object : SimpleSdpObserver("createOffer") {
-                    override fun onCreateSuccess(desc: SessionDescription) {
-                        super.onCreateSuccess(desc)
-                        val connection =
-                                synchronized(streamLock) {
-                                    if (!isCurrentStreamLocked(streamId)) null else peerConnection
-                                }
-                                        ?: return
+            object : SimpleSdpObserver("createOffer") {
+                override fun onCreateSuccess(desc: SessionDescription) {
+                    super.onCreateSuccess(desc)
+                    val connection =
+                        synchronized(streamLock) {
+                            if (!isCurrentStreamLocked(streamId)) null else peerConnection
+                        }
+                            ?: return
 
-                        val mungedSdp = preferH264(desc.description)
-                        val offer =
-                                if (mungedSdp == desc.description) {
-                                    desc
-                                } else {
-                                    SessionDescription(desc.type, mungedSdp)
-                                }
-                        setLocalDescriptionAndSendOffer(
-                                connection,
-                                streamId,
-                                offer,
-                                desc,
-                                offer != desc
-                        )
-                    }
-                },
-                constraints
+                    val mungedSdp = preferH264(desc.description)
+                    val offer =
+                        if (mungedSdp == desc.description) {
+                            desc
+                        } else {
+                            SessionDescription(desc.type, mungedSdp)
+                        }
+                    setLocalDescriptionAndSendOffer(
+                        connection,
+                        streamId,
+                        offer,
+                        desc,
+                        offer != desc
+                    )
+                }
+            },
+            constraints
         )
     }
 
     private fun setLocalDescriptionAndSendOffer(
-            connection: PeerConnection,
-            streamId: Int,
-            offer: SessionDescription,
-            fallback: SessionDescription,
-            allowFallback: Boolean,
+        connection: PeerConnection,
+        streamId: Int,
+        offer: SessionDescription,
+        fallback: SessionDescription,
+        allowFallback: Boolean,
     ) {
         connection.setLocalDescription(
-                object : SimpleSdpObserver("setLocalDescription") {
-                    override fun onSetSuccess() {
-                        if (!isCurrentStream(streamId)) {
-                            Log.w(TAG, "Offer set for stale stream; ignoring")
-                            return
-                        }
-                        sendOffer(offer.description)
+            object : SimpleSdpObserver("setLocalDescription") {
+                override fun onSetSuccess() {
+                    if (!isCurrentStream(streamId)) {
+                        Log.w(TAG, "Offer set for stale stream; ignoring")
+                        return
                     }
+                    sendOffer(offer.description)
+                }
 
-                    override fun onSetFailure(p0: String?) {
-                        Log.e(TAG, "setLocalDescription failed: $p0")
-                        if (!allowFallback || !isCurrentStream(streamId)) {
-                            return
-                        }
-                        Log.w(TAG, "Retrying setLocalDescription with original SDP")
-                        setLocalDescriptionAndSendOffer(
-                                connection,
-                                streamId,
-                                fallback,
-                                fallback,
-                                false
-                        )
+                override fun onSetFailure(p0: String?) {
+                    Log.e(TAG, "setLocalDescription failed: $p0")
+                    if (!allowFallback || !isCurrentStream(streamId)) {
+                        return
                     }
-                },
-                offer
+                    Log.w(TAG, "Retrying setLocalDescription with original SDP")
+                    setLocalDescriptionAndSendOffer(
+                        connection,
+                        streamId,
+                        fallback,
+                        fallback,
+                        false
+                    )
+                }
+            },
+            offer
         )
     }
 
@@ -643,8 +779,8 @@ class WebRtcManager private constructor(private val context: Context) {
         if (updated) {
             val success = sender.setParameters(parameters)
             Log.i(
-                    TAG,
-                    "Applied sender params (maxBitrate=$maxBitrateBps, maxFps=$fps, success=$success)"
+                TAG,
+                "Applied sender params (maxBitrate=$maxBitrateBps, maxFps=$fps, success=$success)"
             )
         }
     }
@@ -652,12 +788,12 @@ class WebRtcManager private constructor(private val context: Context) {
     private fun computeMaxBitrateBps(width: Int, height: Int, fps: Int): Int {
         val maxDim = max(width, height)
         val base =
-                when {
-                    maxDim >= 1080 -> 4_000_000
-                    maxDim >= 720 -> 1_500_000
-                    maxDim >= 480 -> 1_200_000
-                    else -> 800_000
-                }
+            when {
+                maxDim >= 1080 -> 4_000_000
+                maxDim >= 720 -> 1_500_000
+                maxDim >= 480 -> 1_200_000
+                else -> 800_000
+            }
         return when {
             fps <= 10 -> base * 3 / 5
             fps <= 15 -> base * 3 / 4
@@ -723,20 +859,20 @@ class WebRtcManager private constructor(private val context: Context) {
         lastStatsBytesSent = null
         lastStatsTimestampMs = null
         val runnable =
-                object : Runnable {
-                    override fun run() {
-                        val connection =
-                                synchronized(streamLock) {
-                                    if (isCurrentStreamLocked(streamId)) peerConnection else null
-                                }
-                                        ?: return
-                        connection.getStats { report ->
-                            if (!isCurrentStream(streamId)) return@getStats
-                            logStats(report)
-                            statsHandler.postDelayed(this, STATS_INTERVAL_MS)
+            object : Runnable {
+                override fun run() {
+                    val connection =
+                        synchronized(streamLock) {
+                            if (isCurrentStreamLocked(streamId)) peerConnection else null
                         }
+                            ?: return
+                    connection.getStats { report ->
+                        if (!isCurrentStream(streamId)) return@getStats
+                        logStats(report)
+                        statsHandler.postDelayed(this, STATS_INTERVAL_MS)
                     }
                 }
+            }
         statsRunnable = runnable
         statsHandler.postDelayed(runnable, STATS_INTERVAL_MS)
     }
@@ -751,17 +887,17 @@ class WebRtcManager private constructor(private val context: Context) {
     private fun logStats(report: RTCStatsReport) {
         val statsMap = report.statsMap
         val outboundVideo =
-                statsMap.values.firstOrNull { stats ->
-                    stats.type == "outbound-rtp" &&
-                            !getBooleanMember(stats.members, "isRemote", false) &&
-                            isVideoStats(stats.members)
-                }
-                        ?: return
+            statsMap.values.firstOrNull { stats ->
+                stats.type == "outbound-rtp" &&
+                        !getBooleanMember(stats.members, "isRemote", false) &&
+                        isVideoStats(stats.members)
+            }
+                ?: return
 
         val members = outboundVideo.members
         val bytesSent = getLongMember(members, "bytesSent")
         val framesSent =
-                getLongMember(members, "framesSent") ?: getLongMember(members, "framesEncoded")
+            getLongMember(members, "framesSent") ?: getLongMember(members, "framesEncoded")
         val framesDropped = getLongMember(members, "framesDropped")
         val fps = getDoubleMember(members, "framesPerSecond")
         val width = getLongMember(members, "frameWidth")
@@ -772,35 +908,35 @@ class WebRtcManager private constructor(private val context: Context) {
 
         val timestampMs = (outboundVideo.timestampUs / 1000.0).toLong()
         val bitrateKbps =
-                if (bytesSent != null && lastStatsBytesSent != null && lastStatsTimestampMs != null
-                ) {
-                    val deltaBytes = bytesSent - lastStatsBytesSent!!
-                    val deltaMs = timestampMs - lastStatsTimestampMs!!
-                    if (deltaMs > 0 && deltaBytes >= 0) {
-                        ((deltaBytes * 8.0) / deltaMs).toInt()
-                    } else {
-                        null
-                    }
+            if (bytesSent != null && lastStatsBytesSent != null && lastStatsTimestampMs != null
+            ) {
+                val deltaBytes = bytesSent - lastStatsBytesSent!!
+                val deltaMs = timestampMs - lastStatsTimestampMs!!
+                if (deltaMs > 0 && deltaBytes >= 0) {
+                    ((deltaBytes * 8.0) / deltaMs).toInt()
                 } else {
                     null
                 }
+            } else {
+                null
+            }
         lastStatsBytesSent = bytesSent
         lastStatsTimestampMs = timestampMs
 
         val candidatePair =
-                statsMap.values.firstOrNull { stats ->
-                    stats.type == "candidate-pair" &&
-                            getStringMember(stats.members, "state") == "succeeded" &&
-                            getBooleanMember(stats.members, "nominated", false)
-                }
+            statsMap.values.firstOrNull { stats ->
+                stats.type == "candidate-pair" &&
+                        getStringMember(stats.members, "state") == "succeeded" &&
+                        getBooleanMember(stats.members, "nominated", false)
+            }
         val rttMs =
-                candidatePair
-                        ?.let { getDoubleMember(it.members, "currentRoundTripTime") }
-                        ?.times(1000.0)
+            candidatePair
+                ?.let { getDoubleMember(it.members, "currentRoundTripTime") }
+                ?.times(1000.0)
         val availableOutKbps =
-                candidatePair
-                        ?.let { getDoubleMember(it.members, "availableOutgoingBitrate") }
-                        ?.div(1000.0)
+            candidatePair
+                ?.let { getDoubleMember(it.members, "availableOutgoingBitrate") }
+                ?.div(1000.0)
 
         val parts = ArrayList<String>(8)
         codecMime?.let { parts.add("codec=$it") }
@@ -830,9 +966,9 @@ class WebRtcManager private constructor(private val context: Context) {
     }
 
     private fun getBooleanMember(
-            members: Map<String, Any>,
-            key: String,
-            default: Boolean
+        members: Map<String, Any>,
+        key: String,
+        default: Boolean
     ): Boolean {
         return when (val value = members[key]) {
             is Boolean -> value
@@ -859,28 +995,28 @@ class WebRtcManager private constructor(private val context: Context) {
 
     private fun sendOffer(sdp: String) {
         val json =
-                JSONObject().apply {
-                    put("id", outgoingMessageId.getAndIncrement())
-                    put("method", "webrtc/offer")
-                    put("params", JSONObject().apply { put("sdp", sdp) })
-                }
+            JSONObject().apply {
+                put("id", outgoingMessageId.getAndIncrement())
+                put("method", "webrtc/offer")
+                put("params", JSONObject().apply { put("sdp", sdp) })
+            }
         reverseConnectionService?.sendText(json.toString())
     }
 
     private fun sendIceCandidate(candidate: IceCandidate) {
         val json =
-                JSONObject().apply {
-                    put("id", outgoingMessageId.getAndIncrement())
-                    put("method", "webrtc/ice")
-                    put(
-                            "params",
-                            JSONObject().apply {
-                                put("candidate", candidate.sdp)
-                                put("sdpMid", candidate.sdpMid)
-                                put("sdpMLineIndex", candidate.sdpMLineIndex)
-                            }
-                    )
-                }
+            JSONObject().apply {
+                put("id", outgoingMessageId.getAndIncrement())
+                put("method", "webrtc/ice")
+                put(
+                    "params",
+                    JSONObject().apply {
+                        put("candidate", candidate.sdp)
+                        put("sdpMid", candidate.sdpMid)
+                        put("sdpMLineIndex", candidate.sdpMLineIndex)
+                    }
+                )
+            }
         reverseConnectionService?.sendText(json.toString())
     }
 
@@ -888,19 +1024,19 @@ class WebRtcManager private constructor(private val context: Context) {
         try {
             val requestId = getStreamRequestId()
             val json =
-                    JSONObject().apply {
-                        put("method", "stream/error")
-                        put(
-                                "params",
-                                JSONObject().apply {
-                                    put("error", error)
-                                    put("message", message)
-                                    if (requestId != null) {
-                                        put("sessionId", requestId)
-                                    }
-                                }
-                        )
-                    }
+                JSONObject().apply {
+                    put("method", "stream/error")
+                    put(
+                        "params",
+                        JSONObject().apply {
+                            put("error", error)
+                            put("message", message)
+                            if (requestId != null) {
+                                put("sessionId", requestId)
+                            }
+                        }
+                    )
+                }
             reverseConnectionService?.sendText(json.toString())
             Log.d(TAG, "Sent stream/error: $error - $message")
         } catch (e: Exception) {
@@ -920,20 +1056,20 @@ class WebRtcManager private constructor(private val context: Context) {
     private fun sendStreamStopped(reason: String?, requestId: Any?) {
         try {
             val json =
-                    JSONObject().apply {
-                        put("method", "stream/stopped")
-                        put(
-                                "params",
-                                JSONObject().apply {
-                                    if (!reason.isNullOrBlank()) {
-                                        put("reason", reason)
-                                    }
-                                    if (requestId != null) {
-                                        put("sessionId", requestId)
-                                    }
-                                }
-                        )
-                    }
+                JSONObject().apply {
+                    put("method", "stream/stopped")
+                    put(
+                        "params",
+                        JSONObject().apply {
+                            if (!reason.isNullOrBlank()) {
+                                put("reason", reason)
+                            }
+                            if (requestId != null) {
+                                put("sessionId", requestId)
+                            }
+                        }
+                    )
+                }
             reverseConnectionService?.sendText(json.toString())
             Log.d(TAG, "Sent stream/stopped${if (reason.isNullOrBlank()) "" else ": $reason"}")
         } catch (e: Exception) {
@@ -961,6 +1097,7 @@ class WebRtcManager private constructor(private val context: Context) {
         override fun onCreateFailure(p0: String?) {
             Log.e(TAG, "$name onCreateFailure: $p0")
         }
+
         override fun onSetFailure(p0: String?) {
             Log.e(TAG, "$name onSetFailure: $p0")
         }
