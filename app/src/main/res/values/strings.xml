@@ -55,11 +55,13 @@
     <string name="enable_ws_server_label">Enable WS Server</string>
     <string name="allow_external_connections_label">Allow external connections WS</string>
     <string name="port_label">Port</string>
+    <string name="websocket_server_started">WebSocket server started on port %1$d</string>
     <string name="reverse_connection_header">REVERSE CONNECTION (CLIENT MODE)</string>
     <string name="connect_to_host_label">Connect to Host</string>
     <string name="initiate_outbound_connection_label">Initiate outbound connection</string>
     <string name="host_url_hint">Host URL (ws://...)</string>
     <string name="token_optional_hint">Token (Optional)</string>
+    <string name="reverse_connection_connected">Reverse connection established</string>
     <string name="event_filters_header">EVENT FILTERS</string>
     <string name="notifications_label">Notifications</string>
     <string name="push_system_notifications_label">Push system notifications</string>

@@ -17,6 +17,7 @@ class PortalWebSocketServer(
     port: Int,
     private val actionDispatcher: ActionDispatcher,
     private val configManager: ConfigManager,
+    private val onServerStarted: (() -> Unit)? = null,
 ) : WebSocketServer(InetSocketAddress(port)) {
 
     companion object {
@@ -171,6 +172,7 @@ class PortalWebSocketServer(
 
     override fun onStart() {
         Log.i(TAG, "WebSocket Server started on port $port")
+        onServerStarted?.invoke()
 
         // Register ourselves with the Hub to receive events
         EventHub.subscribe { event ->

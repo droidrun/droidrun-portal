@@ -10,6 +10,9 @@ import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
+import android.os.SystemClock
+import android.widget.Toast
+import com.droidrun.portal.R
 import com.droidrun.portal.model.ElementNode
 import com.droidrun.portal.model.PhoneState
 import com.droidrun.portal.api.ApiHandler
@@ -34,6 +37,7 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
         const val TAG = "DroidrunAccessibility"
         private var instance: DroidrunAccessibilityService? = null
         private const val MIN_ELEMENT_SIZE = 5
+        private const val TOAST_DEBOUNCE_MS = 60_000L
 
         // Periodic update constants
         private const val REFRESH_INTERVAL_MS = 250L // Update every 250ms
@@ -62,6 +66,7 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
     private val screenBounds = Rect()
     private lateinit var configManager: ConfigManager
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var lastWebSocketServerToastAtMs = 0L
 
     // Servers
     // TODO Make nullable
@@ -721,12 +726,34 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
         try {
             if (websocketServer == null) {
                 val port = configManager.websocketPort
-                websocketServer = PortalWebSocketServer(port, actionDispatcher, configManager)
+                websocketServer = PortalWebSocketServer(
+                    port,
+                    actionDispatcher,
+                    configManager,
+                ) {
+                    showWebSocketServerStartedToastIfEnoughTimeIsPassed(port)
+                }
                 websocketServer?.start()
                 Log.i(TAG, "WebSocket server started on port $port")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start WebSocket server", e)
+        }
+    }
+
+    private fun showWebSocketServerStartedToastIfEnoughTimeIsPassed(port: Int) {
+        val now = SystemClock.elapsedRealtime()
+        if (lastWebSocketServerToastAtMs == 0L ||
+            now - lastWebSocketServerToastAtMs >= TOAST_DEBOUNCE_MS
+        ) {
+            lastWebSocketServerToastAtMs = now
+            mainHandler.post {
+                Toast.makeText(
+                    this@DroidrunAccessibilityService,
+                    getString(R.string.websocket_server_started, port),
+                    Toast.LENGTH_SHORT,
+                ).show()
+            }
         }
     }
 
