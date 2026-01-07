@@ -1030,6 +1030,7 @@ class WebRtcManager private constructor(private val context: Context) {
                         put("candidate", candidate.sdp)
                         put("sdpMid", candidate.sdpMid)
                         put("sdpMLineIndex", candidate.sdpMLineIndex)
+                        put("sessionId", streamRequestId)
                     }
                 )
             }
