@@ -100,7 +100,10 @@ class ReverseConnectionService : Service() {
         headers["X-Device-Name"] = configManager.deviceName
         headers["X-Device-Country"] = configManager.deviceCountryCode
 
-        headers["X-Remote-Device-Key"] = "<placeholder>"
+        val serviceKey = configManager.reverseConnectionServiceKey
+        if (serviceKey.isNotBlank()) {
+            headers["X-Remote-Device-Key"] = serviceKey
+        }
 
         return headers
     }
