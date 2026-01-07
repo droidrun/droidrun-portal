@@ -81,7 +81,7 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
 
         // Reverse Connection Settings
         binding.switchReverseEnabled.isChecked = configManager.reverseConnectionEnabled
-        binding.inputReverseUrl.setText(configManager.reverseConnectionUrl)
+        binding.inputReverseUrl.setText(configManager.reverseConnectionUrlForDisplay)
         binding.inputReverseToken.setText(configManager.reverseConnectionToken)
 
         // Toggle Service on Switch Change
@@ -94,9 +94,16 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
             )
             if (isChecked) {
                 // Ensure URL is saved before starting
-                val url = binding.inputReverseUrl.text.toString()
-                if (url.isNotBlank()) {
-                    configManager.reverseConnectionUrl = url
+                val inputUrl = binding.inputReverseUrl.text.toString()
+                val displayUrl =
+                    inputUrl.ifBlank { configManager.reverseConnectionUrlForDisplay }
+                val storedUrl = configManager.normalizeReverseConnectionUrlForStorage(displayUrl)
+                if (storedUrl.isNotBlank()) {
+                    configManager.reverseConnectionUrl = storedUrl
+                    val resolvedDisplayUrl = configManager.reverseConnectionUrlForDisplay
+                    if (resolvedDisplayUrl != inputUrl) {
+                        binding.inputReverseUrl.setText(resolvedDisplayUrl)
+                    }
                     // Also save token if user typed it but didn't hit done
                     configManager.reverseConnectionToken = binding.inputReverseToken.text.toString()
 
@@ -112,7 +119,17 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
 
         binding.inputReverseUrl.setOnEditorActionListener { v, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_DONE || actionId == EditorInfo.IME_ACTION_NEXT) {
-                configManager.reverseConnectionUrl = v.text.toString()
+                val inputUrl = v.text.toString()
+                val displayUrl =
+                    inputUrl.ifBlank { configManager.reverseConnectionUrlForDisplay }
+                val storedUrl = configManager.normalizeReverseConnectionUrlForStorage(displayUrl)
+                if (storedUrl.isNotBlank()) {
+                    configManager.reverseConnectionUrl = storedUrl
+                    val resolvedDisplayUrl = configManager.reverseConnectionUrlForDisplay
+                    if (resolvedDisplayUrl != inputUrl) {
+                        binding.inputReverseUrl.setText(resolvedDisplayUrl)
+                    }
+                }
                 if (actionId == EditorInfo.IME_ACTION_DONE) binding.inputReverseUrl.clearFocus()
                 restartServiceIfEnabled()
                 true
@@ -131,7 +148,7 @@ class SettingsBottomSheet : BottomSheetDialogFragment() {
                 false
             }
         }
-        
+
         // Screen Share Auto-Accept
         binding.switchScreenShareAutoAccept.isChecked = configManager.screenShareAutoAcceptEnabled
         binding.switchScreenShareAutoAccept.setOnCheckedChangeListener { _, isChecked ->
