@@ -12,6 +12,8 @@ import android.widget.Toast
 import com.droidrun.portal.R
 import com.droidrun.portal.api.ApiResponse
 import com.droidrun.portal.config.ConfigManager
+import com.droidrun.portal.state.ConnectionState
+import com.droidrun.portal.state.ConnectionStateManager
 import org.java_websocket.client.WebSocketClient
 import org.java_websocket.handshake.ServerHandshake
 import org.json.JSONObject
@@ -109,12 +111,12 @@ class ReverseConnectionService : Service() {
         val hostUrl = configManager.reverseConnectionUrlOrDefault
         if (hostUrl.isBlank()) {
             Log.w(TAG, "No host URL configured")
-            // Don't stop self, maybe user will config later? 
-            // Or stop and let UI restart it.
+            ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
             return
         }
 
         try {
+            ConnectionStateManager.setState(ConnectionState.CONNECTING)
             disconnect() // Prevent resource leaks from zombie connections
             val uri = URI(hostUrl.replace("{deviceId}", configManager.deviceID))
             val headers = buildHeaders()
@@ -123,6 +125,7 @@ class ReverseConnectionService : Service() {
                 override fun onOpen(handshakedata: ServerHandshake?) {
                     Log.i(TAG, "Connected to Host: $hostUrl")
                     showReverseConnectionToastIfEnoughTimeIsPassed()
+
                 }
 
                 override fun onMessage(message: String?) {
@@ -131,12 +134,14 @@ class ReverseConnectionService : Service() {
 
                 override fun onClose(code: Int, reason: String?, remote: Boolean) {
                     Log.w(TAG, "Disconnected from Host: $reason")
+                    ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
                     handleWsDisconnected()
                     scheduleReconnect()
                 }
 
                 override fun onError(ex: Exception?) {
                     Log.e(TAG, "Connection Error: ${ex?.message}")
+                    // Don't set state here, onClose usually follows
                     if (webSocketClient == null || webSocketClient?.isOpen != true)
                         handleWsDisconnected()
 
@@ -148,6 +153,7 @@ class ReverseConnectionService : Service() {
             Log.i(TAG, "websocket connection attempt started")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to initiate connection", e)
+            ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
             scheduleReconnect()
         }
     }
@@ -158,6 +164,7 @@ class ReverseConnectionService : Service() {
         if (!isServiceRunning.get()) return
         if (isReconnecting.getAndSet(true)) return // Already scheduled
 
+        ConnectionStateManager.setState(ConnectionState.RECONNECTING)
         Log.d(TAG, "Scheduling reconnect in ${RECONNECT_DELAY_MS}ms")
         handler.postDelayed({
             if (isServiceRunning.get()) {
@@ -166,6 +173,7 @@ class ReverseConnectionService : Service() {
                 connectToHost()
             } else {
                 isReconnecting.set(false)
+                ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
             }
         }, RECONNECT_DELAY_MS)
     }
@@ -174,6 +182,7 @@ class ReverseConnectionService : Service() {
         try {
             webSocketClient?.close()
             webSocketClient = null
+            ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
         } catch (e: Exception) {
             Log.e(TAG, "Error closing connection", e)
         }
@@ -206,6 +215,12 @@ class ReverseConnectionService : Service() {
         var id: Any? = null
 
         try {
+            // Check if the message is a valid JSON before parsing
+            if (!message.trim().startsWith("{") && !message.trim().startsWith("[")) {
+                Log.w(TAG, "Received non-JSON message: $message")
+                return
+            }
+
             val json = JSONObject(message)
             // Support both integer and string IDs (e.g., UUIDs)
             id = json.opt("id")?.takeIf { it != JSONObject.NULL }
