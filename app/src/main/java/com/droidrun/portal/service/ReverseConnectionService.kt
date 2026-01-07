@@ -6,7 +6,10 @@ import android.os.Binder
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
+import android.widget.Toast
+import com.droidrun.portal.R
 import com.droidrun.portal.api.ApiResponse
 import com.droidrun.portal.config.ConfigManager
 import org.java_websocket.client.WebSocketClient
@@ -21,6 +24,7 @@ class ReverseConnectionService : Service() {
     companion object {
         private const val TAG = "ReverseConnService"
         private const val RECONNECT_DELAY_MS = 3000L
+        private const val TOAST_DEBOUNCE_MS = 60_000L
 
         @Volatile
         private var instance: ReverseConnectionService? = null
@@ -36,6 +40,7 @@ class ReverseConnectionService : Service() {
     private var isServiceRunning = AtomicBoolean(false)
     private val handler = Handler(Looper.getMainLooper())
     private val installExecutor = Executors.newSingleThreadExecutor()
+    private var lastReverseToastAtMs = 0L
 
     inner class LocalBinder : Binder() {
         fun getService(): ReverseConnectionService = this@ReverseConnectionService
@@ -117,6 +122,7 @@ class ReverseConnectionService : Service() {
             webSocketClient = object : WebSocketClient(uri, headers) {
                 override fun onOpen(handshakedata: ServerHandshake?) {
                     Log.i(TAG, "Connected to Host: $hostUrl")
+                    showReverseConnectionToastIfEnoughTimeIsPassed()
                 }
 
                 override fun onMessage(message: String?) {
@@ -139,7 +145,7 @@ class ReverseConnectionService : Service() {
             }
             Log.i(TAG, "connecting to remote via websocket")
             webSocketClient?.connect()
-            Log.i(TAG, "websocket connection established")
+            Log.i(TAG, "websocket connection attempt started")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to initiate connection", e)
             scheduleReconnect()
@@ -177,6 +183,20 @@ class ReverseConnectionService : Service() {
         ScreenCaptureService.requestStop("ws_disconnected")
     }
 
+    private fun showReverseConnectionToastIfEnoughTimeIsPassed() {
+        val now = SystemClock.elapsedRealtime()
+        if (lastReverseToastAtMs == 0L || now - lastReverseToastAtMs >= TOAST_DEBOUNCE_MS) {
+            lastReverseToastAtMs = now
+            handler.post {
+                Toast.makeText(
+                    this@ReverseConnectionService,
+                    getString(R.string.reverse_connection_connected),
+                    Toast.LENGTH_SHORT,
+                ).show()
+            }
+        }
+    }
+
     private fun handleMessage(message: String?) {
         if (message == null) return
         // Truncate log to avoid spamming with large SDP/ICE payloads
@@ -209,7 +229,7 @@ class ReverseConnectionService : Service() {
 
             // Method may be empty for JSON-RPC responses to outgoing messages (e.g., webrtc/offer)
             val method = json.optString("method", "")
-            
+
             if (method.isEmpty()) {
                 if (json.has("result")) {
                     Log.d(TAG, "Received JSON-RPC result for id=$id")
@@ -224,7 +244,8 @@ class ReverseConnectionService : Service() {
             val params = json.optJSONObject("params") ?: JSONObject()
 
             // Truncate params log to avoid spamming with large SDP/ICE payloads
-            val paramsLog = params.toString().let { if (it.length > 100) it.take(100) + "..." else it }
+            val paramsLog =
+                params.toString().let { if (it.length > 100) it.take(100) + "..." else it }
             Log.d(TAG, "Dispatching $method (id=$id, params=$paramsLog)")
 
             val normalizedMethod =
