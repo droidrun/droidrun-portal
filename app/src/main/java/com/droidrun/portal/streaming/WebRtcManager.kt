@@ -248,6 +248,22 @@ class WebRtcManager private constructor(private val context: Context) {
         cleanupStreamResources(resources)
     }
 
+    fun requestGracefulStop(reason: String = "cloud_stop") {
+        val peerResources =
+            synchronized(streamLock) {
+                if (peerConnection == null) {
+                    null
+                } else {
+                    streamGeneration.incrementAndGet()
+                    detachPeerResourcesLocked()
+                }
+            }
+
+        if (peerResources != null) cleanupPeerResources(peerResources)
+
+        scheduleIdleStop(reason)
+    }
+
     fun stopStreamAsync(onStopped: (() -> Unit)? = null) {
         cancelIdleStop()
         val stopGeneration = streamGeneration.get()

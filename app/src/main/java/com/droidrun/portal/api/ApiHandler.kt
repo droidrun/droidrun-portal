@@ -710,7 +710,9 @@ class ApiHandler(
                             val errorBody =
                                 connection.errorStream?.bufferedReader()?.use { reader ->
                                     val text = reader.readText()
-                                    if (text.length > MAX_ERROR_BODY_SIZE) text.take(MAX_ERROR_BODY_SIZE) else text
+                                    if (text.length > MAX_ERROR_BODY_SIZE) text.take(
+                                        MAX_ERROR_BODY_SIZE
+                                    ) else text
                                 }
                             result.put("success", false)
                             result.put(
@@ -829,51 +831,70 @@ class ApiHandler(
             }
         }
 
-        val intent = Intent(context, com.droidrun.portal.ui.ScreenCaptureActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra(ScreenCaptureService.EXTRA_WIDTH, width)
-            putExtra(ScreenCaptureService.EXTRA_HEIGHT, height)
-            putExtra(ScreenCaptureService.EXTRA_FPS, fps)
-            putExtra(ScreenCaptureService.EXTRA_WAIT_FOR_OFFER, waitForOffer)
-        }
+        val intent =
+            Intent(context, com.droidrun.portal.ui.ScreenCaptureActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                putExtra(ScreenCaptureService.EXTRA_WIDTH, width)
+                putExtra(ScreenCaptureService.EXTRA_HEIGHT, height)
+                putExtra(ScreenCaptureService.EXTRA_FPS, fps)
+                putExtra(ScreenCaptureService.EXTRA_WAIT_FOR_OFFER, waitForOffer)
+            }
 
         try {
-             context.startActivity(intent)
-             return ApiResponse.Success("prompting_user")
+            context.startActivity(intent)
+            return ApiResponse.Success("prompting_user")
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to start ScreenCaptureActivity directly: ${e.message}. Trying notification trampoline.")
-            
+            Log.w(
+                TAG,
+                "Failed to start ScreenCaptureActivity directly: ${e.message}. Trying notification trampoline."
+            )
+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                val notificationPermission = context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
+                val notificationPermission =
+                    context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
                 if (notificationPermission != PackageManager.PERMISSION_GRANTED) {
-                    Log.e(TAG, "POST_NOTIFICATIONS permission not granted, opening app notification settings")
-                    
+                    Log.e(
+                        TAG,
+                        "POST_NOTIFICATIONS permission not granted, opening app notification settings"
+                    )
+
                     try {
-                        val settingsIntent = Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
-                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                            putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
-                        }
+                        val settingsIntent =
+                            Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                putExtra(
+                                    android.provider.Settings.EXTRA_APP_PACKAGE,
+                                    context.packageName
+                                )
+                            }
                         context.startActivity(settingsIntent)
                     } catch (settingsEx: Exception) {
                         Log.e(TAG, "Failed to open notification settings: ${settingsEx.message}")
                     }
-                    
+
                     manager.setStreamRequestId(null)
                     return ApiResponse.Error("stream_start_failed: Notification permission required. Please enable notifications and try again.")
                 }
             }
-            
+
             val pendingIntent = PendingIntent.getActivity(
-                context, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                context,
+                0,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
-            
+
             val channelId = "stream_start_channel"
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val channel = NotificationChannel(channelId, "Start Streaming", NotificationManager.IMPORTANCE_HIGH)
+                val channel = NotificationChannel(
+                    channelId,
+                    "Start Streaming",
+                    NotificationManager.IMPORTANCE_HIGH
+                )
                 val nm = context.getSystemService(NotificationManager::class.java)
                 nm.createNotificationChannel(channel)
             }
-            
+
             val notification = NotificationCompat.Builder(context, channelId)
                 .setSmallIcon(android.R.drawable.ic_menu_camera)
                 .setContentTitle("Start Screen Streaming")
@@ -882,15 +903,21 @@ class ApiHandler(
                 .setAutoCancel(true)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .build()
-                
+
             val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             nm.notify(3001, notification)
-            
+
             return ApiResponse.Success("waiting_for_user_notification_tap")
         }
     }
 
-    fun stopStream(): ApiResponse {
+    fun stopStream(graceful: Boolean = false): ApiResponse {
+        if (graceful) {
+            val manager = WebRtcManager.getInstance(context)
+            manager.requestGracefulStop("cloud_stop")
+            return ApiResponse.Success("Stop stream requested")
+        }
+
         val intent = Intent(context, ScreenCaptureService::class.java).apply {
             action = ScreenCaptureService.ACTION_STOP_STREAM
         }
