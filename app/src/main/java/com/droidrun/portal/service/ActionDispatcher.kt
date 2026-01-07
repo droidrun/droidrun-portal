@@ -154,7 +154,7 @@ class ActionDispatcher(private val apiHandler: ApiHandler) {
                 if (origin == Origin.HTTP) {
                     ApiResponse.Error("Streaming commands require WebSocket connection")
                 } else {
-                    apiHandler.stopStream()
+                    apiHandler.stopStream(graceful = origin == Origin.WEBSOCKET_REVERSE)
                 }
             }
 
