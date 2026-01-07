@@ -33,7 +33,10 @@ import com.droidrun.portal.ui.settings.SettingsActivity
 import androidx.core.net.toUri
 import androidx.core.graphics.toColorInt
 
-class MainActivity : AppCompatActivity() {
+import android.content.BroadcastReceiver
+import android.content.IntentFilter
+
+class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
 
     private lateinit var binding: ActivityMainBinding
 
@@ -58,6 +61,9 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
+        // Register ConfigChangeListener
+        ConfigManager.getInstance(this).addListener(this)
 
         // Handle Deep Link
         handleDeepLink(intent)
@@ -150,6 +156,12 @@ class MainActivity : AppCompatActivity() {
         syncUIWithAccessibilityService()
         updateSocketServerStatus()
         setupConnectionStateObserver()
+        updateProductionModeUI()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        ConfigManager.getInstance(this).removeListener(this)
     }
 
     override fun onResume() {
@@ -158,6 +170,50 @@ class MainActivity : AppCompatActivity() {
         updateStatusIndicators()
         syncUIWithAccessibilityService()
         updateSocketServerStatus()
+        updateProductionModeUI()
+    }
+
+    private fun updateProductionModeUI() {
+        val configManager = ConfigManager.getInstance(this)
+        if (configManager.productionMode) {
+            binding.layoutStandardUi.visibility = View.GONE
+            binding.layoutProductionMode.visibility = View.VISIBLE
+            binding.textProductionDeviceId.text = "Device ID: ${configManager.deviceID}"
+        } else {
+            binding.layoutStandardUi.visibility = View.VISIBLE
+            binding.layoutProductionMode.visibility = View.GONE
+        }
+    }
+
+    override fun onOverlayVisibilityChanged(visible: Boolean) {
+        runOnUiThread {
+            binding.toggleOverlay.isChecked = visible
+        }
+    }
+
+    override fun onOverlayOffsetChanged(offset: Int) {
+        runOnUiThread {
+            if (!isProgrammaticUpdate) {
+                isProgrammaticUpdate = true
+                binding.offsetSlider.progress = offset - MIN_OFFSET
+                binding.offsetValueDisplay.setText(offset.toString())
+                isProgrammaticUpdate = false
+            }
+        }
+    }
+
+    override fun onSocketServerEnabledChanged(enabled: Boolean) {
+        // No-op or update UI if needed
+    }
+
+    override fun onSocketServerPortChanged(port: Int) {
+        // No-op or update UI if needed
+    }
+
+    override fun onProductionModeChanged(enabled: Boolean) {
+        runOnUiThread {
+            updateProductionModeUI()
+        }
     }
 
     private fun disconnectService() {

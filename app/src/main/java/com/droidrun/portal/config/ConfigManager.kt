@@ -28,6 +28,7 @@ class ConfigManager private constructor(private val context: Context) {
         private const val KEY_REVERSE_CONNECTION_TOKEN = "reverse_connection_token"
         private const val KEY_REVERSE_CONNECTION_ENABLED = "reverse_connection_enabled"
         private const val KEY_REVERSE_CONNECTION_SERVICE_KEY = "reverse_connection_service_key"
+        private const val KEY_PRODUCTION_MODE = "production_mode"
         private const val PREFIX_EVENT_ENABLED = "event_enabled_"
         private const val KEY_AUTH_TOKEN = "auth_token"
         private const val KEY_DEVICE_ID = "device_id"
@@ -167,6 +168,13 @@ class ConfigManager private constructor(private val context: Context) {
             sharedPrefs.edit { putString(KEY_REVERSE_CONNECTION_SERVICE_KEY, value) }
         }
 
+    var productionMode: Boolean
+        get() = sharedPrefs.getBoolean(KEY_PRODUCTION_MODE, false)
+        set(value) {
+            sharedPrefs.edit { putBoolean(KEY_PRODUCTION_MODE, value) }
+            listeners.forEach { it.onProductionModeChanged(value) }
+        }
+
     val deviceName: String
         get() {
             val manufacturer = Build.MANUFACTURER
@@ -208,6 +216,8 @@ class ConfigManager private constructor(private val context: Context) {
         // New WebSocket listeners
         fun onWebSocketEnabledChanged(enabled: Boolean) {}
         fun onWebSocketPortChanged(port: Int) {}
+        
+        fun onProductionModeChanged(enabled: Boolean) {}
     }
 
     private val listeners = mutableSetOf<ConfigChangeListener>()

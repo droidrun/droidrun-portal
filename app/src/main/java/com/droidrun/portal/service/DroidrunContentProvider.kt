@@ -36,6 +36,7 @@ class DroidrunContentProvider : ContentProvider() {
         private const val TOGGLE_WEBSOCKET_SERVER = 13
         private const val AUTH_TOKEN = 14
         private const val CONFIGURE_REVERSE_CONNECTION = 15
+        private const val TOGGLE_PRODUCTION_MODE = 16
 
         private val uriMatcher = UriMatcher(UriMatcher.NO_MATCH).apply {
             addURI(AUTHORITY, "a11y_tree", A11Y_TREE)
@@ -53,6 +54,7 @@ class DroidrunContentProvider : ContentProvider() {
             addURI(AUTHORITY, "toggle_websocket_server", TOGGLE_WEBSOCKET_SERVER)
             addURI(AUTHORITY, "auth_token", AUTH_TOKEN)
             addURI(AUTHORITY, "configure_reverse_connection", CONFIGURE_REVERSE_CONNECTION)
+            addURI(AUTHORITY, "toggle_production_mode", TOGGLE_PRODUCTION_MODE)
         }
     }
 
@@ -227,6 +229,14 @@ class DroidrunContentProvider : ContentProvider() {
                     }
 
                     ApiResponse.Success(message)
+                }
+                TOGGLE_PRODUCTION_MODE -> {
+                    val enabled = values?.getAsBoolean("enabled") ?: false
+                    configManager.productionMode = enabled
+                    val intent = android.content.Intent("com.droidrun.portal.PRODUCTION_MODE_CHANGED")
+                    context!!.sendBroadcast(intent)
+
+                    ApiResponse.Success("Production mode set to $enabled")
                 }
                 else -> ApiResponse.Error("Unsupported insert endpoint")
             }
