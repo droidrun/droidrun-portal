@@ -24,8 +24,6 @@ import android.graphics.Bitmap
 import android.util.Base64
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.CompletableFuture
-
-// Event System Imports
 import com.droidrun.portal.events.EventHub
 import com.droidrun.portal.events.PortalWebSocketServer
 
@@ -172,15 +170,16 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
                 Log.d(TAG, "Activity changed: $currentActivityName")
             }
         }
-        
+
         // Auto-accept MediaProjection dialog (only when reverse connection is active and setting is enabled)
-        if (MediaProjectionAutoAccept.isMediaProjectionDialog(event) && 
+        if (MediaProjectionAutoAccept.isMediaProjectionDialog(event) &&
             ReverseConnectionService.getInstance() != null &&
-            configManager.screenShareAutoAcceptEnabled) {
+            configManager.screenShareAutoAcceptEnabled
+        ) {
             val rootNode = rootInActiveWindow
             if (rootNode != null) {
                 try {
-                    MediaProjectionAutoAccept.tryAutoAccept(rootNode)
+                    MediaProjectionAutoAccept.tryAutoAccept(rootNode, eventClassName)
                 } finally {
                     rootNode.recycle()
                 }
