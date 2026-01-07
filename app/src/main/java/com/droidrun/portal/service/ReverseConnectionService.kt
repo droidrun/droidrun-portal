@@ -124,6 +124,7 @@ class ReverseConnectionService : Service() {
             webSocketClient = object : WebSocketClient(uri, headers) {
                 override fun onOpen(handshakedata: ServerHandshake?) {
                     Log.i(TAG, "Connected to Host: $hostUrl")
+                    ConnectionStateManager.setState(ConnectionState.CONNECTED)
                     showReverseConnectionToastIfEnoughTimeIsPassed()
 
                 }

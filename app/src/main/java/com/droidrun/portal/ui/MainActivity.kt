@@ -89,7 +89,7 @@ class MainActivity : AppCompatActivity() {
 
             val configManager = ConfigManager.getInstance(this)
             val deviceId = configManager.deviceID
-            val url = "https://cloud.mobilerun.ai/auth/device?deviceId=$deviceId"
+            val url = "https://dev-cloud.droidrun.ai/auth/device?deviceId=$deviceId"
 
             try {
                 val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
@@ -742,8 +742,6 @@ class MainActivity : AppCompatActivity() {
                     val serviceIntent = Intent(this, com.droidrun.portal.service.ReverseConnectionService::class.java)
                     stopService(serviceIntent)
                     startService(serviceIntent)
-
-                    Toast.makeText(this, "Connected to Cloud!", Toast.LENGTH_LONG).show()
                 } else {
                     Toast.makeText(this, "Invalid connection data received", Toast.LENGTH_LONG).show()
                 }
