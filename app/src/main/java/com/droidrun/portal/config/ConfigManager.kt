@@ -30,10 +30,13 @@ class ConfigManager private constructor(private val context: Context) {
         private const val PREFIX_EVENT_ENABLED = "event_enabled_"
         private const val KEY_AUTH_TOKEN = "auth_token"
         private const val KEY_DEVICE_ID = "device_id"
+        private const val DEVICE_ID_PLACEHOLDER = "{deviceId}"
 
         private const val DEFAULT_OFFSET = 0
         private const val DEFAULT_SOCKET_PORT = 8080
         private const val DEFAULT_WEBSOCKET_PORT = 8081
+        private const val DEFAULT_REVERSE_CONNECTION_URL =
+            "wss://api.mobilerun.ai/v1/devices/{deviceId}/join"
 
         // TODO replace
         @Volatile
@@ -140,6 +143,15 @@ class ConfigManager private constructor(private val context: Context) {
             sharedPrefs.edit { putString(KEY_REVERSE_CONNECTION_URL, value) }
         }
 
+    val reverseConnectionUrlOrDefault: String
+        get() {
+            val stored = reverseConnectionUrl
+            return stored.ifBlank { DEFAULT_REVERSE_CONNECTION_URL }
+        }
+
+    val reverseConnectionUrlForDisplay: String
+        get() = reverseConnectionUrlOrDefault.replace(DEVICE_ID_PLACEHOLDER, deviceID)
+
     // Reverse Connection Token (Optional, for authenticating with Host/Cloud)
     var reverseConnectionToken: String
         get() = sharedPrefs.getString(KEY_REVERSE_CONNECTION_TOKEN, "") ?: ""
@@ -159,10 +171,6 @@ class ConfigManager private constructor(private val context: Context) {
             }
         }
 
-    fun capitalize(str: String): String {
-        return str.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
-    }
-
     val deviceCountryCode: String
         get() {
             // TODO:
@@ -175,23 +183,12 @@ class ConfigManager private constructor(private val context: Context) {
         }
 
     var reverseConnectionEnabled: Boolean = false
-    
+
     var screenShareAutoAcceptEnabled: Boolean
         get() = sharedPrefs.getBoolean("screen_share_auto_accept_enabled", true)
         set(value) {
             sharedPrefs.edit { putBoolean("screen_share_auto_accept_enabled", value) }
         }
-
-    // Dynamic Event Toggles
-    fun isEventEnabled(type: EventType): Boolean {
-        // Default all events to true unless explicitly disabled
-        return sharedPrefs.getBoolean(PREFIX_EVENT_ENABLED + type.name, true)
-    }
-
-    fun setEventEnabled(type: EventType, enabled: Boolean) {
-        sharedPrefs.edit { putBoolean(PREFIX_EVENT_ENABLED + type.name, enabled) }
-        // We could notify listeners here if needed, but usually this is polled by EventHub
-    }
 
     // Listener interface for configuration changes
     interface ConfigChangeListener {
@@ -206,6 +203,26 @@ class ConfigManager private constructor(private val context: Context) {
     }
 
     private val listeners = mutableSetOf<ConfigChangeListener>()
+
+    fun capitalize(str: String): String {
+        return str.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+    }
+
+    fun normalizeReverseConnectionUrlForStorage(input: String): String {
+        if (input.isBlank()) return ""
+        return input.replace(deviceID, DEVICE_ID_PLACEHOLDER)
+    }
+
+    // Dynamic Event Toggles
+    fun isEventEnabled(type: EventType): Boolean {
+        // Default all events to true unless explicitly disabled
+        return sharedPrefs.getBoolean(PREFIX_EVENT_ENABLED + type.name, true)
+    }
+
+    fun setEventEnabled(type: EventType, enabled: Boolean) {
+        sharedPrefs.edit { putBoolean(PREFIX_EVENT_ENABLED + type.name, enabled) }
+        // We could notify listeners here if needed, but usually this is polled by EventHub
+    }
 
     fun addListener(listener: ConfigChangeListener) {
         listeners.add(listener)

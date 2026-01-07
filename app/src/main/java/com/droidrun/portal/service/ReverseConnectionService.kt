@@ -101,7 +101,7 @@ class ReverseConnectionService : Service() {
     private fun connectToHost() {
         if (!isServiceRunning.get()) return
 
-        val hostUrl = configManager.reverseConnectionUrl
+        val hostUrl = configManager.reverseConnectionUrlOrDefault
         if (hostUrl.isBlank()) {
             Log.w(TAG, "No host URL configured")
             // Don't stop self, maybe user will config later? 
