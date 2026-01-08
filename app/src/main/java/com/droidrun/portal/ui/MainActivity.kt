@@ -3,6 +3,9 @@ package com.droidrun.portal.ui
 import com.droidrun.portal.config.ConfigManager
 import com.droidrun.portal.service.DroidrunAccessibilityService
 import com.droidrun.portal.service.DroidrunNotificationListener
+import com.droidrun.portal.state.ConnectionState
+import com.droidrun.portal.state.ConnectionStateManager
+import com.droidrun.portal.service.ReverseConnectionService
 
 import android.content.Context
 import android.content.Intent
@@ -26,12 +29,9 @@ import androidx.appcompat.app.AlertDialog
 import android.content.ClipboardManager
 import android.content.ComponentName
 import com.droidrun.portal.databinding.ActivityMainBinding
-import com.droidrun.portal.ui.settings.SettingsBottomSheet
+import com.droidrun.portal.ui.settings.SettingsActivity
 import androidx.core.net.toUri
 import androidx.core.graphics.toColorInt
-import android.content.pm.PackageManager
-import android.os.Build
-import androidx.activity.result.contract.ActivityResultContracts
 
 class MainActivity : AppCompatActivity() {
 
@@ -59,14 +59,14 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        // Handle Deep Link
+        handleDeepLink(intent)
+
         setupNetworkInfo()
 
-        binding.enableNotificationButton.setOnClickListener {
-            openNotificationSettings()
-        }
-
         binding.settingsButton.setOnClickListener {
-            SettingsBottomSheet().show(supportFragmentManager, SettingsBottomSheet.TAG)
+            val intent = Intent(this, SettingsActivity::class.java)
+            startActivity(intent)
         }
 
         // Set app version
@@ -76,8 +76,36 @@ class MainActivity : AppCompatActivity() {
         setupOffsetSlider()
         setupOffsetInput()
 
-        // Configure socket server controls
-        setupSocketServerControls()
+        // Update initial UI state
+        updateSocketServerStatus()
+        updateAdbForwardCommand()
+
+        binding.btnConnectCloud.setOnClickListener {
+            val currentState = ConnectionStateManager.getState()
+            if (currentState == ConnectionState.CONNECTED || currentState == ConnectionState.CONNECTING || currentState == ConnectionState.RECONNECTING) {
+                // Ignore click if already connected/connecting, handled by disconnect button inside card
+                return@setOnClickListener
+            }
+
+            val configManager = ConfigManager.getInstance(this)
+            val deviceId = configManager.deviceID
+            val url = "https://dev-cloud.droidrun.ai/auth/device?deviceId=$deviceId"
+
+            try {
+                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                startActivity(intent)
+            } catch (e: Exception) {
+                Toast.makeText(this, "Could not open browser", Toast.LENGTH_SHORT).show()
+            }
+        }
+        
+        binding.btnDisconnect.setOnClickListener {
+            disconnectService()
+        }
+
+        binding.btnCancelConnection.setOnClickListener {
+            disconnectService()
+        }
 
         // Configure endpoints collapsible section
         setupEndpointsCollapsible()
@@ -121,7 +149,7 @@ class MainActivity : AppCompatActivity() {
         updateStatusIndicators()
         syncUIWithAccessibilityService()
         updateSocketServerStatus()
-        setupPostNotificationsButton()
+        setupConnectionStateObserver()
     }
 
     override fun onResume() {
@@ -130,6 +158,43 @@ class MainActivity : AppCompatActivity() {
         updateStatusIndicators()
         syncUIWithAccessibilityService()
         updateSocketServerStatus()
+    }
+
+    private fun disconnectService() {
+        val configManager = ConfigManager.getInstance(this)
+        configManager.reverseConnectionEnabled = false
+
+        val serviceIntent = Intent(this, ReverseConnectionService::class.java)
+        stopService(serviceIntent)
+
+        // Explicitly set state to disconnected
+        ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
+    }
+
+    private fun setupConnectionStateObserver() {
+        ConnectionStateManager.connectionState.observe(this) { state ->
+            // Hide all layouts first
+            binding.layoutDisconnected.visibility = View.GONE
+            binding.layoutConnecting.visibility = View.GONE
+            binding.layoutConnected.visibility = View.GONE
+
+            when (state) {
+                ConnectionState.CONNECTED -> {
+                    binding.layoutConnected.visibility = View.VISIBLE
+                    val configManager = ConfigManager.getInstance(this)
+                    binding.textDeviceId.text = "Device ID: ${configManager.deviceID}"
+                }
+                ConnectionState.CONNECTING, ConnectionState.RECONNECTING -> {
+                    binding.layoutConnecting.visibility = View.VISIBLE
+                    binding.textConnectingStatus.text = if (state == ConnectionState.RECONNECTING) "Reconnecting..." else "Connecting..."
+                    binding.btnCancelConnection.visibility = View.VISIBLE
+                }
+                else -> {
+                    binding.layoutDisconnected.visibility = View.VISIBLE
+                    binding.btnCancelConnection.visibility = View.GONE
+                }
+            }
+        }
     }
 
     private fun setupNetworkInfo() {
@@ -167,8 +232,6 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateStatusIndicators() {
         updateAccessibilityStatusIndicator()
-        updateNotificationStatusIndicator()
-        updatePostNotificationsStatusIndicator()
     }
 
     private fun syncUIWithAccessibilityService() {
@@ -482,13 +545,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     // Check if notification listener permission is enabled
+    // Note: Used in settings sheet logic now, but keeping here or moving to shared utility would be better
+    // Leaving for now as it was part of previous logic
     private fun isNotificationServiceEnabled(): Boolean {
         val componentName = ComponentName(this, DroidrunNotificationListener::class.java)
         val flat = Settings.Secure.getString(contentResolver, "enabled_notification_listeners")
         return flat?.contains(componentName.flattenToString()) == true
     }
 
-    // Update the accessibility status indicator based on service status
+    // Open accessibility settings to enable the service
     private fun updateAccessibilityStatusIndicator() {
         val isEnabled = isAccessibilityServiceEnabled()
 
@@ -501,59 +566,6 @@ class MainActivity : AppCompatActivity() {
             // Show banner, hide enabled card
             binding.accessibilityStatusEnabled.visibility = View.GONE
             binding.accessibilityBanner.visibility = View.VISIBLE
-        }
-    }
-
-    private fun updateNotificationStatusIndicator() {
-        try {
-            val isEnabled = isNotificationServiceEnabled()
-            if (isEnabled) {
-                // If enabled, hide everything (clean look)
-                binding.notificationStatusEnabled.visibility = View.GONE
-                binding.notificationBanner.visibility = View.GONE
-            } else {
-                // If disabled, show the warning banner
-                binding.notificationStatusEnabled.visibility = View.GONE
-                binding.notificationBanner.visibility = View.VISIBLE
-            }
-        } catch (e: Exception) {
-            Log.w("MainActivity", "Error updating notification status UI: ${e.message}")
-        }
-    }
-
-    private val requestNotificationPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        updatePostNotificationsStatusIndicator()
-        if (isGranted) {
-            Toast.makeText(this, "Notification permission granted", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    private fun setupPostNotificationsButton() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            binding.postNotificationsBanner.setOnClickListener {
-                requestNotificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-            }
-            binding.enablePostNotificationsButton.setOnClickListener {
-                requestNotificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-            }
-        }
-    }
-
-    private fun updatePostNotificationsStatusIndicator() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val isGranted = checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-            if (isGranted) {
-                // Hide both (clean look, permission granted)
-                binding.postNotificationsBanner.visibility = View.GONE
-            } else {
-                // Show the warning banner
-                binding.postNotificationsBanner.visibility = View.VISIBLE
-            }
-        } else {
-            // Pre-API 33, no runtime permission needed, hide banner
-            binding.postNotificationsBanner.visibility = View.GONE
         }
     }
 
@@ -591,48 +603,6 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "Error opening settings", Toast.LENGTH_SHORT).show()
         }
     }
-
-    private fun setupSocketServerControls() {
-        // Initialize with ConfigManager values
-        val configManager = ConfigManager.getInstance(this)
-
-        // Set default port value
-        isProgrammaticUpdate = true
-        binding.socketPortInput.setText(configManager.socketServerPort.toString())
-        isProgrammaticUpdate = false
-
-        // Port input listener
-        binding.socketPortInput.addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-
-            override fun afterTextChanged(s: Editable?) {
-                if (isProgrammaticUpdate) return
-
-                try {
-                    val portText = s.toString()
-                    if (portText.isNotEmpty()) {
-                        val port = portText.toIntOrNull()
-                        if (port != null && port in 1..65535) {
-                            binding.socketPortInputLayout.error = null
-                            updateSocketServerPort(port)
-                        } else {
-                            binding.socketPortInputLayout.error = "Port must be between 1-65535"
-                        }
-                    } else {
-                        binding.socketPortInputLayout.error = null
-                    }
-                } catch (e: Exception) {
-                    binding.socketPortInputLayout.error = "Invalid port number"
-                }
-            }
-        })
-
-        // Update initial UI state
-        updateSocketServerStatus()
-        updateAdbForwardCommand()
-    }
-
 
     private fun updateSocketServerPort(port: Int) {
         try {
@@ -746,6 +716,38 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) {
             Log.e("DROIDRUN_MAIN", "Error showing logs dialog: ${e.message}")
             Toast.makeText(this, "Error showing logs: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleDeepLink(intent)
+    }
+
+    private fun handleDeepLink(intent: Intent?) {
+        try {
+            val data: Uri? = intent?.data
+            if (data != null && data.scheme == "droidrun" && data.host == "auth-callback") {
+                val token = data.getQueryParameter("token")
+                val url = data.getQueryParameter("url")
+
+                if (!token.isNullOrEmpty() && !url.isNullOrEmpty()) {
+                    val configManager = ConfigManager.getInstance(this)
+                    configManager.reverseConnectionToken = token
+                    configManager.reverseConnectionUrl = url
+                    configManager.reverseConnectionEnabled = true
+
+                    // Start Service
+                    val serviceIntent = Intent(this, com.droidrun.portal.service.ReverseConnectionService::class.java)
+                    stopService(serviceIntent)
+                    startService(serviceIntent)
+                } else {
+                    Toast.makeText(this, "Invalid connection data received", Toast.LENGTH_LONG).show()
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("DROIDRUN_MAIN", "Error handling deep link: ${e.message}")
         }
     }
 }

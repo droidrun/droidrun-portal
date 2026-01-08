@@ -103,7 +103,7 @@
                 android:id="@+id/accessibility_status_enabled"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="0dp"
+                android:layout_marginBottom="24dp"
                 android:visibility="gone"
                 app:cardCornerRadius="12dp"
                 app:cardElevation="0dp"
@@ -137,147 +137,168 @@
                         android:layout_height="40dp"
                         android:text="@string/test_fetching"
                         android:textSize="12sp"
-                        android:textColor="@color/background_primary"
-                        app:backgroundTint="@color/status_success"
+                        android:textColor="@color/status_success"
+                        app:backgroundTint="@android:color/transparent"
                         app:cornerRadius="2dp"
                         app:icon="@drawable/refresh_cw"
-                        app:iconTint="@color/background_primary"
+                        app:iconTint="@color/status_success"
                         app:iconGravity="textStart"
-                        style="@style/Widget.MaterialComponents.Button.UnelevatedButton" />
-                </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
-
-            <!-- Notification Service Status Banner -->
-            <com.google.android.material.card.MaterialCardView
-                android:id="@+id/notification_banner"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="24dp"
-                app:cardCornerRadius="4dp"
-                app:cardElevation="0dp"
-                app:strokeWidth="0dp"
-                app:cardBackgroundColor="@color/alert_error_bg">
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:padding="10dp">
-
-                    <ImageView
-                        android:layout_width="24dp"
-                        android:layout_height="24dp"
-                        android:src="@drawable/triangle_alert"
-                        app:tint="@color/text_white"
-                        android:layout_marginEnd="12dp" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="@string/notification_access_not_granted"
-                        android:textColor="@color/text_white"
-                        android:textSize="12sp" />
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/enable_notification_button"
-                        android:layout_width="wrap_content"
-                        android:layout_height="36dp"
-                        android:text="@string/enable"
-                        android:textSize="12sp"
-                        android:textColor="@color/text_white"
-                        app:backgroundTint="@color/alert_error_button"
-                        app:cornerRadius="2dp"
-                        android:paddingHorizontal="16dp"
-                        android:paddingVertical="0dp"
-                        style="@style/Widget.MaterialComponents.Button.UnelevatedButton" />
-                </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
-
-            <!-- Notification Service Status (Enabled) -->
-            <com.google.android.material.card.MaterialCardView
-                android:id="@+id/notification_status_enabled"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="24dp"
-                android:visibility="gone"
-                app:cardCornerRadius="12dp"
-                app:cardElevation="0dp"
-                app:strokeWidth="0dp"
-                app:cardBackgroundColor="@color/background_card">
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:padding="12dp">
-
-                    <View
-                        android:layout_width="24dp"
-                        android:layout_height="24dp"
-                        android:background="@drawable/circle_check"
-                        android:layout_marginEnd="8dp" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/notification_listener"
-                        android:textColor="@color/text_white"
-                        android:textSize="14sp" />
-                </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
-
-            <com.google.android.material.card.MaterialCardView
-                android:id="@+id/post_notifications_banner"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="24dp"
-                android:visibility="gone"
-                app:cardCornerRadius="4dp"
-                app:cardElevation="0dp"
-                app:strokeWidth="0dp"
-                app:cardBackgroundColor="@color/alert_error_bg">
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:padding="10dp">
-
-                    <ImageView
-                        android:layout_width="24dp"
-                        android:layout_height="24dp"
-                        android:src="@drawable/triangle_alert"
-                        app:tint="@color/text_white"
-                        android:layout_marginEnd="12dp" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="@string/post_notifications_not_granted"
-                        android:textColor="@color/text_white"
-                        android:textSize="12sp" />
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/enable_post_notifications_button"
-                        android:layout_width="wrap_content"
-                        android:layout_height="36dp"
-                        android:text="@string/enable"
-                        android:textSize="12sp"
-                        android:textColor="@color/text_white"
-                        app:backgroundTint="@color/alert_error_button"
-                        app:cornerRadius="2dp"
-                        android:paddingHorizontal="16dp"
-                        android:paddingVertical="0dp"
-                        style="@style/Widget.MaterialComponents.Button.UnelevatedButton" />
+                        style="@style/Widget.MaterialComponents.Button.TextButton" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
             <!-- Controls Section -->
+            <!-- Connect / Loading / Disconnect Card -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/btn_connect_cloud"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="24dp"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="0dp"
+                app:strokeWidth="0dp"
+                app:cardBackgroundColor="@color/background_card"
+                android:clickable="true"
+                android:focusable="true"
+                android:foreground="?attr/selectableItemBackground">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:orientation="vertical">
+
+                    <!-- Disconnected State -->
+                    <LinearLayout
+                        android:id="@+id/layout_disconnected"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:padding="10dp">
+
+                        <ImageView
+                            android:layout_width="24dp"
+                            android:layout_height="24dp"
+                            android:layout_marginEnd="8dp"
+                            android:src="@drawable/cloud"
+                            app:tint="@color/text_white" />
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Connect to Mobilerun"
+                            android:textColor="@color/text_white"
+                            android:textSize="14sp"
+                            android:textStyle="normal" />
+
+                        <ImageView
+                            android:layout_width="24dp"
+                            android:layout_height="24dp"
+                            android:src="@drawable/chevron_right"
+                            app:tint="@color/text_white" />
+                    </LinearLayout>
+
+                    <!-- Connecting / Reconnecting State -->
+                    <LinearLayout
+                        android:id="@+id/layout_connecting"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:padding="10dp"
+                        android:visibility="gone">
+
+                        <ProgressBar
+                            android:layout_width="24dp"
+                            android:layout_height="24dp"
+                            android:layout_marginEnd="12dp"
+                            android:indeterminateTint="@color/text_white" />
+
+                        <TextView
+                            android:id="@+id/text_connecting_status"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Connecting..."
+                            android:textColor="@color/text_white"
+                            android:textSize="14sp" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btn_cancel_connection"
+                            style="@style/Widget.MaterialComponents.Button.UnelevatedButton"
+                            android:layout_width="wrap_content"
+                            android:layout_height="36dp"
+                            android:paddingHorizontal="16dp"
+                            android:paddingVertical="0dp"
+                            android:text="Cancel"
+                            android:textColor="@color/text_white"
+                            android:textSize="12sp"
+                            app:backgroundTint="@color/background_card"
+                            app:cornerRadius="2dp" />
+                    </LinearLayout>
+
+                    <!-- Connected State -->
+                    <LinearLayout
+                        android:id="@+id/layout_connected"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="vertical"
+                        android:padding="10dp"
+                        android:visibility="gone">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical">
+
+                            <ImageView
+                                android:layout_width="24dp"
+                                android:layout_height="24dp"
+                                android:layout_marginEnd="8dp"
+                                android:src="@drawable/cloud"
+                                app:tint="@color/status_success" />
+
+                            <TextView
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:text="Connected to Cloud"
+                                android:textColor="@color/text_white"
+                                android:textSize="14sp" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btn_disconnect"
+                                style="@style/Widget.MaterialComponents.Button.TextButton"
+                                android:layout_width="wrap_content"
+                                android:layout_height="36dp"
+                                android:minWidth="0dp"
+                                android:minHeight="0dp"
+                                android:paddingHorizontal="12dp"
+                                android:paddingVertical="0dp"
+                                android:text="Disconnect"
+                                android:textColor="@color/status_error"
+                                android:textSize="12sp" />
+                        </LinearLayout>
+
+                        <TextView
+                            android:id="@+id/text_device_id"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:fontFamily="monospace"
+                            android:text="Device ID: ..."
+                            android:textColor="@color/text_gray"
+                            android:textSize="12sp"
+                            android:visibility="visible"
+                            android:layout_marginStart="32dp" />
+                    </LinearLayout>
+
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -418,42 +439,6 @@
                             android:text="@string/tip_vision_mode"
                             android:textColor="@color/text_hint"
                             android:textSize="12sp" />
-                    </LinearLayout>
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/socket_server_port_label"
-                        android:textColor="@color/text_white"
-                        android:textSize="16sp" />
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical"
-                        android:padding="0dp">
-
-                        <com.google.android.material.textfield.TextInputLayout
-                            android:id="@+id/socket_port_input_layout"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
-                            app:boxStrokeColor="@color/background_input"
-                            app:hintTextColor="@color/text_gray"
-                            android:textColorHint="@color/text_gray">
-
-                            <com.google.android.material.textfield.TextInputEditText
-                                android:id="@+id/socket_port_input"
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:layout_marginBottom="12dp"
-                                android:inputType="number"
-                                android:textSize="16sp"
-                                android:textColor="@color/text_white"
-                                android:background="@color/background_input"
-                                android:text="@string/default_port" />
-                        </com.google.android.material.textfield.TextInputLayout>
                     </LinearLayout>
                 </LinearLayout>
 
