@@ -27,6 +27,7 @@ class WebRtcManager private constructor(private val context: Context) {
         private const val H264_CODEC_NAME = "H264/90000"
         private const val STATS_INTERVAL_MS = 5000L
         private const val IDLE_TIMEOUT_MS = 10 * 60 * 1000L
+        private const val MAX_OUTGOING_ICE_CANDIDATES = 50
 
         @Volatile
         private var instance: WebRtcManager? = null
@@ -73,6 +74,8 @@ class WebRtcManager private constructor(private val context: Context) {
     @Volatile
     private var reverseConnectionService: ReverseConnectionService? = null
     private val pendingIceCandidates = ConcurrentLinkedQueue<IceCandidate>()
+    private val pendingOutgoingIceCandidates = ConcurrentLinkedQueue<IceCandidate>()
+    private var canSendOutgoingIceCandidates = false
     @Volatile
     private var isRemoteDescriptionSet = false
     private val outgoingMessageId = AtomicInteger(0)
@@ -339,6 +342,8 @@ class WebRtcManager private constructor(private val context: Context) {
         scrcpyControlHandler = null
         stopStatsLogging()
         pendingIceCandidates.clear()
+        pendingOutgoingIceCandidates.clear()
+        canSendOutgoingIceCandidates = false
         isRemoteDescriptionSet = false
         return resources
     }
@@ -408,6 +413,7 @@ class WebRtcManager private constructor(private val context: Context) {
                 override fun onSetSuccess() {
                     super.onSetSuccess()
                     var pending: List<IceCandidate>? = null
+                    var pendingOutgoing: List<IceCandidate>? = null
                     var shouldReturn = false
                     synchronized(streamLock) {
                         if (peerConnection !== activeConnection ||
@@ -418,6 +424,7 @@ class WebRtcManager private constructor(private val context: Context) {
                         } else {
                             isRemoteDescriptionSet = true
                             pending = drainPendingIceCandidatesLocked()
+                            pendingOutgoing = enableOutgoingIceAndDrainLocked()
                         }
                     }
                     if (shouldReturn) return
@@ -426,6 +433,7 @@ class WebRtcManager private constructor(private val context: Context) {
                             activeConnection.addIceCandidate(candidate)
                         }
                     }
+                    pendingOutgoing?.forEach { sendIceCandidate(it) }
                 }
             },
             SessionDescription(SessionDescription.Type.ANSWER, sdp)
@@ -495,6 +503,17 @@ class WebRtcManager private constructor(private val context: Context) {
                                     }
                                 pending.forEach { connection.addIceCandidate(it) }
                                 sendAnswer(desc, sessionId)
+                                val outgoing =
+                                    synchronized(streamLock) {
+                                        if (peerConnection !== connection ||
+                                            streamGeneration.get() != generation
+                                        ) {
+                                            emptyList()
+                                        } else {
+                                            enableOutgoingIceAndDrainLocked()
+                                        }
+                                    }
+                                outgoing.forEach { sendIceCandidate(it) }
                             }
                         },
                         desc
@@ -617,8 +636,16 @@ class WebRtcManager private constructor(private val context: Context) {
                 rtcConfig,
                 object : CustomPeerConnectionObserver() {
                     override fun onIceCandidate(p0: IceCandidate) {
-                        if (!isCurrentStream(streamId)) return
-                        sendIceCandidate(p0)
+                        var toSend: IceCandidate? = null
+                        synchronized(streamLock) {
+                            if (!isCurrentStreamLocked(streamId)) return
+                            if (canSendOutgoingIceCandidates) {
+                                toSend = p0
+                            } else {
+                                queueOutgoingIceCandidateLocked(p0)
+                            }
+                        }
+                        toSend?.let { sendIceCandidate(it) }
                     }
 
                     override fun onIceConnectionChange(
@@ -1035,6 +1062,29 @@ class WebRtcManager private constructor(private val context: Context) {
                 )
             }
         reverseConnectionService?.sendText(json.toString())
+    }
+
+    private fun queueOutgoingIceCandidateLocked(candidate: IceCandidate) {
+        pendingOutgoingIceCandidates.add(candidate)
+        if (pendingOutgoingIceCandidates.size <= MAX_OUTGOING_ICE_CANDIDATES) return
+        while (pendingOutgoingIceCandidates.size > MAX_OUTGOING_ICE_CANDIDATES) {
+            pendingOutgoingIceCandidates.poll()
+        }
+    }
+
+    private fun drainOutgoingIceCandidatesLocked(): List<IceCandidate> {
+        if (pendingOutgoingIceCandidates.isEmpty()) return emptyList()
+        val drained = ArrayList<IceCandidate>()
+        while (true) {
+            val candidate = pendingOutgoingIceCandidates.poll() ?: break
+            drained.add(candidate)
+        }
+        return drained
+    }
+
+    private fun enableOutgoingIceAndDrainLocked(): List<IceCandidate> {
+        canSendOutgoingIceCandidates = true
+        return drainOutgoingIceCandidatesLocked()
     }
 
     private fun sendStreamError(error: String, message: String) {
