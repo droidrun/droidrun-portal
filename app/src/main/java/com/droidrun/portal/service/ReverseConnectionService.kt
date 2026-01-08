@@ -138,6 +138,25 @@ class ReverseConnectionService : Service() {
 
                 override fun onClose(code: Int, reason: String?, remote: Boolean) {
                     Log.w(TAG, "Disconnected from Host: $reason")
+                    
+                    if (reason != null) {
+                        if (reason.contains("401") || reason.contains("Unauthorized")) {
+                            ConnectionStateManager.setState(ConnectionState.UNAUTHORIZED)
+                            handleWsDisconnected()
+                            // Do not reconnect automatically on auth error
+                            return
+                        } else if (reason.contains("400") || reason.contains("Bad Request")) {
+                             // 400 Bad Request typically indicates the device limit has been reached
+                             // or the request was malformed. Based on server behavior, we treat this
+                             // as limit exceeded for better user feedback.
+                             ConnectionStateManager.setState(ConnectionState.LIMIT_EXCEEDED)
+                             
+                             handleWsDisconnected()
+                             // Do not reconnect automatically on client error
+                             return
+                        }
+                    }
+
                     ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
                     handleWsDisconnected()
                     scheduleReconnect()

@@ -95,7 +95,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
 
             val configManager = ConfigManager.getInstance(this)
             val deviceId = configManager.deviceID
-            val url = "https://dev-cloud.droidrun.ai/auth/device?deviceId=$deviceId"
+            val url = "https://cloud.mobilerun.ai/auth/device?deviceId=$deviceId"
 
             try {
                 val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
@@ -244,6 +244,18 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
                     binding.layoutConnecting.visibility = View.VISIBLE
                     binding.textConnectingStatus.text = if (state == ConnectionState.RECONNECTING) "Reconnecting..." else "Connecting..."
                     binding.btnCancelConnection.visibility = View.VISIBLE
+                }
+                ConnectionState.UNAUTHORIZED -> {
+                    binding.layoutDisconnected.visibility = View.VISIBLE
+                    Toast.makeText(this, "Connection Failed: Unauthorized (Check API Key)", Toast.LENGTH_LONG).show()
+                }
+                ConnectionState.LIMIT_EXCEEDED -> {
+                    binding.layoutDisconnected.visibility = View.VISIBLE
+                    Toast.makeText(this, "Connection Failed: Device Limit Exceeded", Toast.LENGTH_LONG).show()
+                }
+                ConnectionState.ERROR -> {
+                    binding.layoutDisconnected.visibility = View.VISIBLE
+                    Toast.makeText(this, "Connection Failed: Bad Request", Toast.LENGTH_LONG).show()
                 }
                 else -> {
                     binding.layoutDisconnected.visibility = View.VISIBLE
@@ -794,10 +806,12 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
                     configManager.reverseConnectionUrl = url
                     configManager.reverseConnectionEnabled = true
 
-                    // Start Service
+                    // Restart Service with delay to avoid race condition
                     val serviceIntent = Intent(this, com.droidrun.portal.service.ReverseConnectionService::class.java)
                     stopService(serviceIntent)
-                    startService(serviceIntent)
+                    Handler(Looper.getMainLooper()).postDelayed({
+                        startService(serviceIntent)
+                    }, 150)
                 } else {
                     Toast.makeText(this, "Invalid connection data received", Toast.LENGTH_LONG).show()
                 }

@@ -7,7 +7,10 @@ enum class ConnectionState {
     DISCONNECTED,
     CONNECTING,
     CONNECTED,
-    RECONNECTING
+    RECONNECTING,
+    UNAUTHORIZED,
+    LIMIT_EXCEEDED,
+    ERROR
 }
 
 object ConnectionStateManager {
