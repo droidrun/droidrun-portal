@@ -16,10 +16,52 @@
         android:paddingTop="34dp"
         android:paddingBottom="24dp">
 
-        <LinearLayout
+        <FrameLayout
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical">
+            android:layout_height="wrap_content">
+
+            <!-- Production Mode UI -->
+            <LinearLayout
+                android:id="@+id/layout_production_mode"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:visibility="gone"
+                android:padding="24dp">
+
+                <ImageView
+                    android:layout_width="64dp"
+                    android:layout_height="64dp"
+                    android:src="@drawable/logo"
+                    android:layout_marginBottom="32dp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Connected to Cloud"
+                    android:textSize="24sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/text_white"
+                    android:layout_marginBottom="8dp" />
+
+                <TextView
+                    android:id="@+id/text_production_device_id"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Device ID: ..."
+                    android:textColor="@color/text_gray"
+                    android:textSize="16sp"
+                    android:fontFamily="monospace" />
+
+            </LinearLayout>
+
+            <!-- Standard UI -->
+            <LinearLayout
+                android:id="@+id/layout_standard_ui"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
 
             <!-- Header with Logo -->
             <LinearLayout
@@ -815,6 +857,7 @@
                     android:clickable="true"
                     android:focusable="true" />
             </LinearLayout>
-        </LinearLayout>
+            </LinearLayout>
+        </FrameLayout>
     </androidx.core.widget.NestedScrollView>
 </androidx.coordinatorlayout.widget.CoordinatorLayout>
