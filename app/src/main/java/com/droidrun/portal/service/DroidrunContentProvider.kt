@@ -15,6 +15,8 @@ import com.droidrun.portal.core.StateRepository
 import com.droidrun.portal.input.DroidrunKeyboardIME
 import com.droidrun.portal.service.DroidrunAccessibilityService
 
+import android.util.Base64
+
 class DroidrunContentProvider : ContentProvider() {
     companion object {
         private const val TAG = "DroidrunContentProvider"
@@ -33,6 +35,7 @@ class DroidrunContentProvider : ContentProvider() {
         private const val OVERLAY_VISIBLE = 12
         private const val TOGGLE_WEBSOCKET_SERVER = 13
         private const val AUTH_TOKEN = 14
+        private const val CONFIGURE_REVERSE_CONNECTION = 15
 
         private val uriMatcher = UriMatcher(UriMatcher.NO_MATCH).apply {
             addURI(AUTHORITY, "a11y_tree", A11Y_TREE)
@@ -49,6 +52,7 @@ class DroidrunContentProvider : ContentProvider() {
             addURI(AUTHORITY, "overlay_visible", OVERLAY_VISIBLE)
             addURI(AUTHORITY, "toggle_websocket_server", TOGGLE_WEBSOCKET_SERVER)
             addURI(AUTHORITY, "auth_token", AUTH_TOKEN)
+            addURI(AUTHORITY, "configure_reverse_connection", CONFIGURE_REVERSE_CONNECTION)
         }
     }
 
@@ -125,6 +129,23 @@ class DroidrunContentProvider : ContentProvider() {
         return cursor
     }
 
+    private fun getStringValue(values: ContentValues?, key: String): String? {
+        if (values == null) return null
+        if (values.containsKey(key)) return values.getAsString(key)
+        
+        val base64Key = "${key}_base64"
+        if (values.containsKey(base64Key)) {
+            val encoded = values.getAsString(base64Key)
+            return try {
+                String(Base64.decode(encoded, Base64.DEFAULT))
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to decode base64 for $key", e)
+                null
+            }
+        }
+        return null
+    }
+
     override fun insert(uri: Uri, values: ContentValues?): Uri? {
         val handler = getHandler()
         if (handler == null) {
@@ -169,6 +190,43 @@ class DroidrunContentProvider : ContentProvider() {
                     configManager.setWebSocketEnabledWithNotification(enabled)
 
                     ApiResponse.Success("WebSocket server ${if (enabled) "enabled" else "disabled"} on port $port")
+                }
+                CONFIGURE_REVERSE_CONNECTION -> {
+                    val url = getStringValue(values, "url")
+                    val token = getStringValue(values, "token")
+                    val serviceKey = getStringValue(values, "service_key")
+                    val enabled = values?.getAsBoolean("enabled")
+
+                    var message = "Updated reverse connection config:"
+
+                    if (url != null) {
+                        configManager.reverseConnectionUrl = url
+                        message += " url=$url"
+                    }
+                    if (token != null) {
+                        configManager.reverseConnectionToken = token
+                        message += " token=***"
+                    }
+                    if (serviceKey != null) {
+                        configManager.reverseConnectionServiceKey = serviceKey
+                        message += " service_key=***"
+                    }
+                    if (enabled != null) {
+                        configManager.reverseConnectionEnabled = enabled
+                        message += " enabled=$enabled"
+
+                        val serviceIntent = android.content.Intent(
+                            context,
+                            com.droidrun.portal.service.ReverseConnectionService::class.java
+                        )
+                        if (enabled) {
+                            context!!.startService(serviceIntent)
+                        } else {
+                            context!!.stopService(serviceIntent)
+                        }
+                    }
+
+                    ApiResponse.Success(message)
                 }
                 else -> ApiResponse.Error("Unsupported insert endpoint")
             }

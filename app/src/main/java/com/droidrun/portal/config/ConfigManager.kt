@@ -27,6 +27,7 @@ class ConfigManager private constructor(private val context: Context) {
         private const val KEY_REVERSE_CONNECTION_URL = "reverse_connection_url"
         private const val KEY_REVERSE_CONNECTION_TOKEN = "reverse_connection_token"
         private const val KEY_REVERSE_CONNECTION_ENABLED = "reverse_connection_enabled"
+        private const val KEY_REVERSE_CONNECTION_SERVICE_KEY = "reverse_connection_service_key"
         private const val PREFIX_EVENT_ENABLED = "event_enabled_"
         private const val KEY_AUTH_TOKEN = "auth_token"
         private const val KEY_DEVICE_ID = "device_id"
@@ -157,6 +158,13 @@ class ConfigManager private constructor(private val context: Context) {
         get() = sharedPrefs.getString(KEY_REVERSE_CONNECTION_TOKEN, "") ?: ""
         set(value) {
             sharedPrefs.edit { putString(KEY_REVERSE_CONNECTION_TOKEN, value) }
+        }
+
+    // Reverse Connection Service Key (Header: X-Remote-Device-Key)
+    var reverseConnectionServiceKey: String
+        get() = sharedPrefs.getString(KEY_REVERSE_CONNECTION_SERVICE_KEY, "") ?: ""
+        set(value) {
+            sharedPrefs.edit { putString(KEY_REVERSE_CONNECTION_SERVICE_KEY, value) }
         }
 
     val deviceName: String
