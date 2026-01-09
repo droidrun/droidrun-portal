@@ -2,6 +2,8 @@ package com.droidrun.portal.streaming
 
 import android.content.Context
 import android.media.projection.MediaProjection
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
@@ -28,6 +30,7 @@ class WebRtcManager private constructor(private val context: Context) {
         private const val STATS_INTERVAL_MS = 5000L
         private const val IDLE_TIMEOUT_MS = 10 * 60 * 1000L
         private const val MAX_OUTGOING_ICE_CANDIDATES = 50
+        private const val MAX_ICE_RESTARTS = 1
 
         @Volatile
         private var instance: WebRtcManager? = null
@@ -62,6 +65,7 @@ class WebRtcManager private constructor(private val context: Context) {
     )
 
     private var peerConnectionFactory: PeerConnectionFactory? = null
+
     @Volatile
     private var peerConnection: PeerConnection? = null
     private val eglBase: EglBase by lazy { EglBase.create() }
@@ -76,8 +80,11 @@ class WebRtcManager private constructor(private val context: Context) {
     private val pendingIceCandidates = ConcurrentLinkedQueue<IceCandidate>()
     private val pendingOutgoingIceCandidates = ConcurrentLinkedQueue<IceCandidate>()
     private var canSendOutgoingIceCandidates = false
+
     @Volatile
     private var isRemoteDescriptionSet = false
+    private var iceRestartAttempts = 0
+    private var waitingForOffer = false
     private val outgoingMessageId = AtomicInteger(0)
 
     // for all peerConnection lifecycle operations
@@ -89,8 +96,10 @@ class WebRtcManager private constructor(private val context: Context) {
     private val statsHandler = Handler(statsThread.looper)
     private val mainHandler = Handler(Looper.getMainLooper())
     private val streamGeneration = AtomicInteger(0)
+
     @Volatile
     private var streamRequestId: String? = null
+
     @Volatile
     private var pendingIceServers: List<PeerConnection.IceServer>? = null
     private var captureWidth = 0
@@ -99,6 +108,7 @@ class WebRtcManager private constructor(private val context: Context) {
     private var statsRunnable: Runnable? = null
     private var lastStatsBytesSent: Long? = null
     private var lastStatsTimestampMs: Long? = null
+
     @Volatile
     private var controlChannel: DataChannel? = null
     private var scrcpyControlHandler: ScrcpyControlChannel? = null
@@ -167,6 +177,8 @@ class WebRtcManager private constructor(private val context: Context) {
         val staleResources = synchronized(streamLock) { detachStreamResourcesLocked() }
         cleanupStreamResources(staleResources)
         synchronized(streamLock) {
+            waitingForOffer = waitForOffer
+            iceRestartAttempts = 0
             createPeerConnection(effectiveIceServers, streamId)
             createVideoTrack(permissionResultData, width, height, fps, streamId)
 
@@ -194,6 +206,8 @@ class WebRtcManager private constructor(private val context: Context) {
         cleanupPeerResources(stalePeer)
         updateCaptureFormat(width, height, fps)
         synchronized(streamLock) {
+            waitingForOffer = waitForOffer
+            iceRestartAttempts = 0
             if (videoTrack == null) {
                 throw IllegalStateException("No active capture to reuse")
             }
@@ -313,6 +327,23 @@ class WebRtcManager private constructor(private val context: Context) {
         idleStopRunnable = null
     }
 
+    private fun hasTurnServer(iceServers: List<PeerConnection.IceServer>): Boolean {
+        return iceServers.any { server ->
+            server.urls.any { url ->
+                val normalized = url.lowercase(Locale.US)
+                normalized.startsWith("turn:") || normalized.startsWith("turns:")
+            }
+        }
+    }
+
+    private fun isCellularNetwork(): Boolean {
+        val connectivityManager =
+            context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+                ?: return false
+        val network = connectivityManager.activeNetwork ?: return false
+        val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
+        return capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
+    }
 
     private fun detachStreamResourcesLocked(): StreamResources {
         val peerResources = detachPeerResourcesLocked()
@@ -345,6 +376,8 @@ class WebRtcManager private constructor(private val context: Context) {
         pendingOutgoingIceCandidates.clear()
         canSendOutgoingIceCandidates = false
         isRemoteDescriptionSet = false
+        iceRestartAttempts = 0
+        waitingForOffer = false
         return resources
     }
 
@@ -624,12 +657,24 @@ class WebRtcManager private constructor(private val context: Context) {
             )
         }
 
+        val hasTurn = hasTurnServer(iceServers)
+        val isCellular = isCellularNetwork()
+        Log.i(
+            TAG,
+            "ICE config: servers=${iceServers.size} hasTurn=$hasTurn cellular=$isCellular"
+        )
         val rtcConfig =
             PeerConnection.RTCConfiguration(iceServers).apply {
                 sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
                 bundlePolicy = PeerConnection.BundlePolicy.MAXBUNDLE
                 tcpCandidatePolicy = PeerConnection.TcpCandidatePolicy.DISABLED
             }
+        if (isCellular && hasTurn) {
+            Log.i(TAG, "Cellular network detected - forcing TURN relay")
+            rtcConfig.iceTransportsType = PeerConnection.IceTransportsType.RELAY
+        } else if (isCellular) {
+            Log.w(TAG, "Cellular network without TURN - ICE may fail")
+        }
 
         peerConnection =
             peerConnectionFactory?.createPeerConnection(
@@ -659,11 +704,47 @@ class WebRtcManager private constructor(private val context: Context) {
                             }
 
                             PeerConnection.IceConnectionState.DISCONNECTED,
-                            PeerConnection.IceConnectionState.FAILED,
                             PeerConnection.IceConnectionState.CLOSED -> {
                                 Log.w(
                                     TAG,
                                     "ICE connection ${p0.name} - keeping capture, resetting peer"
+                                )
+                                handlePeerDisconnected(
+                                    streamId,
+                                    p0.name.lowercase(Locale.US)
+                                )
+                            }
+
+                            PeerConnection.IceConnectionState.FAILED -> {
+                                var shouldRestart = false
+                                var restartConnection: PeerConnection? = null
+                                var restartWaitForOffer = false
+                                synchronized(streamLock) {
+                                    if (!isCurrentStreamLocked(streamId)) return
+                                    if (iceRestartAttempts < MAX_ICE_RESTARTS) {
+                                        iceRestartAttempts += 1
+                                        shouldRestart = true
+                                        restartConnection = peerConnection
+                                        restartWaitForOffer = waitingForOffer
+                                        pendingIceCandidates.clear()
+                                        pendingOutgoingIceCandidates.clear()
+                                        canSendOutgoingIceCandidates = false
+                                        isRemoteDescriptionSet = false
+                                    }
+                                }
+                                if (shouldRestart) {
+                                    Log.w(TAG, "ICE connection FAILED - attempting ICE restart")
+                                    restartConnection?.restartIce()
+                                    if (restartWaitForOffer) {
+                                        sendStreamReady()
+                                    } else {
+                                        createOffer(streamId)
+                                    }
+                                    return
+                                }
+                                Log.w(
+                                    TAG,
+                                    "ICE connection FAILED - keeping capture, resetting peer"
                                 )
                                 handlePeerDisconnected(
                                     streamId,
