@@ -4,6 +4,7 @@ import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.content.res.Resources
 import android.graphics.Path
+import android.view.KeyEvent
 import com.droidrun.portal.service.DroidrunAccessibilityService
 import com.droidrun.portal.service.GestureController
 import org.webrtc.DataChannel
@@ -139,7 +140,7 @@ class ScrcpyControlChannel : DataChannel.Observer {
         if (data.size < 5) return
 
         val buffer = ByteBuffer.wrap(data)
-        buffer.order(ByteOrder.BIG_ENDIAN)
+        buffer.order(ByteOrder.LITTLE_ENDIAN)
         buffer.get()
         val length = buffer.int
 
@@ -155,19 +156,59 @@ class ScrcpyControlChannel : DataChannel.Observer {
         if (data.size < 14) return
 
         val buffer = ByteBuffer.wrap(data)
-        buffer.order(ByteOrder.BIG_ENDIAN)
-        buffer.get()
+        buffer.order(ByteOrder.LITTLE_ENDIAN)
+        buffer.get() // skip type byte
         val action = buffer.get().toInt() and 0xFF
         val keycode = buffer.int
-        buffer.int
-        buffer.int
+        buffer.int // repeat
+        val metaState = buffer.int
 
+        // Only handle key down events
         if (action != ACTION_DOWN) return
 
+        // Handle special system keycodes
         when (keycode) {
-            4 -> GestureController.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
-            3 -> GestureController.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
-            187 -> GestureController.performGlobalAction(AccessibilityService.GLOBAL_ACTION_RECENTS)
+            KeyEvent.KEYCODE_BACK -> {
+                GestureController.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
+                return
+            }
+            KeyEvent.KEYCODE_HOME -> {
+                GestureController.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
+                return
+            }
+            KeyEvent.KEYCODE_APP_SWITCH -> {
+                GestureController.performGlobalAction(AccessibilityService.GLOBAL_ACTION_RECENTS)
+                return
+            }
+            KeyEvent.KEYCODE_DEL -> {
+                // Backspace - delete last character
+                val service = DroidrunAccessibilityService.getInstance() ?: return
+                service.deleteText(1)
+                return
+            }
+            KeyEvent.KEYCODE_FORWARD_DEL -> {
+                // Forward delete
+                val service = DroidrunAccessibilityService.getInstance() ?: return
+                service.deleteText(1, forward = true)
+                return
+            }
+            KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> {
+                typeText("\n")
+                return
+            }
+            KeyEvent.KEYCODE_TAB -> {
+                typeText("\t")
+                return
+            }
+        }
+
+        // For other keycodes, convert to character using KeyEvent
+        val keyEvent = KeyEvent(KeyEvent.ACTION_DOWN, keycode)
+        val unicodeChar = keyEvent.getUnicodeChar(metaState)
+
+        if (unicodeChar > 0) {
+            val char = unicodeChar.toChar()
+            typeText(char.toString())
         }
     }
 

@@ -686,6 +686,50 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
         }
     }
 
+    fun deleteText(count: Int, forward: Boolean = false): Boolean {
+        val root = rootInActiveWindow ?: return false
+
+        var targetNode = findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+        if (targetNode == null) {
+            targetNode = findEditableNode(root)
+        }
+
+        if (targetNode == null) return false
+
+        try {
+            val currentText = targetNode.text?.toString() ?: return false
+            val hintText = targetNode.hintText?.toString()
+
+            // If current text matches hint, treat as empty
+            if (hintText != null && currentText == hintText) return false
+            if (currentText.isEmpty()) return false
+
+            val newText = if (forward) {
+                // Forward delete: remove characters from the start (not typical, but supported)
+                if (count >= currentText.length) "" else currentText.substring(count)
+            } else {
+                // Backspace: remove characters from the end
+                if (count >= currentText.length) "" else currentText.dropLast(count)
+            }
+
+            val arguments = android.os.Bundle()
+            arguments.putCharSequence(
+                AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
+                newText
+            )
+            return targetNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error deleting text via accessibility: ${e.message}")
+            return false
+        } finally {
+            try {
+                if (targetNode != root) targetNode.recycle()
+                root.recycle()
+            } catch (e: Exception) {
+            }
+        }
+    }
+
     private fun findEditableNode(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
         if (node.isEditable) return node
         for (i in 0 until node.childCount) {
