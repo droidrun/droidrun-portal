@@ -497,7 +497,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
                     val jsonResponse = JSONObject(result)
 
                     if (jsonResponse.getString("status") == "success") {
-                        val data = jsonResponse.getString("data")
+                        val data = jsonResponse.getString("result")
                         responseText = data
                         Toast.makeText(
                             this,
