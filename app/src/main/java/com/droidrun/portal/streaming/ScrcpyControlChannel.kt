@@ -5,6 +5,7 @@ import android.accessibilityservice.GestureDescription
 import android.content.res.Resources
 import android.graphics.Path
 import android.view.KeyEvent
+import com.droidrun.portal.input.DroidrunKeyboardIME
 import com.droidrun.portal.service.DroidrunAccessibilityService
 import com.droidrun.portal.service.GestureController
 import org.webrtc.DataChannel
@@ -181,7 +182,11 @@ class ScrcpyControlChannel : DataChannel.Observer {
                 return
             }
             KeyEvent.KEYCODE_DEL -> {
-                // Backspace - delete last character
+                if (DroidrunKeyboardIME.isAvailable()) {
+                    val keyboard = DroidrunKeyboardIME.getInstance() ?: return
+                    keyboard.sendKeyEventDirect(keycode)
+                    return
+                }
                 val service = DroidrunAccessibilityService.getInstance() ?: return
                 service.deleteText(1)
                 return
@@ -193,10 +198,24 @@ class ScrcpyControlChannel : DataChannel.Observer {
                 return
             }
             KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> {
+
+                if (DroidrunKeyboardIME.isAvailable()) {
+                    val keyboard = DroidrunKeyboardIME.getInstance() ?: return
+                    keyboard.sendKeyEventDirect(keycode)
+                    return
+                }
+
                 typeText("\n")
                 return
+
             }
             KeyEvent.KEYCODE_TAB -> {
+                if (DroidrunKeyboardIME.isAvailable()) {
+                    val keyboard = DroidrunKeyboardIME.getInstance() ?: return
+                    keyboard.sendKeyEventDirect(keycode)
+                    return
+                }
+
                 typeText("\t")
                 return
             }
