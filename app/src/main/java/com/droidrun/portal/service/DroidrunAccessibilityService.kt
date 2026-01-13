@@ -43,6 +43,11 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
         private const val REFRESH_INTERVAL_MS = 250L // Update every 250ms
         private const val MIN_FRAME_TIME_MS = 16L // Minimum time between frames (roughly 60 FPS)
 
+        // Multi-window support constants
+        // Minimum window size in dp to be considered a valid application window
+        // This filters out small accessory windows like notifications, floating widgets, etc.
+        private const val MIN_WINDOW_SIZE_DP = 200
+
         fun getInstance(): DroidrunAccessibilityService? = instance
 
         fun calculateInputText(
@@ -422,18 +427,69 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
         return getVisibleElementsInternal()
     }
 
+    /**
+     * Checks if a window meets the minimum size requirements.
+     * This filters out small accessory windows like notifications, floating widgets, etc.
+     *
+     * @param window The window to validate
+     * @return true if the window is large enough to be a valid application window
+     */
+    private fun isValidWindowSize(window: AccessibilityWindowInfo): Boolean {
+        val rect = Rect()
+        window.getBoundsInScreen(rect)
+
+        val density = resources.displayMetrics.density
+        val minSizePx = (MIN_WINDOW_SIZE_DP * density).toInt()
+
+        val width = rect.width()
+        val height = rect.height()
+
+        // Window must meet minimum size in both dimensions
+        return width >= minSizePx && height >= minSizePx
+    }
+
     private fun getVisibleElementsInternal(): MutableList<ElementNode> {
         val elements = mutableListOf<ElementNode>()
         val indexCounter = IndexCounter(1)
 
-        val rootNode = rootInActiveWindow ?: return elements
-        try {
-            val rootElement = findAllVisibleElements(rootNode, 0, null, indexCounter)
-            rootElement?.let {
-                collectRootElements(it, elements)
+        // Try multi-window approach first for better foldable/split-screen support
+        val accessibleWindows = windows
+
+        if (accessibleWindows != null && accessibleWindows.isNotEmpty()) {
+            // Process each application window that meets size requirements
+            for (window in accessibleWindows) {
+                if (window.type == AccessibilityWindowInfo.TYPE_APPLICATION && isValidWindowSize(window)) {
+                    val rootNode = window.root
+                    if (rootNode != null) {
+                        try {
+                            val rootElement = findAllVisibleElements(
+                                rootNode,
+                                window.layer,
+                                null,
+                                indexCounter
+                            )
+                            rootElement?.let {
+                                collectRootElements(it, elements)
+                            }
+                        } finally {
+                            rootNode.recycle()
+                        }
+                    }
+                }
             }
-        } finally {
-            rootNode.recycle()
+            // Recycle all windows
+            accessibleWindows.forEach { it.recycle() }
+        } else {
+            // Fallback to single window approach for compatibility
+            val rootNode = rootInActiveWindow ?: return elements
+            try {
+                val rootElement = findAllVisibleElements(rootNode, 0, null, indexCounter)
+                rootElement?.let {
+                    collectRootElements(it, elements)
+                }
+            } finally {
+                rootNode.recycle()
+            }
         }
 
         synchronized(visibleElements) {
