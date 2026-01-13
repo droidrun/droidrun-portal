@@ -65,4 +65,5 @@
     <string name="event_filters_header">EVENT FILTERS</string>
     <string name="notifications_label">Notifications</string>
     <string name="push_system_notifications_label">Push system notifications</string>
+    <string name="media_projection_auto_accept_failed">Screen share auto-accept failed. Please accept manually.</string>
 </resources>
