@@ -38,6 +38,7 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
         private var instance: DroidrunAccessibilityService? = null
         private const val MIN_ELEMENT_SIZE = 5
         private const val TOAST_DEBOUNCE_MS = 60_000L
+        private const val AUTO_ACCEPT_FAILURE_TOAST_DEBOUNCE_MS = 10_000L
 
         // Periodic update constants
         private const val REFRESH_INTERVAL_MS = 250L // Update every 250ms
@@ -67,6 +68,7 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
     private lateinit var configManager: ConfigManager
     private val mainHandler = Handler(Looper.getMainLooper())
     private var lastWebSocketServerToastAtMs = 0L
+    private var lastAutoAcceptFailureToastAtMs = 0L
 
     // Servers
     // TODO Make nullable
@@ -177,14 +179,17 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
         }
 
         // Auto-accept MediaProjection dialog (only when reverse connection is active and setting is enabled)
-        if (MediaProjectionAutoAccept.isMediaProjectionDialog(event) &&
+        if (MediaProjectionAutoAccept.isMediaProjectionDialog(event, eventClassName) &&
             ReverseConnectionService.getInstance() != null &&
             configManager.screenShareAutoAcceptEnabled
         ) {
             val rootNode = rootInActiveWindow
             if (rootNode != null) {
                 try {
-                    MediaProjectionAutoAccept.tryAutoAccept(rootNode, eventClassName)
+                    val result = MediaProjectionAutoAccept.tryAutoAccept(rootNode, eventClassName)
+                    if (result is MediaProjectionAutoAccept.AutoAcceptResult.Failed) {
+                        showAutoAcceptFailedToastIfEnoughTimeIsPassed()
+                    }
                 } finally {
                     rootNode.recycle()
                 }
@@ -796,6 +801,22 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
                     this@DroidrunAccessibilityService,
                     getString(R.string.websocket_server_started, port),
                     Toast.LENGTH_SHORT,
+                ).show()
+            }
+        }
+    }
+
+    private fun showAutoAcceptFailedToastIfEnoughTimeIsPassed() {
+        val now = SystemClock.elapsedRealtime()
+        if (lastAutoAcceptFailureToastAtMs == 0L ||
+            now - lastAutoAcceptFailureToastAtMs >= AUTO_ACCEPT_FAILURE_TOAST_DEBOUNCE_MS
+        ) {
+            lastAutoAcceptFailureToastAtMs = now
+            mainHandler.post {
+                Toast.makeText(
+                    this@DroidrunAccessibilityService,
+                    getString(R.string.media_projection_auto_accept_failed),
+                    Toast.LENGTH_LONG,
                 ).show()
             }
         }
