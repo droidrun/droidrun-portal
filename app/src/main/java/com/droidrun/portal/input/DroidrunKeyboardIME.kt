@@ -21,6 +21,18 @@ class DroidrunKeyboardIME : InputMethodService() {
          * Check if the DroidrunKeyboardIME is currently active and available
          */
         fun isAvailable(): Boolean = instance != null
+
+        /**
+         * Check if this IME is currently selected as the system default
+         */
+        fun isSelected(context: android.content.Context): Boolean {
+            val currentId = android.provider.Settings.Secure.getString(
+                context.contentResolver,
+                android.provider.Settings.Secure.DEFAULT_INPUT_METHOD
+            )
+            val myId = android.content.ComponentName(context, DroidrunKeyboardIME::class.java).flattenToShortString()
+            return currentId == myId
+        }
     }
 
     override fun onCreate() {

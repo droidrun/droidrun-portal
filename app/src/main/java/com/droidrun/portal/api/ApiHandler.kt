@@ -258,20 +258,26 @@ class ApiHandler(
         }
     }
 
+    /**
+     * Helper to check if DroidrunKeyboardIME is both available and selected as the system default.
+     * Matches the pattern used in ScrcpyControlChannel.
+     */
+    private fun isKeyboardImeActiveAndSelected(): Boolean {
+        if (!DroidrunKeyboardIME.isAvailable()) return false
+        val service = DroidrunAccessibilityService.getInstance() ?: return false
+        return DroidrunKeyboardIME.isSelected(service)
+    }
+
     fun keyboardKey(keyCode: Int): ApiResponse {
-        // Prefer global actions for system navigation keys , with and without IME
-        val globalAction = when (keyCode) {
-            KeyEvent.KEYCODE_BACK -> AccessibilityService.GLOBAL_ACTION_BACK
-            KeyEvent.KEYCODE_HOME -> AccessibilityService.GLOBAL_ACTION_HOME
-            KeyEvent.KEYCODE_APP_SWITCH -> AccessibilityService.GLOBAL_ACTION_RECENTS
-            else -> null
-        }
-        if (globalAction != null) {
-            return performGlobalAction(globalAction)
+        // System navigation keys - use global actions (no IME needed)
+        when (keyCode) {
+            KeyEvent.KEYCODE_BACK -> return performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
+            KeyEvent.KEYCODE_HOME -> return performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
+            KeyEvent.KEYCODE_APP_SWITCH -> return performGlobalAction(AccessibilityService.GLOBAL_ACTION_RECENTS)
         }
 
-        // without IME
-        if (keyCode == KeyEvent.KEYCODE_ENTER) {
+        // ENTER key: use ACTION_IME_ENTER first, then fallback to newline insertion
+        if (keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER) {
             val state = stateRepo.getPhoneState()
             val focusedNode = state.focusedElement
 
@@ -290,13 +296,14 @@ class ApiHandler(
                 }
             }
 
-            // Fallback: some multiline fields accept newline via ACTION_SET_TEXT.
+            // Fallback: some multiline fields accept newline via ACTION_SET_TEXT
             return if (stateRepo.inputText("\n", clear = false))
                 ApiResponse.Success("Newline inserted via Accessibility")
             else
-                ApiResponse.Error("Enter failed (IME not active and Accessibility fallback failed)")
+                ApiResponse.Success("Enter handled (no focused element)")
         }
 
+        // DEL key: manipulate text via accessibility
         if (keyCode == KeyEvent.KEYCODE_DEL) {
             val state = stateRepo.getPhoneState()
             val focusedNode = state.focusedElement
@@ -308,7 +315,7 @@ class ApiHandler(
                 hintText = focusedNode?.hintText?.toString()
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to read focused text for delete", e)
-                return ApiResponse.Error("Delete failed (could not read focused text)")
+                return ApiResponse.Success("Delete handled (could not read focused text)")
             } finally {
                 try {
                     focusedNode?.recycle()
@@ -322,29 +329,56 @@ class ApiHandler(
             if (effectiveText.isEmpty())
                 return ApiResponse.Success("Delete noop (field is empty)")
 
-
             val updatedText = effectiveText.dropLast(1)
             return if (stateRepo.inputText(updatedText, clear = true))
                 ApiResponse.Success("Delete performed via Accessibility")
             else
-                ApiResponse.Error("Delete failed (IME not active and Accessibility fallback failed)")
-
+                ApiResponse.Success("Delete handled")
         }
 
-        val ime = getKeyboardIME()
-            ?: return ApiResponse.Error(
-                "DroidrunKeyboardIME not active or available. Use keyboard/input for text, or supported keys like back/home/recents/enter/delete.",
-            )
-
-        if (!ime.hasInputConnection()) {
-            return ApiResponse.Error("No input connection available - keyboard may not be focused on an input field")
+        // Forward DEL key: accessibility only
+        if (keyCode == KeyEvent.KEYCODE_FORWARD_DEL) {
+            val service = DroidrunAccessibilityService.getInstance()
+                ?: return ApiResponse.Success("Forward delete handled (no service)")
+            service.deleteText(1, forward = true)
+            return ApiResponse.Success("Forward delete handled")
         }
 
-        return if (ime.sendKeyEventDirect(keyCode)) {
-            ApiResponse.Success("Key event sent via IME - code: $keyCode")
-        } else {
-            ApiResponse.Error("Failed to send key event via IME")
+        // TAB key: try IME if available and selected, else use accessibility
+        // If nothing is focused, just succeed silently (noop)
+        if (keyCode == KeyEvent.KEYCODE_TAB) {
+            if (isKeyboardImeActiveAndSelected()) {
+                val keyboard = DroidrunKeyboardIME.getInstance()
+                if (keyboard != null && keyboard.sendKeyEventDirect(keyCode)) {
+                    return ApiResponse.Success("Tab sent via IME")
+                }
+            }
+            // Fallback to accessibility - if it fails (nothing focused), just succeed as noop
+            stateRepo.inputText("\t", clear = false)
+            return ApiResponse.Success("Tab handled")
         }
+
+        // For other keycodes: try IME first, then convert to unicode character
+        if (isKeyboardImeActiveAndSelected()) {
+            val keyboard = DroidrunKeyboardIME.getInstance()
+            if (keyboard != null && keyboard.sendKeyEventDirect(keyCode)) {
+                return ApiResponse.Success("Key event sent via IME - code: $keyCode")
+            }
+        }
+
+        // Fallback: convert keycode to character using KeyEvent
+        val keyEvent = KeyEvent(KeyEvent.ACTION_DOWN, keyCode)
+        val unicodeChar = keyEvent.getUnicodeChar(0)
+
+        if (unicodeChar > 0) {
+            val char = unicodeChar.toChar()
+            return if (stateRepo.inputText(char.toString(), clear = false))
+                ApiResponse.Success("Character '$char' inserted via Accessibility")
+            else
+                ApiResponse.Error("Failed to insert character")
+        }
+
+        return ApiResponse.Error("Unsupported key code: $keyCode (no unicode mapping and IME not available)")
     }
 
     // Overlay

@@ -182,13 +182,15 @@ class ScrcpyControlChannel : DataChannel.Observer {
                 return
             }
             KeyEvent.KEYCODE_DEL -> {
-                if (DroidrunKeyboardIME.isAvailable()) {
-                    val keyboard = DroidrunKeyboardIME.getInstance() ?: return
-                    keyboard.sendKeyEventDirect(keycode)
-                    return
+                val service = DroidrunAccessibilityService.getInstance()
+                if (service != null && DroidrunKeyboardIME.isAvailable() && DroidrunKeyboardIME.isSelected(service)) {
+                    val keyboard = DroidrunKeyboardIME.getInstance()
+                    if (keyboard != null) {
+                        keyboard.sendKeyEventDirect(keycode)
+                        return
+                    }
                 }
-                val service = DroidrunAccessibilityService.getInstance() ?: return
-                service.deleteText(1)
+                service?.deleteText(1)
                 return
             }
             KeyEvent.KEYCODE_FORWARD_DEL -> {
@@ -198,11 +200,13 @@ class ScrcpyControlChannel : DataChannel.Observer {
                 return
             }
             KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> {
-
-                if (DroidrunKeyboardIME.isAvailable()) {
-                    val keyboard = DroidrunKeyboardIME.getInstance() ?: return
-                    keyboard.sendKeyEventDirect(keycode)
-                    return
+                val service = DroidrunAccessibilityService.getInstance()
+                if (service != null && DroidrunKeyboardIME.isAvailable() && DroidrunKeyboardIME.isSelected(service)) {
+                    val keyboard = DroidrunKeyboardIME.getInstance()
+                    if (keyboard != null) {
+                        keyboard.sendKeyEventDirect(keycode)
+                        return
+                    }
                 }
 
                 typeText("\n")
@@ -210,10 +214,13 @@ class ScrcpyControlChannel : DataChannel.Observer {
 
             }
             KeyEvent.KEYCODE_TAB -> {
-                if (DroidrunKeyboardIME.isAvailable()) {
-                    val keyboard = DroidrunKeyboardIME.getInstance() ?: return
-                    keyboard.sendKeyEventDirect(keycode)
-                    return
+                val service = DroidrunAccessibilityService.getInstance()
+                if (service != null && DroidrunKeyboardIME.isAvailable() && DroidrunKeyboardIME.isSelected(service)) {
+                    val keyboard = DroidrunKeyboardIME.getInstance()
+                    if (keyboard != null) {
+                        keyboard.sendKeyEventDirect(keycode)
+                        return
+                    }
                 }
 
                 typeText("\t")
