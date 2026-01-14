@@ -3,6 +3,7 @@ package com.droidrun.portal.config
 import android.content.Context
 import android.content.SharedPreferences
 import android.os.Build
+import android.telephony.TelephonyManager
 import androidx.core.content.edit
 import com.droidrun.portal.events.model.EventType
 
@@ -189,8 +190,35 @@ class ConfigManager private constructor(private val context: Context) {
 
     val deviceCountryCode: String
         get() {
-            // TODO:
-            return "de"
+            // Try to get country from SIM card first (most accurate for physical location)
+            try {
+                val telephonyManager = context.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
+                telephonyManager?.let { tm ->
+                    // Try SIM country first
+                    val simCountry = tm.simCountryIso
+                    if (!simCountry.isNullOrBlank()) {
+                        return simCountry.uppercase()
+                    }
+
+                    // Try network country
+                    val networkCountry = tm.networkCountryIso
+                    if (!networkCountry.isNullOrBlank()) {
+                        return networkCountry.uppercase()
+                    }
+                }
+            } catch (e: Exception) {
+                // Ignore and fall back to locale
+            }
+
+            // Fall back to device locale country
+            val locale = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                context.resources.configuration.locales[0]
+            } else {
+                @Suppress("DEPRECATION")
+                context.resources.configuration.locale
+            }
+
+            return locale.country.ifBlank { "US" }
         }
 
     val userID: String
