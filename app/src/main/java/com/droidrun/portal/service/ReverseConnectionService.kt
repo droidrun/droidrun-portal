@@ -1,19 +1,30 @@
 package com.droidrun.portal.service
 
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
+import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.content.pm.ServiceInfo
 import android.os.Binder
+import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
 import android.widget.Toast
+import androidx.core.app.NotificationCompat
 import com.droidrun.portal.R
 import com.droidrun.portal.api.ApiResponse
 import com.droidrun.portal.config.ConfigManager
 import com.droidrun.portal.state.ConnectionState
 import com.droidrun.portal.state.ConnectionStateManager
+import com.droidrun.portal.streaming.WebRtcManager
 import org.java_websocket.client.WebSocketClient
 import org.java_websocket.handshake.ServerHandshake
 import org.json.JSONObject
@@ -25,8 +36,11 @@ class ReverseConnectionService : Service() {
 
     companion object {
         private const val TAG = "ReverseConnService"
+        private const val CHANNEL_ID = "reverse_connection_channel"
+        private const val NOTIFICATION_ID = 2002
         private const val RECONNECT_DELAY_MS = 3000L
         private const val TOAST_DEBOUNCE_MS = 60_000L
+        private const val CONNECTION_LOST_TIMEOUT_SEC = 30
 
         @Volatile
         private var instance: ReverseConnectionService? = null
@@ -43,6 +57,10 @@ class ReverseConnectionService : Service() {
     private val handler = Handler(Looper.getMainLooper())
     private val installExecutor = Executors.newSingleThreadExecutor()
     private var lastReverseToastAtMs = 0L
+    private var isForeground = false
+
+    @Volatile
+    private var foregroundSuppressed = false
 
     inner class LocalBinder : Binder() {
         fun getService(): ReverseConnectionService = this@ReverseConnectionService
@@ -54,10 +72,12 @@ class ReverseConnectionService : Service() {
         super.onCreate()
         instance = this
         configManager = ConfigManager.getInstance(this)
+        createNotificationChannel()
         Log.d(TAG, "Service Created")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        ensureForeground()
         if (!isServiceRunning.getAndSet(true)) {
             Log.i(TAG, "Starting Reverse Connection Service")
             connectToHost()
@@ -75,14 +95,22 @@ class ReverseConnectionService : Service() {
             installExecutor.shutdownNow()
         } catch (_: Exception) {
         }
+        if (isForeground) {
+            @Suppress("DEPRECATION")
+            stopForeground(true)
+            isForeground = false
+        }
         Log.i(TAG, "Service Destroyed")
     }
 
 
-    fun sendText(text: String) {
-        webSocketClient?.let { client ->
-            if (client.isOpen) client.send(text)
+    fun sendText(text: String): Boolean {
+        val client = webSocketClient
+        if (client != null && client.isOpen) {
+            client.send(text)
+            return true
         }
+        return false
     }
 
     fun buildHeaders(): MutableMap<String, String> {
@@ -129,6 +157,10 @@ class ReverseConnectionService : Service() {
                     Log.i(TAG, "Connected to Host: $hostUrl")
                     ConnectionStateManager.setState(ConnectionState.CONNECTED)
                     showReverseConnectionToastIfEnoughTimeIsPassed()
+                    WebRtcManager.getExistingInstance()?.let { manager ->
+                        manager.setReverseConnectionService(this@ReverseConnectionService)
+                        manager.onReverseConnectionOpen()
+                    }
 
                 }
 
@@ -137,8 +169,9 @@ class ReverseConnectionService : Service() {
                 }
 
                 override fun onClose(code: Int, reason: String?, remote: Boolean) {
-                    Log.w(TAG, "Disconnected from Host: $reason")
-                    
+                    Log.w(TAG, "Disconnected from Host: code=$code reason=$reason remote=$remote")
+                    logNetworkState("onClose")
+
                     if (reason != null) {
                         if (reason.contains("401") || reason.contains("Unauthorized")) {
                             ConnectionStateManager.setState(ConnectionState.UNAUTHORIZED)
@@ -146,14 +179,14 @@ class ReverseConnectionService : Service() {
                             // Do not reconnect automatically on auth error
                             return
                         } else if (reason.contains("400") || reason.contains("Bad Request")) {
-                             // 400 Bad Request typically indicates the device limit has been reached
-                             // or the request was malformed. Based on server behavior, we treat this
-                             // as limit exceeded for better user feedback.
-                             ConnectionStateManager.setState(ConnectionState.LIMIT_EXCEEDED)
-                             
-                             handleWsDisconnected()
-                             // Do not reconnect automatically on client error
-                             return
+                            // 400 Bad Request typically indicates the device limit has been reached
+                            // or the request was malformed. Based on server behavior, we treat this
+                            // as limit exceeded for better user feedback.
+                            ConnectionStateManager.setState(ConnectionState.LIMIT_EXCEEDED)
+
+                            handleWsDisconnected()
+                            // Do not reconnect automatically on client error
+                            return
                         }
                     }
 
@@ -163,7 +196,8 @@ class ReverseConnectionService : Service() {
                 }
 
                 override fun onError(ex: Exception?) {
-                    Log.e(TAG, "Connection Error: ${ex?.message}")
+                    Log.e(TAG, "Connection Error", ex)
+                    logNetworkState("onError")
                     // Don't set state here, onClose usually follows
                     if (webSocketClient == null || webSocketClient?.isOpen != true)
                         handleWsDisconnected()
@@ -172,6 +206,7 @@ class ReverseConnectionService : Service() {
                 }
             }
             Log.i(TAG, "connecting to remote via websocket")
+            webSocketClient?.connectionLostTimeout = CONNECTION_LOST_TIMEOUT_SEC
             webSocketClient?.connect()
             Log.i(TAG, "websocket connection attempt started")
         } catch (e: Exception) {
@@ -212,7 +247,94 @@ class ReverseConnectionService : Service() {
     }
 
     private fun handleWsDisconnected() {
-        ScreenCaptureService.requestStop("ws_disconnected")
+        val manager = WebRtcManager.getExistingInstance()
+        if (manager != null) {
+            if (!manager.getStreamRequestId().isNullOrBlank()) {
+                manager.notifyStreamStoppedAsync("ws_disconnected")
+            }
+            manager.requestGracefulStop("ws_disconnected")
+        } else {
+            ScreenCaptureService.requestStop("ws_disconnected")
+        }
+    }
+
+    private fun logNetworkState(prefix: String) {
+        val connectivityManager =
+            getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+        val network = connectivityManager?.activeNetwork
+        val capabilities = connectivityManager?.getNetworkCapabilities(network)
+        if (capabilities == null) {
+            Log.d(TAG, "$prefix network=unknown")
+            return
+        }
+        val transports = mutableListOf<String>()
+        if (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) transports.add("wifi")
+        if (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) transports.add("cellular")
+        if (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) transports.add("ethernet")
+        if (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) transports.add("vpn")
+        val validated = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        Log.d(TAG, "$prefix network=${transports.joinToString(",")} validated=$validated")
+    }
+
+    private fun ensureForeground() {
+        if (isForeground || foregroundSuppressed) return
+        try {
+            val notification = createNotification()
+            startForeground(
+                NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            )
+            isForeground = true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start foreground service", e)
+        }
+    }
+
+    fun suspendForegroundForStreaming() {
+        foregroundSuppressed = true
+        if (!isForeground) return
+        try {
+            @Suppress("DEPRECATION")
+            stopForeground(true)
+            isForeground = false
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to stop foreground service", e)
+        }
+    }
+
+    fun resumeForegroundAfterStreaming() {
+        foregroundSuppressed = false
+        ensureForeground()
+    }
+
+    private fun createNotificationChannel() {
+        val manager = getSystemService(NotificationManager::class.java) ?: return
+        val channel = NotificationChannel(
+            CHANNEL_ID,
+            "Reverse Connection",
+            NotificationManager.IMPORTANCE_LOW
+        )
+        manager.createNotificationChannel(channel)
+    }
+
+    private fun createNotification(): Notification {
+        val intent = Intent(this, com.droidrun.portal.ui.MainActivity::class.java)
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            0,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        return NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle(getString(R.string.reverse_connection_service_title))
+            .setContentText(getString(R.string.reverse_connection_service_text))
+            .setSmallIcon(android.R.drawable.stat_notify_sync)
+            .setContentIntent(pendingIntent)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setOngoing(true)
+            .build()
     }
 
     private fun showReverseConnectionToastIfEnoughTimeIsPassed() {

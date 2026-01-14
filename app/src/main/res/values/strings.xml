@@ -62,6 +62,8 @@
     <string name="host_url_hint">Host URL (ws://...)</string>
     <string name="token_optional_hint">Token (Optional)</string>
     <string name="reverse_connection_connected">Reverse connection established</string>
+    <string name="reverse_connection_service_title">Reverse connection active</string>
+    <string name="reverse_connection_service_text">Keeping device connected for tasks</string>
     <string name="event_filters_header">EVENT FILTERS</string>
     <string name="notifications_label">Notifications</string>
     <string name="push_system_notifications_label">Push system notifications</string>

@@ -13,7 +13,6 @@ import com.droidrun.portal.api.ApiResponse
 import com.droidrun.portal.config.ConfigManager
 import com.droidrun.portal.core.StateRepository
 import com.droidrun.portal.input.DroidrunKeyboardIME
-import com.droidrun.portal.service.DroidrunAccessibilityService
 
 import android.util.Base64
 
@@ -59,7 +58,7 @@ class DroidrunContentProvider : ContentProvider() {
     }
 
     private lateinit var configManager: ConfigManager
-    
+
     private var apiHandler: ApiHandler? = null
 
     override fun onCreate(): Boolean {
@@ -73,20 +72,25 @@ class DroidrunContentProvider : ContentProvider() {
             false
         }
     }
-    
+
     private fun getHandler(): ApiHandler? {
         if (apiHandler != null) return apiHandler
-        
+
         val service = DroidrunAccessibilityService.getInstance()
         if (service != null && context != null) {
             apiHandler = ApiHandler(
                 stateRepo = StateRepository(service),
                 getKeyboardIME = { DroidrunKeyboardIME.getInstance() },
                 getPackageManager = { context!!.packageManager },
-                appVersionProvider = { 
+                appVersionProvider = {
                     try {
-                        context!!.packageManager.getPackageInfo(context!!.packageName, 0).versionName
-                    } catch (e: Exception) { "unknown" }
+                        context!!.packageManager.getPackageInfo(
+                            context!!.packageName,
+                            0
+                        ).versionName
+                    } catch (e: Exception) {
+                        "unknown"
+                    }
                 },
                 context = context!!
             )
@@ -102,7 +106,7 @@ class DroidrunContentProvider : ContentProvider() {
         sortOrder: String?
     ): Cursor {
         val cursor = MatrixCursor(arrayOf("result"))
-        
+
         try {
             val handler = getHandler()
             val response = if (handler == null) {
@@ -110,7 +114,13 @@ class DroidrunContentProvider : ContentProvider() {
             } else {
                 when (uriMatcher.match(uri)) {
                     A11Y_TREE -> handler.getTree()
-                    A11Y_TREE_FULL -> handler.getTreeFull(uri.getBooleanQueryParameter("filter", true))
+                    A11Y_TREE_FULL -> handler.getTreeFull(
+                        uri.getBooleanQueryParameter(
+                            "filter",
+                            true
+                        )
+                    )
+
                     PHONE_STATE -> handler.getPhoneState()
                     PING -> handler.ping()
                     STATE -> handler.getState()
@@ -122,19 +132,19 @@ class DroidrunContentProvider : ContentProvider() {
                 }
             }
             cursor.addRow(arrayOf(response.toJson()))
-            
+
         } catch (e: Exception) {
             Log.e(TAG, "Query execution failed", e)
             cursor.addRow(arrayOf(ApiResponse.Error("Execution failed: ${e.message}").toJson()))
         }
-        
+
         return cursor
     }
 
     private fun getStringValue(values: ContentValues?, key: String): String? {
         if (values == null) return null
         if (values.containsKey(key)) return values.getAsString(key)
-        
+
         val base64Key = "${key}_base64"
         if (values.containsKey(base64Key)) {
             val encoded = values.getAsString(base64Key)
@@ -161,26 +171,31 @@ class DroidrunContentProvider : ContentProvider() {
                     val vals = values ?: ContentValues()
                     when (action) {
                         "input" -> handler.keyboardInput(
-                            vals.getAsString("base64_text") ?: "", 
+                            vals.getAsString("base64_text") ?: "",
                             vals.getAsBoolean("clear") ?: true
                         )
+
                         "clear" -> handler.keyboardClear()
                         "key" -> handler.keyboardKey(vals.getAsInteger("key_code") ?: 0)
                         else -> ApiResponse.Error("Unknown keyboard action")
                     }
                 }
+
                 OVERLAY_OFFSET -> {
                     val offset = values?.getAsInteger("offset") ?: 0
                     handler.setOverlayOffset(offset)
                 }
+
                 SOCKET_PORT -> {
                     val port = values?.getAsInteger("port") ?: 0
                     handler.setSocketPort(port)
                 }
+
                 OVERLAY_VISIBLE -> {
                     val visible = values?.getAsBoolean("visible") ?: true
                     handler.setOverlayVisible(visible)
                 }
+
                 TOGGLE_WEBSOCKET_SERVER -> {
                     val port = values?.getAsInteger("port") ?: configManager.websocketPort
                     val enabled = values?.getAsBoolean("enabled") ?: true
@@ -193,6 +208,7 @@ class DroidrunContentProvider : ContentProvider() {
 
                     ApiResponse.Success("WebSocket server ${if (enabled) "enabled" else "disabled"} on port $port")
                 }
+
                 CONFIGURE_REVERSE_CONNECTION -> {
                     val url = getStringValue(values, "url")
                     val token = getStringValue(values, "token")
@@ -222,7 +238,7 @@ class DroidrunContentProvider : ContentProvider() {
                             com.droidrun.portal.service.ReverseConnectionService::class.java
                         )
                         if (enabled) {
-                            context!!.startService(serviceIntent)
+                            context!!.startForegroundService(serviceIntent)
                         } else {
                             context!!.stopService(serviceIntent)
                         }
@@ -230,31 +246,40 @@ class DroidrunContentProvider : ContentProvider() {
 
                     ApiResponse.Success(message)
                 }
+
                 TOGGLE_PRODUCTION_MODE -> {
                     val enabled = values?.getAsBoolean("enabled") ?: false
                     configManager.productionMode = enabled
-                    val intent = android.content.Intent("com.droidrun.portal.PRODUCTION_MODE_CHANGED")
+                    val intent =
+                        android.content.Intent("com.droidrun.portal.PRODUCTION_MODE_CHANGED")
                     context!!.sendBroadcast(intent)
 
                     ApiResponse.Success("Production mode set to $enabled")
                 }
+
                 else -> ApiResponse.Error("Unsupported insert endpoint")
             }
             response
         } catch (e: Exception) {
             ApiResponse.Error("Exception: ${e.message}")
         }
-        
+
         // Convert response to URI
         return if (result is ApiResponse.Success) {
             "content://$AUTHORITY/result?status=success&message=${Uri.encode(result.data.toString())}".toUri()
         } else {
-             val errorMsg = (result as ApiResponse.Error).message
+            val errorMsg = (result as ApiResponse.Error).message
             "content://$AUTHORITY/result?status=error&message=${Uri.encode(errorMsg)}".toUri()
         }
     }
 
     override fun delete(uri: Uri, selection: String?, selectionArgs: Array<String>?): Int = 0
-    override fun update(uri: Uri, values: ContentValues?, selection: String?, selectionArgs: Array<String>?): Int = 0
+    override fun update(
+        uri: Uri,
+        values: ContentValues?,
+        selection: String?,
+        selectionArgs: Array<String>?
+    ): Int = 0
+
     override fun getType(uri: Uri): String? = null
 }

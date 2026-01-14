@@ -5,7 +5,7 @@
 
     <!-- Permission to draw over other apps -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-    
+
     <!-- Permission for socket communication -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
@@ -13,6 +13,7 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <queries>
@@ -61,7 +62,8 @@
         <service
             android:name=".service.ReverseConnectionService"
             android:enabled="true"
-            android:exported="false" />
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
         <service
             android:name=".service.ScreenCaptureService"
@@ -86,8 +88,7 @@
             android:name=".service.DroidrunContentProvider"
             android:authorities="${applicationId}"
             android:enabled="true"
-            android:exported="true">
-        </provider>
+            android:exported="true"></provider>
 
         <service
             android:name=".input.DroidrunKeyboardIME"
@@ -118,9 +119,13 @@
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
+
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="droidrun" android:host="auth-callback" />
+
+                <data
+                    android:scheme="droidrun"
+                    android:host="auth-callback" />
             </intent-filter>
         </activity>
 
