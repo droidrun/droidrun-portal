@@ -9,6 +9,7 @@ import com.droidrun.portal.events.model.EventType
 import android.provider.Settings
 import android.content.Intent
 import android.content.ComponentName
+import android.net.Uri
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.result.contract.ActivityResultContracts
@@ -201,7 +202,7 @@ class SettingsActivity : AppCompatActivity() {
                     } catch (e: Exception) {
                         // Fallback
                         val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                            data = android.net.Uri.fromParts("package", packageName, null)
+                            data = Uri.fromParts("package", packageName, null)
                         }
                         startActivity(intent)
                     }
@@ -209,6 +210,29 @@ class SettingsActivity : AppCompatActivity() {
                     binding.switchPostNotifications.isChecked = true
                 }
             }
+        }
+
+        binding.switchInstallUnknownApps.setOnClickListener {
+            try {
+                val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+                    data = Uri.parse("package:$packageName")
+                }
+                startActivity(intent)
+            } catch (e: Exception) {
+                // Fallback to security settings
+                try {
+                    val fallbackIntent = Intent(Settings.ACTION_SECURITY_SETTINGS)
+                    startActivity(fallbackIntent)
+                } catch (_: Exception) {
+                    // Last resort: open app details
+                    val detailsIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                        data = Uri.parse("package:$packageName")
+                    }
+                    startActivity(detailsIntent)
+                }
+            }
+            // Revert visual state until onResume confirms change
+            binding.switchInstallUnknownApps.isChecked = !binding.switchInstallUnknownApps.isChecked
         }
     }
 
@@ -266,6 +290,9 @@ class SettingsActivity : AppCompatActivity() {
             binding.switchPostNotifications.isChecked = true
             binding.switchPostNotifications.isEnabled = false
         }
+
+        // Install Unknown Apps
+        binding.switchInstallUnknownApps.isChecked = packageManager.canRequestPackageInstalls()
     }
 
     private fun isNotificationServiceEnabled(): Boolean {

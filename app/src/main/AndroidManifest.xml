@@ -76,6 +76,12 @@
             android:noHistory="true"
             android:exported="false" />
 
+        <activity
+            android:name=".ui.PermissionDialogActivity"
+            android:theme="@style/Theme.Transparent"
+            android:excludeFromRecents="true"
+            android:exported="false" />
+
         <provider
             android:name=".service.DroidrunContentProvider"
             android:authorities="${applicationId}"

@@ -66,4 +66,15 @@
     <string name="notifications_label">Notifications</string>
     <string name="push_system_notifications_label">Push system notifications</string>
     <string name="media_projection_auto_accept_failed">Screen share auto-accept failed. Please accept manually.</string>
+
+    <!-- Permission Dialog -->
+    <string name="permission_required_title">Permission Required</string>
+    <string name="install_permission_message">To install apps, Droidrun Portal needs permission to install from unknown sources.</string>
+    <string name="install_permission_steps">1. Tap \"Open Settings\" below\n2. Enable \"Allow from this source\"\n3. Return and try again</string>
+    <string name="open_settings">Open Settings</string>
+    <string name="cancel">Cancel</string>
+
+    <!-- Settings - Permissions -->
+    <string name="install_unknown_apps_label">Install Unknown Apps</string>
+    <string name="install_unknown_apps_description">Allow installing APK files</string>
 </resources>

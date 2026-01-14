@@ -37,6 +37,7 @@ import org.webrtc.PeerConnection
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import androidx.core.app.NotificationCompat
+import com.droidrun.portal.ui.PermissionDialogActivity
 
 class ApiHandler(
     private val stateRepo: StateRepository,
@@ -519,9 +520,11 @@ class ApiHandler(
         return try {
             if (!context.packageManager.canRequestPackageInstalls()) {
                 Log.e(
-                    "ApiHandler",
+                    TAG,
                     "Install permission not granted (canRequestPackageInstalls = false)"
                 )
+                // Show permission dialog to guide the user
+                showInstallPermissionDialog()
                 return ApiResponse.Error("Install permission denied. Please enable 'Install unknown apps' for Droidrun Portal in Settings.")
             }
 
@@ -704,6 +707,9 @@ class ApiHandler(
         if (urls.isEmpty()) return ApiResponse.Error("No APK URLs provided")
 
         if (!context.packageManager.canRequestPackageInstalls()) {
+            Log.e(TAG, "Install permission not granted (canRequestPackageInstalls = false)")
+            // Show permission dialog to guide the user
+            showInstallPermissionDialog()
             return ApiResponse.Error(
                 "Install permission denied. Please enable 'Install unknown apps' for Droidrun Portal in Settings.",
             )
@@ -1001,6 +1007,18 @@ class ApiHandler(
                 .setUsername(obj.optString("username", ""))
                 .setPassword(obj.optString("credential", ""))
                 .createIceServer()
+        }
+    }
+
+    /**
+     * Shows a dialog prompting the user to enable "Install unknown apps" permission.
+     */
+    private fun showInstallPermissionDialog() {
+        try {
+            val intent = PermissionDialogActivity.createInstallPermissionIntent(context)
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to show install permission dialog", e)
         }
     }
 }
