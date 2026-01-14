@@ -22,6 +22,7 @@ import android.provider.Settings
 import android.view.View
 import android.os.Handler
 import android.os.Looper
+import android.os.Build
 import android.net.Uri
 import android.graphics.Color
 import org.json.JSONObject
@@ -98,13 +99,16 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             val url = "https://cloud.mobilerun.ai/auth/device?deviceId=$deviceId"
 
             try {
-                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                val intent = android.content.Intent(
+                    android.content.Intent.ACTION_VIEW,
+                    android.net.Uri.parse(url)
+                )
                 startActivity(intent)
             } catch (e: Exception) {
                 Toast.makeText(this, "Could not open browser", Toast.LENGTH_SHORT).show()
             }
         }
-        
+
         binding.btnDisconnect.setOnClickListener {
             disconnectService()
         }
@@ -240,23 +244,37 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
                     val configManager = ConfigManager.getInstance(this)
                     binding.textDeviceId.text = "Device ID: ${configManager.deviceID}"
                 }
+
                 ConnectionState.CONNECTING, ConnectionState.RECONNECTING -> {
                     binding.layoutConnecting.visibility = View.VISIBLE
-                    binding.textConnectingStatus.text = if (state == ConnectionState.RECONNECTING) "Reconnecting..." else "Connecting..."
+                    binding.textConnectingStatus.text =
+                        if (state == ConnectionState.RECONNECTING) "Reconnecting..." else "Connecting..."
                     binding.btnCancelConnection.visibility = View.VISIBLE
                 }
+
                 ConnectionState.UNAUTHORIZED -> {
                     binding.layoutDisconnected.visibility = View.VISIBLE
-                    Toast.makeText(this, "Connection Failed: Unauthorized (Check API Key)", Toast.LENGTH_LONG).show()
+                    Toast.makeText(
+                        this,
+                        "Connection Failed: Unauthorized (Check API Key)",
+                        Toast.LENGTH_LONG
+                    ).show()
                 }
+
                 ConnectionState.LIMIT_EXCEEDED -> {
                     binding.layoutDisconnected.visibility = View.VISIBLE
-                    Toast.makeText(this, "Connection Failed: Device Limit Exceeded", Toast.LENGTH_LONG).show()
+                    Toast.makeText(
+                        this,
+                        "Connection Failed: Device Limit Exceeded",
+                        Toast.LENGTH_LONG
+                    ).show()
                 }
+
                 ConnectionState.ERROR -> {
                     binding.layoutDisconnected.visibility = View.VISIBLE
                     Toast.makeText(this, "Connection Failed: Bad Request", Toast.LENGTH_LONG).show()
                 }
+
                 else -> {
                     binding.layoutDisconnected.visibility = View.VISIBLE
                     binding.btnCancelConnection.visibility = View.GONE
@@ -807,13 +825,17 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
                     configManager.reverseConnectionEnabled = true
 
                     // Restart Service with delay to avoid race condition
-                    val serviceIntent = Intent(this, com.droidrun.portal.service.ReverseConnectionService::class.java)
+                    val serviceIntent = Intent(
+                        this,
+                        com.droidrun.portal.service.ReverseConnectionService::class.java
+                    )
                     stopService(serviceIntent)
                     Handler(Looper.getMainLooper()).postDelayed({
-                        startService(serviceIntent)
+                        startForegroundService(serviceIntent)
                     }, 150)
                 } else {
-                    Toast.makeText(this, "Invalid connection data received", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, "Invalid connection data received", Toast.LENGTH_LONG)
+                        .show()
                 }
             }
         } catch (e: Exception) {

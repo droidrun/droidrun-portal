@@ -7,7 +7,6 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
-import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -22,22 +21,22 @@ class ScreenCaptureService : Service() {
         private const val CHANNEL_ID = "screen_capture_channel"
         private const val STOP_TIMEOUT_MS = 3000L
         const val NOTIFICATION_ID = 2001
-        
+
         const val ACTION_START_STREAM = "com.droidrun.portal.action.START_STREAM"
         const val ACTION_STOP_STREAM = "com.droidrun.portal.action.STOP_STREAM"
         const val ACTION_PERMISSION_RESULT = "com.droidrun.portal.action.PERMISSION_RESULT"
-        
+
         const val EXTRA_RESULT_CODE = "result_code"
         const val EXTRA_RESULT_DATA = "result_data"
-        
+
         const val EXTRA_WIDTH = "width"
         const val EXTRA_HEIGHT = "height"
         const val EXTRA_FPS = "fps"
         const val EXTRA_WAIT_FOR_OFFER = "wait_for_offer"
-        
+
         @Volatile
         private var instance: ScreenCaptureService? = null
-        
+
         fun getInstance(): ScreenCaptureService? = instance
 
         /**
@@ -76,17 +75,18 @@ class ScreenCaptureService : Service() {
 
                 if (resultCode == -1 && resultData != null) {
                     stopRequested = false
-                    startForeground(NOTIFICATION_ID, createNotification(),
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                             ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
-                        } else {
-                            0
-                        }
+                    val rcs = ReverseConnectionService.getInstance()
+                    rcs?.suspendForegroundForStreaming()
+                    startForeground(
+                        NOTIFICATION_ID, createNotification(),
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
                     )
 
-                    val rcs = ReverseConnectionService.getInstance()
                     if (rcs == null) {
-                        Log.e(TAG, "ReverseConnectionService is null - cannot send signaling messages, aborting stream")
+                        Log.e(
+                            TAG,
+                            "ReverseConnectionService is null - cannot send signaling messages, aborting stream"
+                        )
                         webRtcManager.setStreamRequestId(null)
                         stopSelf()
                         return START_NOT_STICKY
@@ -95,7 +95,13 @@ class ScreenCaptureService : Service() {
 
                     val streamRequestId = webRtcManager.getStreamRequestId()
                     try {
-                        webRtcManager.startStream(resultData, width, height, fps, waitForOffer = waitForOffer)
+                        webRtcManager.startStream(
+                            resultData,
+                            width,
+                            height,
+                            fps,
+                            waitForOffer = waitForOffer
+                        )
                     } catch (e: Exception) {
                         Log.e(TAG, "Failed to start stream", e)
                         try {
@@ -123,6 +129,7 @@ class ScreenCaptureService : Service() {
                     stopSelf()
                 }
             }
+
             ACTION_STOP_STREAM -> {
                 Log.i(TAG, "Stopping Stream via Action")
                 stopStream("user_stop")
@@ -131,7 +138,7 @@ class ScreenCaptureService : Service() {
 
         return START_NOT_STICKY
     }
-    
+
     private fun stopStream(reason: String) {
         if (stopRequested) {
             finalizeStop("duplicate_stop")
@@ -155,7 +162,7 @@ class ScreenCaptureService : Service() {
         }
         finalizeStop("service_destroyed")
     }
-    
+
     private fun requestStopInternal(reason: String) {
         mainHandler.post {
             if (!stopFinalized) stopStream(reason)
@@ -163,7 +170,7 @@ class ScreenCaptureService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
-    
+
     @Suppress("UNUSED_PARAMETER")
     private fun finalizeStop(reason: String) {
         if (stopFinalized) return
@@ -171,19 +178,18 @@ class ScreenCaptureService : Service() {
         mainHandler.removeCallbacks(stopTimeoutRunnable)
         @Suppress("DEPRECATION")
         stopForeground(true)
+        ReverseConnectionService.getInstance()?.resumeForegroundAfterStreaming()
         stopSelf()
     }
-    
+
     private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val serviceChannel = NotificationChannel(
-                CHANNEL_ID,
-                "Screen Streaming",
-                NotificationManager.IMPORTANCE_LOW
-            )
-            val manager = getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(serviceChannel)
-        }
+        val serviceChannel = NotificationChannel(
+            CHANNEL_ID,
+            "Screen Streaming",
+            NotificationManager.IMPORTANCE_LOW
+        )
+        val manager = getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(serviceChannel)
     }
 
     private fun createNotification(): Notification {
@@ -201,7 +207,11 @@ class ScreenCaptureService : Service() {
             .setContentTitle("Screen Streaming Active")
             .setContentText("Droidrun Portal is sharing your screen")
             .setSmallIcon(android.R.drawable.ic_menu_camera) // Use a better icon if available
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop Streaming", stopPendingIntent)
+            .addAction(
+                android.R.drawable.ic_menu_close_clear_cancel,
+                "Stop Streaming",
+                stopPendingIntent
+            )
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
             .build()

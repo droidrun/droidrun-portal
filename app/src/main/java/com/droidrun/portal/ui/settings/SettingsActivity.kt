@@ -28,7 +28,11 @@ class SettingsActivity : AppCompatActivity() {
     ) { isGranted ->
         binding.switchPostNotifications.isChecked = isGranted
         if (isGranted) {
-            android.widget.Toast.makeText(this, "Notification permission granted", android.widget.Toast.LENGTH_SHORT).show()
+            android.widget.Toast.makeText(
+                this,
+                "Notification permission granted",
+                android.widget.Toast.LENGTH_SHORT
+            ).show()
         }
     }
 
@@ -36,7 +40,7 @@ class SettingsActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivitySettingsBinding.inflate(layoutInflater)
         setContentView(binding.root)
-        
+
         configManager = ConfigManager.getInstance(this)
 
         setupToolbar()
@@ -45,7 +49,7 @@ class SettingsActivity : AppCompatActivity() {
         setupReverseConnectionSettings()
         setupPermissions()
         setupEventFilters()
-        
+
         setupConnectionStateObserver()
     }
 
@@ -128,7 +132,7 @@ class SettingsActivity : AppCompatActivity() {
                     // Also save token if user typed it but didn't hit done
                     configManager.reverseConnectionToken = binding.inputReverseToken.text.toString()
 
-                    startService(intent)
+                    startForegroundService(intent)
                 } else {
                     binding.inputReverseUrl.error = "URL required"
                     binding.switchReverseEnabled.isChecked = false
@@ -159,7 +163,7 @@ class SettingsActivity : AppCompatActivity() {
                 false
             }
         }
-        
+
         // Screen Share Auto-Accept
         binding.switchScreenShareAutoAccept.isChecked = configManager.screenShareAutoAcceptEnabled
         binding.switchScreenShareAutoAccept.setOnCheckedChangeListener { _, isChecked ->
@@ -180,7 +184,11 @@ class SettingsActivity : AppCompatActivity() {
                     android.widget.Toast.LENGTH_LONG
                 ).show()
             } catch (e: Exception) {
-                android.widget.Toast.makeText(this, "Error opening settings", android.widget.Toast.LENGTH_SHORT).show()
+                android.widget.Toast.makeText(
+                    this,
+                    "Error opening settings",
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
             }
             // Revert visual state until onResume confirms change
             binding.switchNotificationAccess.isChecked = !binding.switchNotificationAccess.isChecked
@@ -222,10 +230,10 @@ class SettingsActivity : AppCompatActivity() {
             // Or just keep the switch as "enabled preference" vs "actual state".
             // For now, let's keep the switch reflecting the preference, but we could add a status indicator if needed.
             // If the service disconnects and gives up, we might want to update the switch.
-            
+
             if (state == ConnectionState.DISCONNECTED && configManager.reverseConnectionEnabled) {
-                 // Maybe show a toast or update UI to show retry?
-                 // For now, the toggle listener handles user intent.
+                // Maybe show a toast or update UI to show retry?
+                // For now, the toggle listener handles user intent.
             }
         }
     }
@@ -237,7 +245,7 @@ class SettingsActivity : AppCompatActivity() {
                 ReverseConnectionService::class.java,
             )
             stopService(intent)
-            startService(intent)
+            startForegroundService(intent)
         }
     }
 
@@ -258,7 +266,8 @@ class SettingsActivity : AppCompatActivity() {
 
         // Post Notifications
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val isGranted = checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+            val isGranted =
+                checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
             binding.switchPostNotifications.isChecked = isGranted
             binding.switchPostNotifications.isEnabled = true
         } else {

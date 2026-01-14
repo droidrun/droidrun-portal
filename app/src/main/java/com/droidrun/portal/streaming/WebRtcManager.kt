@@ -42,6 +42,8 @@ class WebRtcManager private constructor(private val context: Context) {
                 }
         }
 
+        fun getExistingInstance(): WebRtcManager? = instance
+
         fun shutdown() {
             synchronized(this) {
                 instance?.releaseResources()
@@ -62,6 +64,11 @@ class WebRtcManager private constructor(private val context: Context) {
         val surfaceTextureHelper: SurfaceTextureHelper?,
         val peerConnection: PeerConnection?,
         val controlChannel: DataChannel?
+    )
+
+    private data class PendingStreamStop(
+        val reason: String?,
+        val sessionId: Any?,
     )
 
     private var peerConnectionFactory: PeerConnectionFactory? = null
@@ -114,12 +121,19 @@ class WebRtcManager private constructor(private val context: Context) {
     private var scrcpyControlHandler: ScrcpyControlChannel? = null
     private var idleStopRunnable: Runnable? = null
 
+    @Volatile
+    private var pendingStreamStop: PendingStreamStop? = null
+
     init {
         initializePeerConnectionFactory()
     }
 
     fun setReverseConnectionService(service: ReverseConnectionService) {
         this.reverseConnectionService = service
+    }
+
+    fun onReverseConnectionOpen() {
+        flushPendingStreamStopped()
     }
 
     fun setStreamRequestId(requestId: String?) {
@@ -1185,8 +1199,12 @@ class WebRtcManager private constructor(private val context: Context) {
                         }
                     )
                 }
-            reverseConnectionService?.sendText(json.toString())
-            Log.d(TAG, "Sent stream/error: $error - $message")
+            val sent = reverseConnectionService?.sendText(json.toString()) == true
+            if (sent) {
+                Log.d(TAG, "Sent stream/error: $error - $message")
+            } else {
+                Log.d(TAG, "Stream/error not sent (socket closed)")
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to send stream error", e)
         }
@@ -1201,8 +1219,29 @@ class WebRtcManager private constructor(private val context: Context) {
         stopHandler.post { sendStreamStopped(reason, requestId) }
     }
 
-    private fun sendStreamStopped(reason: String?, requestId: Any?) {
-        try {
+    private fun queuePendingStreamStopped(reason: String?, requestId: Any?) {
+        synchronized(streamLock) {
+            pendingStreamStop = PendingStreamStop(reason, requestId)
+        }
+    }
+
+    private fun flushPendingStreamStopped() {
+        val pending =
+            synchronized(streamLock) {
+                pendingStreamStop
+            }
+                ?: return
+        if (trySendStreamStopped(pending.reason, pending.sessionId)) {
+            synchronized(streamLock) {
+                if (pendingStreamStop == pending) {
+                    pendingStreamStop = null
+                }
+            }
+        }
+    }
+
+    private fun trySendStreamStopped(reason: String?, requestId: Any?): Boolean {
+        return try {
             val json =
                 JSONObject().apply {
                     put("method", "stream/stopped")
@@ -1218,10 +1257,23 @@ class WebRtcManager private constructor(private val context: Context) {
                         }
                     )
                 }
-            reverseConnectionService?.sendText(json.toString())
-            Log.d(TAG, "Sent stream/stopped${if (reason.isNullOrBlank()) "" else ": $reason"}")
+            val sent = reverseConnectionService?.sendText(json.toString()) == true
+            if (sent) {
+                Log.d(TAG, "Sent stream/stopped${if (reason.isNullOrBlank()) "" else ": $reason"}")
+            } else {
+                Log.d(TAG, "Stream/stopped not sent (socket closed); queued")
+            }
+            sent
         } catch (e: Exception) {
             Log.e(TAG, "Failed to send stream stopped", e)
+            false
+        }
+    }
+
+    private fun sendStreamStopped(reason: String?, requestId: Any?) {
+        val sent = trySendStreamStopped(reason, requestId)
+        if (!sent) {
+            queuePendingStreamStopped(reason, requestId)
         }
     }
 
