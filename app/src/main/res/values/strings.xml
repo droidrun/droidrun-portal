@@ -68,6 +68,8 @@
     <string name="notifications_label">Notifications</string>
     <string name="push_system_notifications_label">Push system notifications</string>
     <string name="media_projection_auto_accept_failed">Screen share auto-accept failed. Please accept manually.</string>
+    <string name="install_auto_accept_label">Auto-accept App Installs</string>
+    <string name="install_auto_accept_description">Automatically confirm install prompts</string>
 
     <!-- Permission Dialog -->
     <string name="permission_required_title">Permission Required</string>

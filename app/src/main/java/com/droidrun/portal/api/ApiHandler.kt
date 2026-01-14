@@ -863,16 +863,17 @@ class ApiHandler(
                             continue
                         }
 
-                        val connection = (URL(urlString).openConnection() as HttpURLConnection).apply {
-                            instanceFollowRedirects = true
-                            connectTimeout = 15_000
-                            readTimeout = 60_000
-                            requestMethod = "GET"
-                            setRequestProperty(
-                                "Accept",
-                                "application/vnd.android.package-archive,application/octet-stream,*/*",
-                            )
-                        }
+                        val connection =
+                            (URL(urlString).openConnection() as HttpURLConnection).apply {
+                                instanceFollowRedirects = true
+                                connectTimeout = 15_000
+                                readTimeout = 60_000
+                                requestMethod = "GET"
+                                setRequestProperty(
+                                    "Accept",
+                                    "application/vnd.android.package-archive,application/octet-stream,*/*",
+                                )
+                            }
 
                         try {
                             val code = connection.responseCode
@@ -930,7 +931,11 @@ class ApiHandler(
 
                             val installResponse =
                                 connection.inputStream.use { stream ->
-                                    installApp(stream, hideOverlay, expectedSizeBytes = contentLength)
+                                    installApp(
+                                        stream,
+                                        hideOverlay,
+                                        expectedSizeBytes = contentLength
+                                    )
                                 }
 
                             when (installResponse) {

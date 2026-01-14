@@ -170,6 +170,12 @@ class SettingsActivity : AppCompatActivity() {
         binding.switchScreenShareAutoAccept.setOnCheckedChangeListener { _, isChecked ->
             configManager.screenShareAutoAcceptEnabled = isChecked
         }
+
+        // Install Auto-Accept
+        binding.switchInstallAutoAccept.isChecked = configManager.installAutoAcceptEnabled
+        binding.switchInstallAutoAccept.setOnCheckedChangeListener { _, isChecked ->
+            configManager.installAutoAcceptEnabled = isChecked
+        }
     }
 
     private fun setupPermissions() {
@@ -315,4 +321,3 @@ class SettingsActivity : AppCompatActivity() {
         private const val MAX_PORT = 65535
     }
 }
-

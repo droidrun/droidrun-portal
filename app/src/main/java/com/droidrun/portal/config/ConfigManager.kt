@@ -30,6 +30,7 @@ class ConfigManager private constructor(private val context: Context) {
         private const val KEY_REVERSE_CONNECTION_ENABLED = "reverse_connection_enabled"
         private const val KEY_REVERSE_CONNECTION_SERVICE_KEY = "reverse_connection_service_key"
         private const val KEY_PRODUCTION_MODE = "production_mode"
+        private const val KEY_INSTALL_AUTO_ACCEPT_ENABLED = "install_auto_accept_enabled"
         private const val PREFIX_EVENT_ENABLED = "event_enabled_"
         private const val KEY_AUTH_TOKEN = "auth_token"
         private const val KEY_DEVICE_ID = "device_id"
@@ -192,7 +193,8 @@ class ConfigManager private constructor(private val context: Context) {
         get() {
             // Try to get country from SIM card first (most accurate for physical location)
             try {
-                val telephonyManager = context.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
+                val telephonyManager =
+                    context.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
                 telephonyManager?.let { tm ->
                     // Try SIM country first
                     val simCountry = tm.simCountryIso
@@ -211,12 +213,8 @@ class ConfigManager private constructor(private val context: Context) {
             }
 
             // Fall back to device locale country
-            val locale = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            val locale =
                 context.resources.configuration.locales[0]
-            } else {
-                @Suppress("DEPRECATION")
-                context.resources.configuration.locale
-            }
 
             return locale.country.ifBlank { "US" }
         }
@@ -234,6 +232,12 @@ class ConfigManager private constructor(private val context: Context) {
             sharedPrefs.edit { putBoolean("screen_share_auto_accept_enabled", value) }
         }
 
+    var installAutoAcceptEnabled: Boolean
+        get() = sharedPrefs.getBoolean(KEY_INSTALL_AUTO_ACCEPT_ENABLED, false)
+        set(value) {
+            sharedPrefs.edit { putBoolean(KEY_INSTALL_AUTO_ACCEPT_ENABLED, value) }
+        }
+
     // Listener interface for configuration changes
     interface ConfigChangeListener {
         fun onOverlayVisibilityChanged(visible: Boolean)
@@ -244,7 +248,7 @@ class ConfigManager private constructor(private val context: Context) {
         // New WebSocket listeners
         fun onWebSocketEnabledChanged(enabled: Boolean) {}
         fun onWebSocketPortChanged(port: Int) {}
-        
+
         fun onProductionModeChanged(enabled: Boolean) {}
     }
 

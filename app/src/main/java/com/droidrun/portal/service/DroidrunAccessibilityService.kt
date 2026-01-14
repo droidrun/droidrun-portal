@@ -196,6 +196,19 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
             }
         }
 
+        if (PackageInstallerAutoAccept.isInstallDialog(event, eventClassName) &&
+            configManager.installAutoAcceptEnabled
+        ) {
+            val rootNode = rootInActiveWindow
+            if (rootNode != null) {
+                try {
+                    PackageInstallerAutoAccept.tryAutoAccept(rootNode, eventClassName)
+                } finally {
+                    rootNode.recycle()
+                }
+            }
+        }
+
         // Trigger update on relevant events
         when (event?.eventType) {
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
