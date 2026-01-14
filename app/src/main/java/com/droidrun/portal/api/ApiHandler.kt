@@ -703,6 +703,26 @@ class ApiHandler(
         }
     }
 
+    /**
+     * Extracts APK filename from URL and converts dash notation to dot notation.
+     * e.g., "base-apk" -> "base.apk", "config-xhdpi-apk" -> "config.xhdpi.apk"
+     */
+    private fun extractApkNameFromUrl(urlString: String): String {
+        return try {
+            val uri = urlString.toUri()
+            val path = uri.path ?: return "base.apk"
+            // Get the last path segment (e.g., "base-apk" from ".../com-github-android/base-apk?...")
+            val lastSegment = path.substringAfterLast("/")
+            // Replace all dashes with dots
+            val converted = lastSegment.replace("-", ".")
+            // Ensure it ends with .apk
+            if (converted.endsWith(".apk")) converted else "$converted.apk"
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to extract APK name from URL: $urlString", e)
+            "base.apk"
+        }
+    }
+
     fun installFromUrls(urls: List<String>, hideOverlay: Boolean = false): ApiResponse {
         if (urls.isEmpty()) return ApiResponse.Error("No APK URLs provided")
 
@@ -715,138 +735,263 @@ class ApiHandler(
             )
         }
 
-        val results = JSONArray()
-        var successCount = 0
         val uniqueUrls = urls.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+        Log.i(TAG, "Installing ${uniqueUrls.size} APK(s) in single session")
 
         synchronized(installLock) {
-            for (urlString in uniqueUrls) {
-                val result = JSONObject().apply { put("url", urlString) }
+            try {
+                // Check total size and storage before starting
+                var totalExpectedSize = 0L
+                val urlMetadata = mutableListOf<Triple<String, String, Long>>() // url, apkName, contentLength
 
-                try {
+                for (urlString in uniqueUrls) {
                     val uri = urlString.toUri()
                     val scheme = uri.scheme?.lowercase()
                     if (scheme != "https" && scheme != "http") {
-                        result.put("success", false)
-                        result.put("error", "Unsupported URL scheme: ${scheme ?: "null"}")
-                        results.put(result)
-                        continue
+                        return ApiResponse.Error("Unsupported URL scheme for $urlString: ${scheme ?: "null"}")
                     }
 
-                    val connection = (URL(urlString).openConnection() as HttpURLConnection).apply {
+                    // HEAD request to get content length without downloading
+                    val headConnection = (URL(urlString).openConnection() as HttpURLConnection).apply {
                         instanceFollowRedirects = true
                         connectTimeout = 15_000
-                        readTimeout = 60_000
-                        requestMethod = "GET"
-                        setRequestProperty(
-                            "Accept",
-                            "application/vnd.android.package-archive,application/octet-stream,*/*",
-                        )
+                        requestMethod = "HEAD"
                     }
 
                     try {
-                        val code = connection.responseCode
+                        val code = headConnection.responseCode
                         if (code !in 200..299) {
-                            val errorBody =
-                                connection.errorStream?.bufferedReader()?.use { reader ->
-                                    val text = reader.readText()
-                                    if (text.length > MAX_ERROR_BODY_SIZE) text.take(
-                                        MAX_ERROR_BODY_SIZE
-                                    ) else text
-                                }
-                            result.put("success", false)
-                            result.put(
-                                "error",
-                                buildString {
-                                    append("Download failed: HTTP $code")
-                                    connection.responseMessage?.let { msg ->
-                                        if (msg.isNotBlank()) append(" $msg")
-                                    }
-                                    if (!errorBody.isNullOrBlank()) append(": $errorBody")
-                                },
-                            )
-                            results.put(result)
-                            continue
+                            Log.w(TAG, "HEAD request failed for $urlString: HTTP $code, will try GET")
                         }
-
-                        val contentLength = connection.contentLengthLong
-
-                        if (contentLength > MAX_APK_BYTES) {
-                            result.put("success", false)
-                            result.put(
-                                "error",
-                                "APK too large: $contentLength bytes (max $MAX_APK_BYTES)",
-                            )
-                            results.put(result)
-                            continue
+                        val contentLength = headConnection.contentLengthLong
+                        if (contentLength > 0) {
+                            if (contentLength > MAX_APK_BYTES) {
+                                return ApiResponse.Error("APK too large: $urlString ($contentLength bytes, max $MAX_APK_BYTES)")
+                            }
+                            totalExpectedSize += contentLength
                         }
-
-                        val availableBytes = getAvailableInternalBytes()
-                        if (availableBytes != null) {
-                            val requiredBytes = when {
-                                contentLength > 0 -> contentLength + INSTALL_FREE_SPACE_MARGIN_BYTES
-                                else -> INSTALL_FREE_SPACE_MARGIN_BYTES
-                            }
-                            if (availableBytes < requiredBytes) {
-                                result.put("success", false)
-                                result.put(
-                                    "error",
-                                    "Insufficient storage: need ~$requiredBytes bytes, have $availableBytes bytes",
-                                )
-                                results.put(result)
-                                continue
-                            }
-                        }
-
-                        val installResponse =
-                            connection.inputStream.use { stream ->
-                                installApp(stream, hideOverlay, expectedSizeBytes = contentLength)
-                            }
-
-                        when (installResponse) {
-                            is ApiResponse.Success -> {
-                                successCount += 1
-                                result.put("success", true)
-                                result.put("message", installResponse.data.toString())
-                            }
-
-                            is ApiResponse.Error -> {
-                                result.put("success", false)
-                                result.put("error", installResponse.message)
-                            }
-
-                            else -> {
-                                result.put("success", false)
-                                result.put(
-                                    "error",
-                                    "Unexpected install response: ${installResponse.javaClass.simpleName}",
-                                )
-                            }
-                        }
+                        val apkName = extractApkNameFromUrl(urlString)
+                        urlMetadata.add(Triple(urlString, apkName, contentLength))
+                        Log.i(TAG, "APK: $apkName, size: $contentLength bytes")
                     } finally {
-                        try {
-                            connection.disconnect()
-                        } catch (_: Exception) {
-                        }
+                        headConnection.disconnect()
                     }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Install from URL failed: $urlString", e)
-                    result.put("success", false)
-                    result.put("error", e.message ?: "Install from URL failed")
                 }
 
-                results.put(result)
+                // Check available storage
+                if (totalExpectedSize > 0) {
+                    val availableBytes = getAvailableInternalBytes()
+                    if (availableBytes != null) {
+                        val requiredBytes = totalExpectedSize + INSTALL_FREE_SPACE_MARGIN_BYTES
+                        if (availableBytes < requiredBytes) {
+                            return ApiResponse.Error(
+                                "Insufficient storage: need ~$requiredBytes bytes, have $availableBytes bytes"
+                            )
+                        }
+                    }
+                }
+
+                // Create a single session for all APKs (split APKs must be in the same session)
+                val packageInstaller = getPackageManager().packageInstaller
+                val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
+                val sessionId = packageInstaller.createSession(params)
+                val session = packageInstaller.openSession(sessionId)
+
+                session.use {
+                    // Download and write each APK to the same session
+                    for ((urlString, apkName, expectedSize) in urlMetadata) {
+                        Log.i(TAG, "Downloading $apkName from $urlString")
+
+                        val connection = (URL(urlString).openConnection() as HttpURLConnection).apply {
+                            instanceFollowRedirects = true
+                            connectTimeout = 15_000
+                            readTimeout = 60_000
+                            requestMethod = "GET"
+                            setRequestProperty(
+                                "Accept",
+                                "application/vnd.android.package-archive,application/octet-stream,*/*",
+                            )
+                        }
+
+                        try {
+                            val code = connection.responseCode
+                            if (code !in 200..299) {
+                                val errorBody = connection.errorStream?.bufferedReader()?.use { reader ->
+                                    val text = reader.readText()
+                                    if (text.length > MAX_ERROR_BODY_SIZE) text.take(MAX_ERROR_BODY_SIZE) else text
+                                }
+                                return ApiResponse.Error(
+                                    buildString {
+                                        append("Download failed for $apkName: HTTP $code")
+                                        connection.responseMessage?.let { msg ->
+                                            if (msg.isNotBlank()) append(" $msg")
+                                        }
+                                        if (!errorBody.isNullOrBlank()) append(": $errorBody")
+                                    }
+                                )
+                            }
+
+                            val contentLength = connection.contentLengthLong
+                            val writeSize = if (contentLength > 0) contentLength else if (expectedSize > 0) expectedSize else -1L
+
+                            val out = it.openWrite(apkName, 0, writeSize)
+                            var totalBytes = 0L
+                            connection.inputStream.use { rawInput ->
+                                val input = SizeLimitedInputStream(rawInput, MAX_APK_BYTES)
+                                val buffer = ByteArray(65536)
+                                var c: Int
+                                while (input.read(buffer).also { c = it } != -1) {
+                                    out.write(buffer, 0, c)
+                                    totalBytes += c
+                                }
+                            }
+                            session.fsync(out)
+                            out.close()
+                            Log.i(TAG, "Written $totalBytes bytes for $apkName to install session")
+                        } finally {
+                            try {
+                                connection.disconnect()
+                            } catch (_: Exception) {
+                            }
+                        }
+                    }
+
+                    // Now commit the session with all APKs
+                    val latch = CountDownLatch(1)
+                    var success = false
+                    var errorMsg = ""
+                    var confirmationLaunched = false
+                    val wasOverlayVisible = stateRepo.isOverlayVisible()
+                    val shouldHideOverlay = hideOverlay && wasOverlayVisible
+                    var receiverRegistered = false
+
+                    val receiver = object : BroadcastReceiver() {
+                        override fun onReceive(c: Context?, intent: Intent?) {
+                            val status = intent?.getIntExtra(
+                                PackageInstaller.EXTRA_STATUS,
+                                PackageInstaller.STATUS_FAILURE,
+                            )
+                            val message = intent?.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE)
+
+                            Log.d(TAG, "Install Status Received: $status, Message: $message")
+
+                            if (status == PackageInstaller.STATUS_PENDING_USER_ACTION) {
+                                val confirmationIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                    intent?.getParcelableExtra(Intent.EXTRA_INTENT, Intent::class.java)
+                                } else {
+                                    @Suppress("DEPRECATION")
+                                    intent?.getParcelableExtra(Intent.EXTRA_INTENT)
+                                }
+
+                                if (confirmationIntent == null) {
+                                    errorMsg = "Install confirmation intent missing"
+                                    latch.countDown()
+                                    return
+                                }
+
+                                if (!confirmationLaunched) {
+                                    confirmationLaunched = true
+                                    confirmationIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    try {
+                                        context.startActivity(confirmationIntent)
+                                    } catch (e: Exception) {
+                                        errorMsg = "Failed to launch install confirmation: ${e.message}"
+                                        latch.countDown()
+                                    }
+                                }
+                                return
+                            }
+
+                            if (status == PackageInstaller.STATUS_SUCCESS) {
+                                success = true
+                                latch.countDown()
+                                return
+                            }
+
+                            errorMsg = message ?: "Unknown error (Status Code: $status)"
+                            if (status == PackageInstaller.STATUS_FAILURE_INVALID) errorMsg += " [INVALID]"
+                            if (status == PackageInstaller.STATUS_FAILURE_INCOMPATIBLE) errorMsg += " [INCOMPATIBLE]"
+                            if (status == PackageInstaller.STATUS_FAILURE_STORAGE) errorMsg += " [STORAGE]"
+                            latch.countDown()
+                        }
+                    }
+
+                    val action = "com.droidrun.portal.INSTALL_COMPLETE_${sessionId}"
+                    val pendingIntent = PendingIntent.getBroadcast(
+                        context,
+                        sessionId,
+                        Intent(action).setPackage(context.packageName),
+                        PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+                    )
+
+                    try {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            context.registerReceiver(
+                                receiver,
+                                IntentFilter(action),
+                                Context.RECEIVER_NOT_EXPORTED,
+                            )
+                        } else {
+                            @Suppress("DEPRECATION")
+                            context.registerReceiver(receiver, IntentFilter(action))
+                        }
+                        receiverRegistered = true
+
+                        if (shouldHideOverlay) {
+                            Log.i(TAG, "Hiding overlay to prevent Tapjacking protection...")
+                            stateRepo.setOverlayVisible(false)
+                        }
+
+                        // Bring the app to the foreground
+                        Log.i(TAG, "Bringing app to foreground for install prompt...")
+                        val foregroundIntent = Intent(context, com.droidrun.portal.ui.MainActivity::class.java).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                        }
+                        context.startActivity(foregroundIntent)
+
+                        try {
+                            Thread.sleep(INSTALL_UI_DELAY_MS)
+                        } catch (ignored: InterruptedException) {
+                        }
+
+                        Log.i(TAG, "Committing install session with ${urlMetadata.size} APK(s)...")
+                        it.commit(pendingIntent.intentSender)
+
+                        val completed = latch.await(3, TimeUnit.MINUTES)
+                        if (!completed && errorMsg.isBlank()) {
+                            errorMsg = "Timed out waiting for install result"
+                        }
+                    } finally {
+                        if (receiverRegistered) {
+                            try {
+                                context.unregisterReceiver(receiver)
+                            } catch (e: Exception) {
+                                Log.w(TAG, "Failed to unregister install receiver", e)
+                            }
+                        }
+                        if (shouldHideOverlay) {
+                            stateRepo.setOverlayVisible(wasOverlayVisible)
+                        }
+                    }
+
+                    return if (success) {
+                        val summary = JSONObject().apply {
+                            put("overallSuccess", true)
+                            put("successCount", uniqueUrls.size)
+                            put("failureCount", 0)
+                            put("message", "All ${uniqueUrls.size} APK(s) installed successfully")
+                        }
+                        ApiResponse.RawObject(summary)
+                    } else {
+                        ApiResponse.Error("Install failed: $errorMsg")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Install from URLs failed", e)
+                return ApiResponse.Error("Install exception: ${e.message}")
             }
         }
-
-        val summary = JSONObject().apply {
-            put("overallSuccess", successCount == uniqueUrls.size)
-            put("successCount", successCount)
-            put("failureCount", uniqueUrls.size - successCount)
-            put("results", results)
-        }
-
-        return ApiResponse.RawObject(summary)
     }
 
     fun startStream(params: JSONObject): ApiResponse {
