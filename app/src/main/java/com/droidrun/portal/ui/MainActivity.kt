@@ -6,6 +6,8 @@ import com.droidrun.portal.service.DroidrunNotificationListener
 import com.droidrun.portal.state.ConnectionState
 import com.droidrun.portal.state.ConnectionStateManager
 import com.droidrun.portal.service.ReverseConnectionService
+import com.droidrun.portal.input.DroidrunKeyboardIME
+import android.view.inputmethod.InputMethodManager
 
 import android.content.Context
 import android.content.Intent
@@ -146,6 +148,11 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             openAccessibilitySettings()
         }
 
+        // Setup enable keyboard button
+        binding.enableKeyboardButton.setOnClickListener {
+            openKeyboardSettings()
+        }
+
         // Setup logs link to show dialog
         binding.logsLink.setOnClickListener {
             showLogsDialog()
@@ -171,6 +178,14 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         syncUIWithAccessibilityService()
         updateSocketServerStatus()
         updateProductionModeUI()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        // Update keyboard warning when window regains focus (e.g., after IME picker closes)
+        if (hasFocus) {
+            updateKeyboardWarningBanner()
+        }
     }
 
     private fun updateProductionModeUI() {
@@ -300,6 +315,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
 
     private fun updateStatusIndicators() {
         updateAccessibilityStatusIndicator()
+        updateKeyboardWarningBanner()
     }
 
     private fun syncUIWithAccessibilityService() {
@@ -634,6 +650,81 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             // Show banner, hide enabled card
             binding.accessibilityStatusEnabled.visibility = View.GONE
             binding.accessibilityBanner.visibility = View.VISIBLE
+        }
+    }
+
+    // Update keyboard warning banner visibility
+    private fun updateKeyboardWarningBanner() {
+        val isKeyboardSelected = isKeyboardSelected()
+        val isAccessibilityEnabled = isAccessibilityServiceEnabled()
+
+        // Only show the keyboard warning if accessibility is enabled (so the app is functional)
+        // but the keyboard IME is not selected as active input method (so we're using fallback input)
+        if (isAccessibilityEnabled && !isKeyboardSelected) {
+            binding.keyboardWarningBanner.visibility = View.VISIBLE
+        } else {
+            binding.keyboardWarningBanner.visibility = View.GONE
+        }
+    }
+
+    // Check if DroidrunKeyboardIME is selected as the active input method
+    private fun isKeyboardSelected(): Boolean {
+        return DroidrunKeyboardIME.isSelected(this)
+    }
+
+    // Open keyboard/input method settings
+    private fun openKeyboardSettings() {
+        // First check if keyboard is enabled but not selected - show input method picker
+        val isEnabled = isKeyboardEnabled()
+        
+        if (isEnabled) {
+            // Keyboard is enabled, just needs to be selected - show the IME picker
+            try {
+                val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                imm.showInputMethodPicker()
+            } catch (e: Exception) {
+                Log.e("MainActivity", "Error showing IME picker: ${e.message}")
+                // Fallback to settings
+                openInputMethodSettings()
+            }
+        } else {
+            // Keyboard is not enabled - go to settings to enable it first
+            openInputMethodSettings()
+        }
+    }
+
+    // Check if DroidrunKeyboardIME is enabled (in the list of available keyboards)
+    private fun isKeyboardEnabled(): Boolean {
+        return try {
+            val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+            val enabledInputMethods = imm.enabledInputMethodList
+
+            enabledInputMethods.any { 
+                it.packageName == packageName && it.serviceName.contains("DroidrunKeyboardIME")
+            }
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Error checking keyboard enabled status: ${e.message}")
+            false
+        }
+    }
+
+    // Open input method settings
+    private fun openInputMethodSettings() {
+        try {
+            val intent = Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)
+            startActivity(intent)
+            Toast.makeText(
+                this,
+                "Enable Droidrun Keyboard, then select it as your keyboard",
+                Toast.LENGTH_LONG
+            ).show()
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Error opening keyboard settings: ${e.message}")
+            Toast.makeText(
+                this,
+                "Error opening keyboard settings",
+                Toast.LENGTH_SHORT
+            ).show()
         }
     }
 

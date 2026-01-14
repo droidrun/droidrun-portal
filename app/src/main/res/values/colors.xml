@@ -45,6 +45,8 @@
     <!-- Alert and status colors -->
     <color name="alert_error_bg">#BB4A5B</color>
     <color name="alert_error_button">#C2717E</color>
+    <color name="alert_warning_bg">#6B5A00</color>
+    <color name="alert_warning_button">#8A7A2E</color>
     <color name="status_success">#00B073</color>
     <color name="status_error">#d32f2f</color>
 

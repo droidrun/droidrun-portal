@@ -77,4 +77,8 @@
     <!-- Settings - Permissions -->
     <string name="install_unknown_apps_label">Install Unknown Apps</string>
     <string name="install_unknown_apps_description">Allow installing APK files</string>
+
+    <!-- Keyboard Warning -->
+    <string name="keyboard_not_enabled_warning">Droidrun Keyboard not active. Using accessibility fallback for text input.</string>
+    <string name="select_keyboard">Select</string>
 </resources>
