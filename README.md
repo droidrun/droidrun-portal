@@ -18,10 +18,12 @@ Droidrun Portal is an Android accessibility service that provides real-time visu
 
 ## ✨ Features
 
-### 🔍 Element Detection with Visual Overlay
-- Identifies all interactive elements (clickable, checkable, editable, scrollable, and focusable)
-- Handles nested elements and scrollable containers
-- Assigns unique indices to interactive elements for reference
+- Interactive overlay that highlights clickable, checkable, editable, scrollable, and focusable elements
+- Local control APIs (HTTP socket server, WebSocket JSON-RPC, and ContentProvider)
+- Reverse WebSocket connection for cloud control
+- WebRTC screen streaming with auto-accept support
+- APK install from URLs (including split APKs) with optional auto-accept
+- Notification event streaming with per-event toggles
 
 ## 🚀 Usage
 
@@ -29,14 +31,41 @@ Droidrun Portal is an Android accessibility service that provides real-time visu
 1. Install the app on your Android device
 2. Enable the accessibility service in Android Settings → Accessibility → Droidrun Portal
 3. Grant overlay permission when prompted
+4. (Optional) Open **Settings** in the app to enable local servers or reverse connection
+
+### 🔐 Auth Token (Local APIs)
+
+Droidrun Portal generates a local auth token for HTTP and WebSocket access.
+
+- In the app: copy the token from the main screen
+- Via ADB:
+  ```bash
+  adb shell content query --uri content://com.droidrun.portal/auth_token
+  ```
+
+### 🧩 Local APIs
+
+Droidrun Portal exposes three local interfaces:
+
+- HTTP socket server (default port 8080)
+- WebSocket server (default port 8081)
+- ContentProvider (ADB commands)
+
+See [Local API](docs/local-api.md) for full details and examples.
 
 ### 📡 WebSocket Events
 
-Droidrun Portal includes a WebSocket server for real-time event streaming (notifications, etc.).
+Droidrun Portal streams notification events over WebSocket when enabled in Settings.
 
-See the [WebSocket Events documentation](docs/websocket-events.md) for setup and usage.
+See the [WebSocket Events documentation](docs/websocket-events.md) for setup, permissions, and event formats.
 
-### 💻 ADB Commands
+### 🌐 Reverse Connection (Cloud)
+
+Enable reverse connection to let the device initiate an outbound WebSocket connection to a host (used by Mobilerun Cloud).
+
+See [Reverse Connection](docs/reverse-connection.md) for configuration details and the streaming protocol.
+
+### 💻 ADB Commands (ContentProvider)
 
 All commands use the ContentProvider authority `content://com.droidrun.portal/`.
 
@@ -72,6 +101,9 @@ adb shell content query --uri 'content://com.droidrun.portal/state_full?filter=f
 
 # Get list of installed launchable apps
 adb shell content query --uri content://com.droidrun.portal/packages
+
+# Get local auth token for HTTP/WS access
+adb shell content query --uri content://com.droidrun.portal/auth_token
 ```
 
 #### Insert Commands (Actions & Configuration)
@@ -98,6 +130,16 @@ adb shell content insert --uri content://com.droidrun.portal/overlay_visible --b
 
 # Configure REST API socket server port (default: 8080)
 adb shell content insert --uri content://com.droidrun.portal/socket_port --bind port:i:8090
+
+# Enable/disable local WebSocket server (default port: 8081)
+adb shell content insert --uri content://com.droidrun.portal/toggle_websocket_server --bind enabled:b:true --bind port:i:8081
+
+# Configure reverse connection (host URL + optional token/service key)
+adb shell content insert --uri content://com.droidrun.portal/configure_reverse_connection --bind url:s:"wss://api.mobilerun.ai/v1/devices/{deviceId}/join" --bind token:s:"YOUR_TOKEN" --bind enabled:b:true
+adb shell content insert --uri content://com.droidrun.portal/configure_reverse_connection --bind service_key:s:"YOUR_KEY"
+
+# Toggle production mode UI
+adb shell content insert --uri content://com.droidrun.portal/toggle_production_mode --bind enabled:b:true
 ```
 
 #### Common Key Codes
@@ -116,7 +158,7 @@ Element data is returned in JSON format through the ContentProvider queries. The
 ```json
 {
   "status": "success",
-  "data": "..."
+  "result": "..."
 }
 ```
 
