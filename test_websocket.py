@@ -3,8 +3,10 @@ import websockets
 import json
 import subprocess
 import sys
+import os
 
 DEFAULT_PORT = 8081
+DEFAULT_TOKEN = os.environ.get("PORTAL_TOKEN", "").strip()
 
 
 def setup_adb_forward(port: int = DEFAULT_PORT) -> bool:
@@ -30,8 +32,14 @@ def setup_adb_forward(port: int = DEFAULT_PORT) -> bool:
         return False
 
 
-async def test_connection(port: int = DEFAULT_PORT):
-    uri = f"ws://localhost:{port}"
+def build_ws_uri(port: int, token: str) -> str:
+    if token:
+        return f"ws://localhost:{port}/?token={token}"
+    return f"ws://localhost:{port}"
+
+
+async def test_connection(port: int = DEFAULT_PORT, token: str = ""):
+    uri = build_ws_uri(port, token)
     print(f"Connecting to {uri}...")
 
     try:
@@ -86,15 +94,19 @@ async def test_connection(port: int = DEFAULT_PORT):
 
 def main():
     port = DEFAULT_PORT
+    token = DEFAULT_TOKEN
 
     # Parse optional port argument
     if len(sys.argv) > 1:
         try:
             port = int(sys.argv[1])
         except ValueError:
-            print(f"Usage: {sys.argv[0]} [port]")
+            print(f"Usage: {sys.argv[0]} [port] [token]")
             print(f"  Default port: {DEFAULT_PORT}")
             sys.exit(1)
+
+    if len(sys.argv) > 2:
+        token = sys.argv[2].strip()
 
     # Set up ADB forwarding first
     if not setup_adb_forward(port):
@@ -102,7 +114,7 @@ def main():
 
     # Run the WebSocket listener
     try:
-        asyncio.run(test_connection(port))
+        asyncio.run(test_connection(port, token))
     except KeyboardInterrupt:
         print("\nTest stopped by user")
 

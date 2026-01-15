@@ -8,7 +8,15 @@ Droidrun Portal includes a WebSocket server that broadcasts real-time events fro
 
 Open the Droidrun Portal app and enable the WebSocket server in settings. The default port is `8081`.
 
-### 2. Set Up ADB Port Forwarding
+### 2. Get the auth token
+
+Local WebSocket access requires a token. You can copy it from the main screen or query via ADB:
+
+```bash
+adb shell content query --uri content://com.droidrun.portal/auth_token
+```
+
+### 3. Set Up ADB Port Forwarding
 
 Forward the WebSocket port from your device to your computer:
 
@@ -16,13 +24,20 @@ Forward the WebSocket port from your device to your computer:
 adb forward tcp:8081 tcp:8081
 ```
 
-### 3. Connect
+### 4. Connect
 
-Connect to `ws://localhost:8081` using any WebSocket client.
+Connect to `ws://localhost:8081` using any WebSocket client and pass the token:
+
+- Query param: `ws://localhost:8081/?token=YOUR_TOKEN`
+- Or send `Authorization: Bearer YOUR_TOKEN` header
+
+Make sure **Notification Access** is granted and the **Notification** event toggle is enabled in Settings.
 
 ## Event Format
 
 All events follow this structure:
+
+This WebSocket also supports JSON-RPC-style commands; see [Local API](local-api.md) for the command format and methods.
 
 ```json
 {
@@ -91,10 +106,13 @@ Use the included test script to connect and listen for events:
 pip install websockets
 
 # Run the test script (automatically sets up ADB forward)
-python test_websocket.py
+python test_websocket.py 8081 YOUR_TOKEN
+
+# Or set the token via environment variable
+PORTAL_TOKEN=YOUR_TOKEN python test_websocket.py
 
 # Or specify a custom port
-python test_websocket.py 8082
+python test_websocket.py 8082 YOUR_TOKEN
 ```
 
 Example output:
@@ -102,7 +120,7 @@ Example output:
 ```
 Setting up ADB forward tcp:8081 -> tcp:8081...
 ✅ ADB forward established on port 8081
-Connecting to ws://localhost:8081...
+Connecting to ws://localhost:8081/?token=YOUR_TOKEN...
 ✅ Connected successfully!
 
 Sending PING...
@@ -131,7 +149,7 @@ import websockets
 import json
 
 async def listen():
-    async with websockets.connect("ws://localhost:8081") as ws:
+    async with websockets.connect("ws://localhost:8081/?token=YOUR_TOKEN") as ws:
         while True:
             event = json.loads(await ws.recv())
             print(f"[{event['type']}] {event.get('payload', {})}")
