@@ -37,6 +37,7 @@ import org.webrtc.PeerConnection
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import androidx.core.app.NotificationCompat
+import com.droidrun.portal.state.AppVisibilityTracker
 import com.droidrun.portal.ui.PermissionDialogActivity
 
 class ApiHandler(
@@ -53,6 +54,12 @@ class ApiHandler(
         private const val INSTALL_FREE_SPACE_MARGIN_BYTES = 200L * 1024 * 1024 // 200 MiB
         private const val INSTALL_UI_DELAY_MS = 1000L
         private const val MAX_ERROR_BODY_SIZE = 2048
+        const val ACTION_INSTALL_RESULT = "com.droidrun.portal.action.INSTALL_RESULT"
+        const val EXTRA_INSTALL_SUCCESS = "install_success"
+        const val EXTRA_INSTALL_MESSAGE = "install_message"
+        const val EXTRA_INSTALL_PACKAGE = "install_package"
+        private const val INSTALL_NOTIFICATION_CHANNEL_ID = "install_result_channel"
+        private const val INSTALL_NOTIFICATION_ID = 4001
     }
 
     private val installLock = Any()
@@ -593,6 +600,7 @@ class ApiHandler(
         var success = false
         var errorMsg = ""
         var confirmationLaunched = false
+        var installedPackageName: String? = null
         val wasOverlayVisible = stateRepo.isOverlayVisible()
         val shouldHideOverlay = hideOverlay && wasOverlayVisible
         var receiverRegistered = false
@@ -605,6 +613,8 @@ class ApiHandler(
                         PackageInstaller.STATUS_FAILURE,
                     )
                 val message = intent?.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE)
+                val packageName = intent?.getStringExtra(PackageInstaller.EXTRA_PACKAGE_NAME)
+                if (!packageName.isNullOrBlank()) installedPackageName = packageName
 
                 Log.d("ApiHandler", "Install Status Received: $status, Message: $message")
 
@@ -713,10 +723,65 @@ class ApiHandler(
             }
         }
 
-        return if (success)
+        val packageSuffix = installedPackageName?.let { " ($it)" } ?: ""
+        val response = if (success) {
             ApiResponse.Success("App installed successfully")
-        else
+        } else {
             ApiResponse.Error("Install failed: $errorMsg")
+        }
+
+        val message = if (success) {
+            "App installed successfully$packageSuffix"
+        } else {
+            "Install failed$packageSuffix: $errorMsg"
+        }
+
+        notifyInstallResult(success, message, installedPackageName)
+        return response
+    }
+
+    private fun notifyInstallResult(success: Boolean, message: String, packageName: String?) {
+        try {
+            val intent = Intent(ACTION_INSTALL_RESULT)
+                .setPackage(context.packageName)
+                .putExtra(EXTRA_INSTALL_SUCCESS, success)
+                .putExtra(EXTRA_INSTALL_MESSAGE, message)
+                .putExtra(EXTRA_INSTALL_PACKAGE, packageName ?: "")
+            context.sendBroadcast(intent)
+
+            if (!AppVisibilityTracker.isInForeground()) {
+                showInstallNotification(success, message)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to broadcast install result", e)
+        }
+    }
+
+    private fun showInstallNotification(success: Boolean, message: String) {
+        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val channel = NotificationChannel(
+            INSTALL_NOTIFICATION_CHANNEL_ID,
+            "Install Results",
+            NotificationManager.IMPORTANCE_HIGH,
+        )
+        nm.createNotificationChannel(channel)
+
+        val icon = if (success) {
+            android.R.drawable.stat_sys_download_done
+        } else {
+            android.R.drawable.stat_notify_error
+        }
+
+        val notification = NotificationCompat.Builder(context, INSTALL_NOTIFICATION_CHANNEL_ID)
+            .setSmallIcon(icon)
+            .setContentTitle("App install")
+            .setContentText(message)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(message))
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .build()
+
+        nm.notify(INSTALL_NOTIFICATION_ID, notification)
     }
 
     private fun installSplitApksFromUrls(urls: List<String>, hideOverlay: Boolean): ApiResponse {
@@ -1061,15 +1126,13 @@ class ApiHandler(
             )
 
             val channelId = "stream_start_channel"
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val channel = NotificationChannel(
-                    channelId,
-                    "Start Streaming",
-                    NotificationManager.IMPORTANCE_HIGH
-                )
-                val nm = context.getSystemService(NotificationManager::class.java)
-                nm.createNotificationChannel(channel)
-            }
+            val channel = NotificationChannel(
+                channelId,
+                "Start Streaming",
+                NotificationManager.IMPORTANCE_HIGH
+            )
+            val notificationManager = context.getSystemService(NotificationManager::class.java)
+            notificationManager.createNotificationChannel(channel)
 
             val notification = NotificationCompat.Builder(context, channelId)
                 .setSmallIcon(android.R.drawable.ic_menu_camera)
@@ -1080,8 +1143,7 @@ class ApiHandler(
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .build()
 
-            val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            nm.notify(3001, notification)
+            notificationManager.notify(3001, notification)
 
             return ApiResponse.Success("waiting_for_user_notification_tap")
         }

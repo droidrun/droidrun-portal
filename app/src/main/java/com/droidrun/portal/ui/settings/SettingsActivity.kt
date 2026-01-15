@@ -18,6 +18,7 @@ import com.droidrun.portal.service.ReverseConnectionService
 
 import com.droidrun.portal.state.ConnectionState
 import com.droidrun.portal.state.ConnectionStateManager
+import com.droidrun.portal.state.AppVisibilityTracker
 
 class SettingsActivity : AppCompatActivity() {
 
@@ -63,6 +64,16 @@ class SettingsActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         updatePermissionSwitches()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        AppVisibilityTracker.setForeground(true)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        AppVisibilityTracker.setForeground(false)
     }
 
     private fun setupServerSettings() {
