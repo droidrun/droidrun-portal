@@ -18,6 +18,7 @@ import com.droidrun.portal.service.ReverseConnectionService
 
 import com.droidrun.portal.state.ConnectionState
 import com.droidrun.portal.state.ConnectionStateManager
+import com.droidrun.portal.state.AppVisibilityTracker
 
 class SettingsActivity : AppCompatActivity() {
 
@@ -63,6 +64,16 @@ class SettingsActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         updatePermissionSwitches()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        AppVisibilityTracker.setForeground(true)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        AppVisibilityTracker.setForeground(false)
     }
 
     private fun setupServerSettings() {
@@ -169,6 +180,12 @@ class SettingsActivity : AppCompatActivity() {
         binding.switchScreenShareAutoAccept.isChecked = configManager.screenShareAutoAcceptEnabled
         binding.switchScreenShareAutoAccept.setOnCheckedChangeListener { _, isChecked ->
             configManager.screenShareAutoAcceptEnabled = isChecked
+        }
+
+        // Install Auto-Accept
+        binding.switchInstallAutoAccept.isChecked = configManager.installAutoAcceptEnabled
+        binding.switchInstallAutoAccept.setOnCheckedChangeListener { _, isChecked ->
+            configManager.installAutoAcceptEnabled = isChecked
         }
     }
 
@@ -315,4 +332,3 @@ class SettingsActivity : AppCompatActivity() {
         private const val MAX_PORT = 65535
     }
 }
-

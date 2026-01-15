@@ -33,11 +33,14 @@ import android.content.ClipboardManager
 import android.content.ComponentName
 import com.droidrun.portal.databinding.ActivityMainBinding
 import com.droidrun.portal.ui.settings.SettingsActivity
+import com.droidrun.portal.state.AppVisibilityTracker
 import androidx.core.net.toUri
 import androidx.core.graphics.toColorInt
 
 import android.content.BroadcastReceiver
 import android.content.IntentFilter
+import com.droidrun.portal.api.ApiHandler
+import com.google.android.material.snackbar.Snackbar
 
 class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
 
@@ -51,6 +54,18 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
     // Flag to prevent infinite update loops
     private var isProgrammaticUpdate = false
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var isInstallReceiverRegistered = false
+
+    private val installResultReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != ApiHandler.ACTION_INSTALL_RESULT) return
+            val success = intent.getBooleanExtra(ApiHandler.EXTRA_INSTALL_SUCCESS, false)
+            val message =
+                intent.getStringExtra(ApiHandler.EXTRA_INSTALL_MESSAGE)
+                    ?: "App installed successfully"
+            showInstallSnackbar(message, success)
+        }
+    }
 
     // Constants for the position offset slider
     companion object {
@@ -175,6 +190,12 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         ConfigManager.getInstance(this).removeListener(this)
     }
 
+    override fun onStart() {
+        super.onStart()
+        AppVisibilityTracker.setForeground(true)
+        registerInstallResultReceiver()
+    }
+
     override fun onResume() {
         super.onResume()
         // Update the status indicators when app resumes
@@ -182,6 +203,12 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         syncUIWithAccessibilityService()
         updateSocketServerStatus()
         updateProductionModeUI()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        unregisterInstallResultReceiver()
+        AppVisibilityTracker.setForeground(false)
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -201,6 +228,43 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         } else {
             binding.layoutStandardUi.visibility = View.VISIBLE
             binding.layoutProductionMode.visibility = View.GONE
+        }
+    }
+
+    private fun showInstallSnackbar(message: String, success: Boolean) {
+        val snackbar = Snackbar.make(binding.root, message, Snackbar.LENGTH_LONG)
+        if (!success) {
+            snackbar.setBackgroundTint("#D32F2F".toColorInt())
+        }
+        val textView = snackbar.view.findViewById<TextView>(
+            com.google.android.material.R.id.snackbar_text
+        )
+        textView.maxLines = 4
+        textView.ellipsize = null
+        textView.isSingleLine = false
+        snackbar.show()
+    }
+
+    private fun registerInstallResultReceiver() {
+        if (isInstallReceiverRegistered) return
+        val filter = IntentFilter(ApiHandler.ACTION_INSTALL_RESULT)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(installResultReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("DEPRECATION")
+            registerReceiver(installResultReceiver, filter)
+        }
+        isInstallReceiverRegistered = true
+    }
+
+    private fun unregisterInstallResultReceiver() {
+        if (!isInstallReceiverRegistered) return
+        try {
+            unregisterReceiver(installResultReceiver)
+        } catch (e: Exception) {
+            Log.w("MainActivity", "Failed to unregister install receiver", e)
+        } finally {
+            isInstallReceiverRegistered = false
         }
     }
 
@@ -694,7 +758,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
     private fun openKeyboardSettings() {
         // First check if keyboard is enabled but not selected - show input method picker
         val isEnabled = isKeyboardEnabled()
-        
+
         if (isEnabled) {
             // Keyboard is enabled, just needs to be selected - show the IME picker
             try {
@@ -717,7 +781,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
             val enabledInputMethods = imm.enabledInputMethodList
 
-            enabledInputMethods.any { 
+            enabledInputMethods.any {
                 it.packageName == packageName && it.serviceName.contains("DroidrunKeyboardIME")
             }
         } catch (e: Exception) {
