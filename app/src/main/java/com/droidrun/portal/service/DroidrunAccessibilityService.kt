@@ -181,7 +181,8 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
         // Auto-accept MediaProjection dialog (only when reverse connection is active and setting is enabled)
         if (MediaProjectionAutoAccept.isMediaProjectionDialog(event, eventClassName) &&
             ReverseConnectionService.getInstance() != null &&
-            configManager.screenShareAutoAcceptEnabled
+            configManager.screenShareAutoAcceptEnabled &&
+            AutoAcceptGate.isMediaProjectionArmed()
         ) {
             val rootNode = rootInActiveWindow
             if (rootNode != null) {
@@ -197,7 +198,8 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
         }
 
         if (PackageInstallerAutoAccept.isInstallDialog(event, eventClassName) &&
-            configManager.installAutoAcceptEnabled
+            configManager.installAutoAcceptEnabled &&
+            AutoAcceptGate.isInstallArmed()
         ) {
             val rootNode = rootInActiveWindow
             if (rootNode != null) {

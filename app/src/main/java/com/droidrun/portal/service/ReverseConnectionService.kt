@@ -41,6 +41,7 @@ class ReverseConnectionService : Service() {
         private const val RECONNECT_DELAY_MS = 3000L
         private const val TOAST_DEBOUNCE_MS = 60_000L
         private const val CONNECTION_LOST_TIMEOUT_SEC = 30
+        private const val ACTION_DISCONNECT = "com.droidrun.portal.action.REVERSE_DISCONNECT"
 
         @Volatile
         private var instance: ReverseConnectionService? = null
@@ -77,6 +78,11 @@ class ReverseConnectionService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_DISCONNECT) {
+            Log.i(TAG, "Disconnect requested via notification")
+            disconnectByUser()
+            return START_NOT_STICKY
+        }
         ensureForeground()
         if (!isServiceRunning.getAndSet(true)) {
             Log.i(TAG, "Starting Reverse Connection Service")
@@ -246,6 +252,15 @@ class ReverseConnectionService : Service() {
         }
     }
 
+    private fun disconnectByUser() {
+        configManager.reverseConnectionEnabled = false
+        isServiceRunning.set(false)
+        isReconnecting.set(false)
+        handler.removeCallbacksAndMessages(null)
+        disconnect()
+        stopSelf()
+    }
+
     private fun handleWsDisconnected() {
         val manager = WebRtcManager.getExistingInstance()
         if (manager != null) {
@@ -326,11 +341,25 @@ class ReverseConnectionService : Service() {
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+        val disconnectIntent = Intent(this, ReverseConnectionService::class.java).apply {
+            action = ACTION_DISCONNECT
+        }
+        val disconnectPendingIntent = PendingIntent.getService(
+            this,
+            1,
+            disconnectIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(getString(R.string.reverse_connection_service_title))
             .setContentText(getString(R.string.reverse_connection_service_text))
             .setSmallIcon(android.R.drawable.stat_notify_sync)
+            .addAction(
+                android.R.drawable.ic_menu_close_clear_cancel,
+                getString(R.string.reverse_connection_disconnect_action),
+                disconnectPendingIntent
+            )
             .setContentIntent(pendingIntent)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
