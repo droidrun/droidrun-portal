@@ -6,6 +6,7 @@ import android.content.Intent
 import android.media.projection.MediaProjectionManager
 import android.os.Bundle
 import android.util.Log
+import com.droidrun.portal.service.AutoAcceptGate
 import com.droidrun.portal.service.ReverseConnectionService
 import com.droidrun.portal.service.ScreenCaptureService
 import com.droidrun.portal.streaming.WebRtcManager
@@ -27,11 +28,13 @@ class ScreenCaptureActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         mediaProjectionManager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        AutoAcceptGate.armMediaProjection()
         startActivityForResult(mediaProjectionManager.createScreenCaptureIntent(), REQUEST_CODE_CAPTURE_PERM)
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         if (requestCode == REQUEST_CODE_CAPTURE_PERM) {
+            AutoAcceptGate.disarmMediaProjection()
             if (resultCode == Activity.RESULT_OK && data != null) {
                 // Pass the permission result to the service
                 val serviceIntent = Intent(this, ScreenCaptureService::class.java).apply {

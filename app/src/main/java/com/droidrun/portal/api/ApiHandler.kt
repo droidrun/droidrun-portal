@@ -34,6 +34,7 @@ import com.droidrun.portal.service.ScreenCaptureService
 import com.droidrun.portal.streaming.WebRtcManager
 import org.webrtc.IceCandidate
 import org.webrtc.PeerConnection
+import com.droidrun.portal.service.AutoAcceptGate
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import androidx.core.app.NotificationCompat
@@ -639,6 +640,7 @@ class ApiHandler(
                     if (!confirmationLaunched) {
                         confirmationIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                         try {
+                            AutoAcceptGate.armInstall()
                             context.startActivity(confirmationIntent)
                         } catch (e: Exception) {
                             errorMsg = "Failed to launch install confirmation: ${e.message}"
@@ -711,6 +713,7 @@ class ApiHandler(
                 errorMsg = "Timed out waiting for install result"
             }
         } finally {
+            AutoAcceptGate.disarmInstall()
             if (receiverRegistered) {
                 try {
                     context.unregisterReceiver(receiver)

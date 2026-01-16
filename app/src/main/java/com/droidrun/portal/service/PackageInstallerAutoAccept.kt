@@ -16,6 +16,7 @@ object PackageInstallerAutoAccept {
     private const val COOLDOWN_MS = 2000L
     private const val FAILURE_LOG_COOLDOWN_MS = 10_000L
     private const val MAX_DUMP_NODES = 80
+    private const val MAX_SEARCH_NODES = 120
 
     private var lastSuccessAtMs = 0L
     private var lastFailureLogAtMs = 0L
@@ -35,26 +36,37 @@ object PackageInstallerAutoAccept {
     )
 
     private val POSITIVE_BUTTON_IDS = listOf(
-        "android:id/button1",
-        "com.android.packageinstaller:id/ok_button",
-        "com.android.packageinstaller:id/confirm_button",
         "com.android.packageinstaller:id/install_button",
+        "com.android.packageinstaller:id/confirm_button",
+        "com.android.packageinstaller:id/ok_button",
         "com.google.android.packageinstaller:id/ok_button",
         "com.google.android.packageinstaller:id/confirm_button",
         "com.google.android.packageinstaller:id/install_button",
         "com.miui.packageinstaller:id/ok_button",
         "com.samsung.android.packageinstaller:id/ok_button",
+        "android:id/button1",
     )
 
     private val POSITIVE_BUTTON_TEXTS = listOf(
         "Install",
         "Install anyway",
         "Update",
-        "Continue",
-        "Next",
-        "OK",
-        "Done",
-        "Accept",
+    )
+
+    private val INSTALL_CONFIRM_VIEW_IDS = KNOWN_PACKAGES.flatMap { pkg ->
+        listOf(
+            "$pkg:id/install_confirm_question",
+            "$pkg:id/install_confirm_question_update",
+        )
+    }
+
+    private val INSTALL_CONFIRM_ID_SUFFIXES = listOf(
+        "/install_confirm_question",
+        "/install_confirm_question_update",
+    )
+
+    private val INSTALL_BUTTON_ID_SUFFIXES = listOf(
+        "/install_button",
     )
 
     sealed class AutoAcceptResult {
@@ -90,6 +102,14 @@ object PackageInstallerAutoAccept {
         val packageName = rootNode.packageName?.toString().orEmpty()
         val className = eventClassName.orEmpty()
         if (!isLikelyInstaller(packageName, className)) {
+            return AutoAcceptResult.NoAction
+        }
+
+        if (AutoAcceptGate.shouldDumpInstallTree()) {
+            logTreeDump(rootNode, "install dialog snapshot")
+        }
+
+        if (!hasInstallPromptSignal(rootNode)) {
             return AutoAcceptResult.NoAction
         }
 
@@ -171,6 +191,67 @@ object PackageInstallerAutoAccept {
         return null
     }
 
+    private fun hasInstallPromptSignal(rootNode: AccessibilityNodeInfo): Boolean {
+        if (hasAnyViewId(rootNode, INSTALL_CONFIRM_VIEW_IDS)) return true
+        if (hasViewIdSuffix(rootNode, INSTALL_BUTTON_ID_SUFFIXES)) return true
+        return hasViewIdSuffix(rootNode, INSTALL_CONFIRM_ID_SUFFIXES)
+    }
+
+    private fun hasAnyViewId(
+        rootNode: AccessibilityNodeInfo,
+        viewIds: List<String>,
+    ): Boolean {
+        for (viewId in viewIds) {
+            val nodes = rootNode.findAccessibilityNodeInfosByViewId(viewId)
+            if (nodes.isNotEmpty()) {
+                nodes.forEach { it.recycle() }
+                return true
+            }
+        }
+        return false
+    }
+
+    private fun hasViewIdSuffix(
+        rootNode: AccessibilityNodeInfo,
+        suffixes: List<String>,
+    ): Boolean {
+        val queue: ArrayDeque<AccessibilityNodeInfo> = ArrayDeque()
+        queue.add(rootNode)
+        var count = 0
+        while (queue.isNotEmpty() && count < MAX_SEARCH_NODES) {
+            val node = queue.removeFirst()
+            val viewId = node.viewIdResourceName.orEmpty()
+            if (suffixes.any { viewId.endsWith(it) }) {
+                recycleQueue(queue, rootNode)
+                if (node != rootNode) node.recycle()
+                return true
+            }
+            val childCount = node.childCount
+            for (i in 0 until childCount) {
+                val child = node.getChild(i)
+                if (child != null) queue.add(child)
+            }
+            if (node != rootNode) {
+                node.recycle()
+            }
+            count += 1
+        }
+        recycleQueue(queue, rootNode)
+        return false
+    }
+
+    private fun recycleQueue(
+        queue: ArrayDeque<AccessibilityNodeInfo>,
+        rootNode: AccessibilityNodeInfo,
+    ) {
+        while (queue.isNotEmpty()) {
+            val node = queue.removeFirst()
+            if (node != rootNode) {
+                node.recycle()
+            }
+        }
+    }
+
     private fun findClickableParent(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
         if (node.isClickable) return node
         var parent = node.parent
@@ -191,6 +272,16 @@ object PackageInstallerAutoAccept {
         if (now - lastFailureLogAtMs < FAILURE_LOG_COOLDOWN_MS) return
         lastFailureLogAtMs = now
         Log.w(TAG, "Auto-accept failed: $reason. Dumping accessibility tree...")
+        logTreeDump(rootNode)
+    }
+
+    private fun logTreeDump(
+        rootNode: AccessibilityNodeInfo,
+        reason: String? = null,
+    ) {
+        if (reason != null) {
+            Log.i(TAG, "Dumping accessibility tree: $reason")
+        }
 
         val queue: ArrayDeque<Pair<AccessibilityNodeInfo, Int>> = ArrayDeque()
         queue.add(rootNode to 0)
