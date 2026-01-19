@@ -1,12 +1,8 @@
 name: "PR Test Build"
 
 on:
-  workflow_dispatch:
-    inputs:
-      pr_number:
-        description: "PR number to build"
-        required: true
-        type: string
+  pull_request:
+    types: [opened, synchronize, reopened]
 
 jobs:
   build:
@@ -16,8 +12,6 @@ jobs:
     steps:
       - name: Checkout PR
         uses: actions/checkout@v4
-        with:
-          ref: refs/pull/${{ inputs.pr_number }}/merge
 
       - name: Set up JDK
         uses: actions/setup-java@v4
@@ -35,7 +29,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: droidrun-portal-pr-${{ inputs.pr_number }}
+          name: droidrun-portal-pr-${{ github.event.pull_request.number }}
           path: app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
 
@@ -53,6 +47,6 @@ jobs:
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: ${{ inputs.pr_number }},
-              body: `## 🧪 Test Build Ready\n\nAPK for PR #${{ inputs.pr_number }} is available for testing.\n\n**[Download APK from workflow run](${runUrl})**\n\nArtifacts expire after 30 days.`
+              issue_number: ${{ github.event.pull_request.number }},
+              body: `## 🧪 Test Build Ready\n\nAPK for PR #${{ github.event.pull_request.number }} is available for testing.\n\n**[Download APK from workflow run](${runUrl})**\n\nArtifacts expire after 30 days.`
             });
