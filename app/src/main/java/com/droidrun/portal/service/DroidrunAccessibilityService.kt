@@ -525,7 +525,7 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
                 val id = ElementNode.createId(rect, className.substringAfterLast('.'), displayText)
 
                 currentElement = ElementNode(
-                    AccessibilityNodeInfo(node),
+                    AccessibilityNodeInfo.obtain(node),
                     Rect(rect),
                     displayText,
                     className.substringAfterLast('.'),
