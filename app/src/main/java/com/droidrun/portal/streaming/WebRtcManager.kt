@@ -8,6 +8,7 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
 import android.util.Log
+import android.widget.Toast
 import com.droidrun.portal.service.ReverseConnectionService
 import com.droidrun.portal.service.ScreenCaptureService
 import java.util.Locale
@@ -112,6 +113,7 @@ class WebRtcManager private constructor(private val context: Context) {
     private var captureWidth = 0
     private var captureHeight = 0
     private var captureFps = 0
+    private var connectionToastStreamId = 0
     private var statsRunnable: Runnable? = null
     private var lastStatsBytesSent: Long? = null
     private var lastStatsTimestampMs: Long? = null
@@ -164,13 +166,21 @@ class WebRtcManager private constructor(private val context: Context) {
         )
 
         peerConnectionFactory =
-            PeerConnectionFactory.builder()
-                .setVideoDecoderFactory(DefaultVideoDecoderFactory(eglBase.eglBaseContext))
-                .setVideoEncoderFactory(
+            run {
+                val encoderFactory =
                     DefaultVideoEncoderFactory(eglBase.eglBaseContext, true, true)
-                )
-                .setOptions(PeerConnectionFactory.Options())
-                .createPeerConnectionFactory()
+                val filteredEncoderFactory =
+                    FilteringVideoEncoderFactory(
+                        encoderFactory,
+                        setOf("H264", "VP8"),
+                    )
+                Log.i(TAG, "Enabled video encoders: ${filteredEncoderFactory.codecListLabel()}")
+                PeerConnectionFactory.builder()
+                    .setVideoDecoderFactory(DefaultVideoDecoderFactory(eglBase.eglBaseContext))
+                    .setVideoEncoderFactory(filteredEncoderFactory)
+                    .setOptions(PeerConnectionFactory.Options())
+                    .createPeerConnectionFactory()
+            }
     }
 
     fun startStream(
@@ -234,6 +244,24 @@ class WebRtcManager private constructor(private val context: Context) {
             } else {
                 sendStreamReady()
             }
+        }
+    }
+
+    private fun showCloudStreamConnectedToastOnce(streamId: Int) {
+        val shouldShow =
+            synchronized(streamLock) {
+                if (!isCurrentStreamLocked(streamId)) {
+                    false
+                } else if (connectionToastStreamId == streamId) {
+                    false
+                } else {
+                    connectionToastStreamId = streamId
+                    true
+                }
+            }
+        if (!shouldShow) return
+        mainHandler.post {
+            Toast.makeText(context, "Cloud stream connected", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -534,40 +562,85 @@ class WebRtcManager private constructor(private val context: Context) {
                             return
                         }
                     }
-                    connection.setLocalDescription(
-                        object : SimpleSdpObserver("setLocalDescription-answer") {
-                            override fun onSetSuccess() {
-                                super.onSetSuccess()
-                                synchronized(streamLock) {
-                                    if (peerConnection !== connection ||
-                                        streamGeneration.get() != generation
-                                    )
-                                        return
-                                }
-                                val pending =
-                                    synchronized(streamLock) {
-                                        drainPendingIceCandidatesLocked()
-                                    }
-                                pending.forEach { connection.addIceCandidate(it) }
-                                sendAnswer(desc, sessionId)
-                                val outgoing =
-                                    synchronized(streamLock) {
-                                        if (peerConnection !== connection ||
-                                            streamGeneration.get() != generation
-                                        ) {
-                                            emptyList()
-                                        } else {
-                                            enableOutgoingIceAndDrainLocked()
-                                        }
-                                    }
-                                outgoing.forEach { sendIceCandidate(it) }
-                            }
-                        },
-                        desc
+                    val forcedH264 = forceH264(desc.description)
+                    val answer =
+                        if (forcedH264 == null) {
+                            desc
+                        } else {
+                            Log.i(TAG, "Forcing H264 in answer SDP")
+                            SessionDescription(desc.type, forcedH264)
+                        }
+                    setLocalDescriptionAndSendAnswer(
+                        connection,
+                        generation,
+                        sessionId,
+                        answer,
+                        desc,
+                        answer != desc,
                     )
                 }
             },
             constraints
+        )
+    }
+
+    private fun setLocalDescriptionAndSendAnswer(
+        connection: PeerConnection,
+        generation: Int,
+        sessionId: String,
+        answer: SessionDescription,
+        fallback: SessionDescription,
+        allowFallback: Boolean,
+    ) {
+        connection.setLocalDescription(
+            object : SimpleSdpObserver("setLocalDescription-answer") {
+                override fun onSetSuccess() {
+                    super.onSetSuccess()
+                    synchronized(streamLock) {
+                        if (peerConnection !== connection ||
+                            streamGeneration.get() != generation
+                        )
+                            return
+                    }
+                    val pending =
+                        synchronized(streamLock) {
+                            drainPendingIceCandidatesLocked()
+                        }
+                    pending.forEach { connection.addIceCandidate(it) }
+                    sendAnswer(answer, sessionId)
+                    val outgoing =
+                        synchronized(streamLock) {
+                            if (peerConnection !== connection ||
+                                streamGeneration.get() != generation
+                            ) {
+                                emptyList()
+                            } else {
+                                enableOutgoingIceAndDrainLocked()
+                            }
+                        }
+                    outgoing.forEach { sendIceCandidate(it) }
+                }
+
+                override fun onSetFailure(p0: String?) {
+                    Log.e(TAG, "setLocalDescription (answer) failed: $p0")
+                    if (!allowFallback ||
+                        peerConnection !== connection ||
+                        streamGeneration.get() != generation
+                    ) {
+                        return
+                    }
+                    Log.w(TAG, "Retrying setLocalDescription with original answer SDP")
+                    setLocalDescriptionAndSendAnswer(
+                        connection,
+                        generation,
+                        sessionId,
+                        fallback,
+                        fallback,
+                        false,
+                    )
+                }
+            },
+            answer
         )
     }
 
@@ -715,6 +788,7 @@ class WebRtcManager private constructor(private val context: Context) {
                             PeerConnection.IceConnectionState.CONNECTED,
                             PeerConnection.IceConnectionState.COMPLETED -> {
                                 cancelIdleStop()
+                                showCloudStreamConnectedToastOnce(streamId)
                             }
 
                             PeerConnection.IceConnectionState.DISCONNECTED,
@@ -990,6 +1064,73 @@ class WebRtcManager private constructor(private val context: Context) {
         lines[mLineIndex] = newLine
 
         return lines.joinToString("\r\n")
+    }
+
+    private fun forceH264(sdp: String): String? {
+        val lines = sdp.split("\r\n").toMutableList()
+        val mLineIndex = lines.indexOfFirst { it.startsWith("m=video ") }
+        if (mLineIndex == -1) return null
+
+        val rtpmapRegex = Regex("^a=rtpmap:(\\d+) ([a-zA-Z0-9-]+)/\\d+.*")
+        val fmtpRegex = Regex("^a=fmtp:(\\d+) .*")
+        val rtcpFbRegex = Regex("^a=rtcp-fb:(\\d+) .*")
+        val aptRegex = Regex("\\bapt=(\\d+)\\b")
+
+        val h264Payloads = mutableSetOf<String>()
+        val rtxAptMap = mutableMapOf<String, String>()
+
+        for (line in lines) {
+            val rtpmapMatch = rtpmapRegex.find(line)
+            if (rtpmapMatch != null) {
+                val payload = rtpmapMatch.groupValues[1]
+                val codec = rtpmapMatch.groupValues[2]
+                if (codec.equals("H264", ignoreCase = true)) {
+                    h264Payloads.add(payload)
+                }
+                continue
+            }
+
+            val fmtpMatch = fmtpRegex.find(line)
+            if (fmtpMatch != null) {
+                val payload = fmtpMatch.groupValues[1]
+                val aptMatch = aptRegex.find(line)
+                if (aptMatch != null) {
+                    rtxAptMap[payload] = aptMatch.groupValues[1]
+                }
+            }
+        }
+
+        if (h264Payloads.isEmpty()) return null
+
+        val rtxPayloads = rtxAptMap.filter { it.value in h264Payloads }.keys
+        val allowed = (h264Payloads + rtxPayloads).toSet()
+
+        val parts = lines[mLineIndex].split(" ").filter { it.isNotBlank() }
+        if (parts.size <= 3) return null
+        val header = parts.take(3)
+        val payloads = parts.drop(3)
+        val filteredPayloads = payloads.filter { it in allowed }
+        if (filteredPayloads.isEmpty()) return null
+        lines[mLineIndex] = (header + filteredPayloads).joinToString(" ")
+
+        val filteredLines =
+            lines.filter { line ->
+                val rtpmapMatch = rtpmapRegex.find(line)
+                if (rtpmapMatch != null) {
+                    return@filter allowed.contains(rtpmapMatch.groupValues[1])
+                }
+                val fmtpMatch = fmtpRegex.find(line)
+                if (fmtpMatch != null) {
+                    return@filter allowed.contains(fmtpMatch.groupValues[1])
+                }
+                val rtcpFbMatch = rtcpFbRegex.find(line)
+                if (rtcpFbMatch != null) {
+                    return@filter allowed.contains(rtcpFbMatch.groupValues[1])
+                }
+                true
+            }
+
+        return filteredLines.joinToString("\r\n")
     }
 
     private fun startStatsLogging(streamId: Int) {
@@ -1274,6 +1415,35 @@ class WebRtcManager private constructor(private val context: Context) {
         val sent = trySendStreamStopped(reason, requestId)
         if (!sent) {
             queuePendingStreamStopped(reason, requestId)
+        }
+    }
+
+    private class FilteringVideoEncoderFactory(
+        private val delegate: VideoEncoderFactory,
+        allowedCodecNames: Set<String>,
+    ) : VideoEncoderFactory {
+        private val allowed = allowedCodecNames.map { it.uppercase(Locale.US) }.toSet()
+
+        override fun createEncoder(info: VideoCodecInfo): VideoEncoder? {
+            return if (isAllowed(info)) delegate.createEncoder(info) else null
+        }
+
+        override fun getSupportedCodecs(): Array<VideoCodecInfo> {
+            return delegate.getSupportedCodecs().filter { isAllowed(it) }.toTypedArray()
+        }
+
+        override fun getImplementations(): Array<VideoCodecInfo> {
+            return delegate.getImplementations().filter { isAllowed(it) }.toTypedArray()
+        }
+
+        fun codecListLabel(): String {
+            return delegate.getSupportedCodecs()
+                .filter { isAllowed(it) }
+                .joinToString(", ") { it.name }
+        }
+
+        private fun isAllowed(info: VideoCodecInfo): Boolean {
+            return allowed.contains(info.name.uppercase(Locale.US))
         }
     }
 
