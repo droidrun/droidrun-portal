@@ -41,7 +41,7 @@ class ReverseConnectionService : Service() {
         private const val RECONNECT_DELAY_MS = 3000L
         private const val TOAST_DEBOUNCE_MS = 60_000L
         private const val CONNECTION_LOST_TIMEOUT_SEC = 30
-        private const val ACTION_DISCONNECT = "com.droidrun.portal.action.REVERSE_DISCONNECT"
+        const val ACTION_DISCONNECT = "com.droidrun.portal.action.REVERSE_DISCONNECT"
 
         @Volatile
         private var instance: ReverseConnectionService? = null
@@ -257,6 +257,7 @@ class ReverseConnectionService : Service() {
         isServiceRunning.set(false)
         isReconnecting.set(false)
         handler.removeCallbacksAndMessages(null)
+        ScreenCaptureService.requestStop("user_disconnect")
         disconnect()
         stopSelf()
     }

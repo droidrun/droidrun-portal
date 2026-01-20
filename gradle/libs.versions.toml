@@ -10,7 +10,7 @@ material = "1.10.0"
 javaWebsocket = "1.6.0"
 mockk = "1.13.12"
 json = "20240303"
-webrtc = "113.0.0"
+webrtc = "137.7151.05"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -22,7 +22,7 @@ material = { group = "com.google.android.material", name = "material", version.r
 java-websocket = { group = "org.java-websocket", name = "Java-WebSocket", version.ref = "javaWebsocket" }
 mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
 json = { group = "org.json", name = "json", version.ref = "json" }
-webrtc = { group = "com.dafruits", name = "webrtc", version.ref = "webrtc" }
+webrtc = { group = "io.github.webrtc-sdk", name = "android", version.ref = "webrtc" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

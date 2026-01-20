@@ -303,8 +303,11 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         val configManager = ConfigManager.getInstance(this)
         configManager.reverseConnectionEnabled = false
 
-        val serviceIntent = Intent(this, ReverseConnectionService::class.java)
-        stopService(serviceIntent)
+        val serviceIntent =
+            Intent(this, ReverseConnectionService::class.java).apply {
+                action = ReverseConnectionService.ACTION_DISCONNECT
+            }
+        startService(serviceIntent)
 
         // Explicitly set state to disconnected
         ConnectionStateManager.setState(ConnectionState.DISCONNECTED)

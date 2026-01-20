@@ -150,7 +150,8 @@ class SettingsActivity : AppCompatActivity() {
                     binding.switchReverseEnabled.isChecked = false
                 }
             } else {
-                stopService(intent)
+                intent.action = ReverseConnectionService.ACTION_DISCONNECT
+                startService(intent)
             }
         }
 
