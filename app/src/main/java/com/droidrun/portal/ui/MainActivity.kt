@@ -39,8 +39,11 @@ import androidx.core.graphics.toColorInt
 
 import android.content.BroadcastReceiver
 import android.content.IntentFilter
+import com.droidrun.portal.R
 import com.droidrun.portal.api.ApiHandler
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.snackbar.Snackbar
+import com.google.android.material.textfield.TextInputEditText
 
 class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
 
@@ -69,6 +72,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
 
     // Constants for the position offset slider
     companion object {
+        private const val TAG = "MainActivity"
         private const val DEFAULT_OFFSET = 0
         private const val MIN_OFFSET = -256
         private const val MAX_OFFSET = 256
@@ -124,6 +128,15 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             } catch (e: Exception) {
                 Toast.makeText(this, "Could not open browser", Toast.LENGTH_SHORT).show()
             }
+        }
+
+        binding.btnConnectCloud.setOnLongClickListener {
+            val currentState = ConnectionStateManager.getState()
+            if (currentState == ConnectionState.CONNECTED || currentState == ConnectionState.CONNECTING || currentState == ConnectionState.RECONNECTING) {
+                return@setOnLongClickListener false
+            }
+            showCustomConnectionDialog()
+            true
         }
 
         binding.btnDisconnect.setOnClickListener {
@@ -311,6 +324,84 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
 
         // Explicitly set state to disconnected
         ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
+    }
+
+    private fun showCustomConnectionDialog() {
+        Log.d(TAG, "showCustomConnectionDialog: Opening dialog")
+        val dialogView = layoutInflater.inflate(R.layout.dialog_custom_connection, null)
+        val inputUrl = dialogView.findViewById<TextInputEditText>(R.id.input_custom_url)
+        val inputToken = dialogView.findViewById<TextInputEditText>(R.id.input_custom_token)
+        val btnCancel = dialogView.findViewById<com.google.android.material.button.MaterialButton>(R.id.btn_cancel)
+        val btnConnect = dialogView.findViewById<com.google.android.material.button.MaterialButton>(R.id.btn_connect)
+
+        val configManager = ConfigManager.getInstance(this)
+
+        // Pre-fill with existing values if any
+        val existingUrl = configManager.reverseConnectionUrl
+        Log.d(TAG, "showCustomConnectionDialog: Existing URL='$existingUrl'")
+        if (existingUrl.isNotBlank()) {
+            inputUrl.setText(existingUrl)
+        }
+        val existingToken = configManager.reverseConnectionToken
+        Log.d(TAG, "showCustomConnectionDialog: Existing token length=${existingToken.length}")
+        if (existingToken.isNotBlank()) {
+            inputToken.setText(existingToken)
+        }
+
+        val dialog = AlertDialog.Builder(this, R.style.Theme_DroidrunPortal_Dialog)
+            .setView(dialogView)
+            .create()
+
+        dialog.window?.setBackgroundDrawableResource(R.color.background_card)
+
+        btnCancel.setOnClickListener {
+            Log.d(TAG, "showCustomConnectionDialog: Cancel clicked")
+            dialog.dismiss()
+        }
+
+        btnConnect.setOnClickListener {
+            val url = inputUrl.text?.toString()?.trim() ?: ""
+            val token = inputToken.text?.toString()?.trim() ?: ""
+
+            Log.d(TAG, "showCustomConnectionDialog: Connect clicked, URL='$url', token length=${token.length}")
+
+            if (url.isBlank()) {
+                Log.w(TAG, "showCustomConnectionDialog: URL is blank")
+                Toast.makeText(this, "Please enter a WebSocket URL", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            if (!url.startsWith("ws://") && !url.startsWith("wss://")) {
+                Log.w(TAG, "showCustomConnectionDialog: Invalid URL scheme")
+                Toast.makeText(this, "URL must start with ws:// or wss://", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            Log.d(TAG, "showCustomConnectionDialog: Saving config...")
+            // Save configuration
+            configManager.reverseConnectionUrl = url
+            configManager.reverseConnectionToken = token
+            configManager.reverseConnectionEnabled = true
+            Log.d(TAG, "showCustomConnectionDialog: Config saved, reverseConnectionEnabled=${configManager.reverseConnectionEnabled}")
+
+            // Stop existing service and restart
+            Log.d(TAG, "showCustomConnectionDialog: Stopping existing service...")
+            val serviceIntent = Intent(this, ReverseConnectionService::class.java)
+            stopService(serviceIntent)
+
+            Log.d(TAG, "showCustomConnectionDialog: Scheduling service start in 150ms...")
+            Handler(Looper.getMainLooper()).postDelayed({
+                Log.d(TAG, "showCustomConnectionDialog: Starting foreground service now")
+                startForegroundService(serviceIntent)
+                Log.d(TAG, "showCustomConnectionDialog: startForegroundService() called")
+            }, 150)
+
+            dialog.dismiss()
+            Toast.makeText(this, "Connecting to custom server...", Toast.LENGTH_SHORT).show()
+        }
+
+        dialog.show()
+        Log.d(TAG, "showCustomConnectionDialog: Dialog shown")
     }
 
     private fun setupConnectionStateObserver() {

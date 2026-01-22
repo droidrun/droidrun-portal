@@ -78,15 +78,21 @@ class ReverseConnectionService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        Log.d(TAG, "onStartCommand: intent=$intent, action=${intent?.action}, flags=$flags, startId=$startId")
         if (intent?.action == ACTION_DISCONNECT) {
-            Log.i(TAG, "Disconnect requested via notification")
+            Log.i(TAG, "onStartCommand: Disconnect requested via notification")
             disconnectByUser()
             return START_NOT_STICKY
         }
+        Log.d(TAG, "onStartCommand: Ensuring foreground...")
         ensureForeground()
-        if (!isServiceRunning.getAndSet(true)) {
-            Log.i(TAG, "Starting Reverse Connection Service")
+        val wasRunning = isServiceRunning.getAndSet(true)
+        Log.d(TAG, "onStartCommand: wasRunning=$wasRunning, now isServiceRunning=${isServiceRunning.get()}")
+        if (!wasRunning) {
+            Log.i(TAG, "onStartCommand: Starting Reverse Connection Service, calling connectToHost()")
             connectToHost()
+        } else {
+            Log.d(TAG, "onStartCommand: Service already running, skipping connectToHost()")
         }
         return START_STICKY
     }
@@ -143,24 +149,34 @@ class ReverseConnectionService : Service() {
     }
 
     private fun connectToHost() {
-        if (!isServiceRunning.get()) return
+        Log.d(TAG, "connectToHost: called, isServiceRunning=${isServiceRunning.get()}")
+        if (!isServiceRunning.get()) {
+            Log.w(TAG, "connectToHost: Service not running, aborting")
+            return
+        }
 
         val hostUrl = configManager.reverseConnectionUrlOrDefault
+        Log.d(TAG, "connectToHost: hostUrl='$hostUrl'")
         if (hostUrl.isBlank()) {
-            Log.w(TAG, "No host URL configured")
+            Log.w(TAG, "connectToHost: No host URL configured")
             ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
             return
         }
 
         try {
+            Log.d(TAG, "connectToHost: Setting state to CONNECTING")
             ConnectionStateManager.setState(ConnectionState.CONNECTING)
             disconnect() // Prevent resource leaks from zombie connections
-            val uri = URI(hostUrl.replace("{deviceId}", configManager.deviceID))
+            val deviceId = configManager.deviceID
+            val finalUrl = hostUrl.replace("{deviceId}", deviceId)
+            Log.d(TAG, "connectToHost: deviceId='$deviceId', finalUrl='$finalUrl'")
+            val uri = URI(finalUrl)
             val headers = buildHeaders()
+            Log.d(TAG, "connectToHost: headers=${headers.keys.joinToString()}")
 
             webSocketClient = object : WebSocketClient(uri, headers) {
                 override fun onOpen(handshakedata: ServerHandshake?) {
-                    Log.i(TAG, "Connected to Host: $hostUrl")
+                    Log.i(TAG, "onOpen: Connected to Host: $hostUrl, status=${handshakedata?.httpStatus}, message=${handshakedata?.httpStatusMessage}")
                     ConnectionStateManager.setState(ConnectionState.CONNECTED)
                     showReverseConnectionToastIfEnoughTimeIsPassed()
                     WebRtcManager.getExistingInstance()?.let { manager ->
@@ -202,7 +218,7 @@ class ReverseConnectionService : Service() {
                 }
 
                 override fun onError(ex: Exception?) {
-                    Log.e(TAG, "Connection Error", ex)
+                    Log.e(TAG, "onError: Connection Error: ${ex?.javaClass?.simpleName}: ${ex?.message}", ex)
                     logNetworkState("onError")
                     // Don't set state here, onClose usually follows
                     if (webSocketClient == null || webSocketClient?.isOpen != true)
@@ -211,10 +227,10 @@ class ReverseConnectionService : Service() {
                     scheduleReconnect()
                 }
             }
-            Log.i(TAG, "connecting to remote via websocket")
+            Log.i(TAG, "connectToHost: Created WebSocketClient, calling connect()...")
             webSocketClient?.connectionLostTimeout = CONNECTION_LOST_TIMEOUT_SEC
             webSocketClient?.connect()
-            Log.i(TAG, "websocket connection attempt started")
+            Log.i(TAG, "connectToHost: connect() called, waiting for callbacks...")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to initiate connection", e)
             ConnectionStateManager.setState(ConnectionState.DISCONNECTED)

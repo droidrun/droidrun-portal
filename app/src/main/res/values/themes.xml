@@ -93,4 +93,12 @@
         <item name="android:windowContentOverlay">@null</item>
         <item name="android:backgroundDimEnabled">false</item>
     </style>
+
+    <style name="Theme.DroidrunPortal.Dialog" parent="Theme.MaterialComponents.Dialog">
+        <item name="colorPrimary">@color/droidrun_primary</item>
+        <item name="colorSurface">@color/background_card</item>
+        <item name="android:windowBackground">@color/background_card</item>
+        <item name="android:textColorPrimary">@color/text_white</item>
+        <item name="android:textColorSecondary">@color/text_gray</item>
+    </style>
 </resources>
