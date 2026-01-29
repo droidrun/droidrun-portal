@@ -36,6 +36,7 @@ class DroidrunContentProvider : ContentProvider() {
         private const val AUTH_TOKEN = 14
         private const val CONFIGURE_REVERSE_CONNECTION = 15
         private const val TOGGLE_PRODUCTION_MODE = 16
+        private const val TOGGLE_SOCKET_SERVER = 17
 
         private val uriMatcher = UriMatcher(UriMatcher.NO_MATCH).apply {
             addURI(AUTHORITY, "a11y_tree", A11Y_TREE)
@@ -54,6 +55,7 @@ class DroidrunContentProvider : ContentProvider() {
             addURI(AUTHORITY, "auth_token", AUTH_TOKEN)
             addURI(AUTHORITY, "configure_reverse_connection", CONFIGURE_REVERSE_CONNECTION)
             addURI(AUTHORITY, "toggle_production_mode", TOGGLE_PRODUCTION_MODE)
+            addURI(AUTHORITY, "toggle_socket_server", TOGGLE_SOCKET_SERVER)
         }
     }
 
@@ -194,6 +196,18 @@ class DroidrunContentProvider : ContentProvider() {
                 OVERLAY_VISIBLE -> {
                     val visible = values?.getAsBoolean("visible") ?: true
                     handler.setOverlayVisible(visible)
+                }
+
+                TOGGLE_SOCKET_SERVER -> {
+                    val port = values?.getAsInteger("port") ?: configManager.socketServerPort
+                    val enabled = values?.getAsBoolean("enabled") ?: true
+
+                    if (values?.containsKey("port") == true) {
+                        configManager.setSocketServerPortWithNotification(port)
+                    }
+                    configManager.setSocketServerEnabledWithNotification(enabled)
+
+                    ApiResponse.Success("HTTP server ${if (enabled) "enabled" else "disabled"} on port $port")
                 }
 
                 TOGGLE_WEBSOCKET_SERVER -> {
