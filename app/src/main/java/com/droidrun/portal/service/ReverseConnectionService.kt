@@ -132,10 +132,6 @@ class ReverseConnectionService : Service() {
         if (authToken.isNotBlank())
             headers["Authorization"] = "Bearer $authToken"
 
-        val userID = configManager.userID
-        if (userID.isNotBlank())
-            headers["X-User-ID"] = userID
-
         headers["X-Device-ID"] = configManager.deviceID
         headers["X-Device-Name"] = configManager.deviceName
         headers["X-Device-Country"] = configManager.deviceCountryCode
@@ -200,14 +196,17 @@ class ReverseConnectionService : Service() {
                             handleWsDisconnected()
                             // Do not reconnect automatically on auth error
                             return
-                        } else if (reason.contains("400") || reason.contains("Bad Request")) {
-                            // 400 Bad Request typically indicates the device limit has been reached
-                            // or the request was malformed. Based on server behavior, we treat this
-                            // as limit exceeded for better user feedback.
+                        } else if (reason.contains("403") || reason.contains("Forbidden")) {
+                            // 403 Forbidden = device limit reached
+                            Log.w(TAG, "onClose: 403 Forbidden - device limit reached")
                             ConnectionStateManager.setState(ConnectionState.LIMIT_EXCEEDED)
-
                             handleWsDisconnected()
-                            // Do not reconnect automatically on client error
+                            return
+                        } else if (reason.contains("400") || reason.contains("Bad Request")) {
+                            // 400 Bad Request - missing headers or invalid request
+                            Log.w(TAG, "onClose: 400 Bad Request - check required headers (X-Device-Name, X-Device-Country)")
+                            ConnectionStateManager.setState(ConnectionState.BAD_REQUEST)
+                            handleWsDisconnected()
                             return
                         }
                     }

@@ -15,6 +15,7 @@ class ConfigManager private constructor(private val context: Context) {
 
     companion object {
         private const val PREFS_NAME = "droidrun_config"
+        private const val DEVICE_PREFS_NAME = "droidrun_device"
         private const val KEY_OVERLAY_VISIBLE = "overlay_visible"
         private const val KEY_OVERLAY_OFFSET = "overlay_offset"
         private const val KEY_AUTO_OFFSET_ENABLED = "auto_offset_enabled"
@@ -56,6 +57,9 @@ class ConfigManager private constructor(private val context: Context) {
     private val sharedPrefs: SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
+    private val devicePrefs: SharedPreferences =
+        context.getSharedPreferences(DEVICE_PREFS_NAME, Context.MODE_PRIVATE)
+
     init {
         if (sharedPrefs.contains(KEY_REVERSE_CONNECTION_ENABLED)) {
             sharedPrefs.edit { putBoolean(KEY_REVERSE_CONNECTION_ENABLED, false) }
@@ -76,10 +80,18 @@ class ConfigManager private constructor(private val context: Context) {
 
     val deviceID: String
         get() {
-            var id = sharedPrefs.getString(KEY_DEVICE_ID, null)
+            // Check new location first, then migrate from old location
+            var id = devicePrefs.getString(KEY_DEVICE_ID, null)
             if (id == null) {
-                id = java.util.UUID.randomUUID().toString()
-                sharedPrefs.edit { putString(KEY_DEVICE_ID, id) }
+                id = sharedPrefs.getString(KEY_DEVICE_ID, null)
+                if (id != null) {
+                    // Migrate to new file and remove from old
+                    devicePrefs.edit { putString(KEY_DEVICE_ID, id) }
+                    sharedPrefs.edit { remove(KEY_DEVICE_ID) }
+                } else {
+                    id = java.util.UUID.randomUUID().toString()
+                    devicePrefs.edit { putString(KEY_DEVICE_ID, id) }
+                }
             }
             return id
         }
@@ -217,11 +229,6 @@ class ConfigManager private constructor(private val context: Context) {
                 context.resources.configuration.locales[0]
 
             return locale.country.ifBlank { "US" }
-        }
-
-    val userID: String
-        get() {
-            return "7785b089-b9aa-458d-a32e-baec315e5e16"
         }
 
     var reverseConnectionEnabled: Boolean = false

@@ -443,9 +443,18 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
                     ).show()
                 }
 
+                ConnectionState.BAD_REQUEST -> {
+                    binding.layoutDisconnected.visibility = View.VISIBLE
+                    Toast.makeText(
+                        this,
+                        "Connection Failed: Bad Request (Check token & headers)",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+
                 ConnectionState.ERROR -> {
                     binding.layoutDisconnected.visibility = View.VISIBLE
-                    Toast.makeText(this, "Connection Failed: Bad Request", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, "Connection Failed: Unknown Error", Toast.LENGTH_LONG).show()
                 }
 
                 else -> {

@@ -10,6 +10,7 @@ enum class ConnectionState {
     RECONNECTING,
     UNAUTHORIZED,
     LIMIT_EXCEEDED,
+    BAD_REQUEST,
     ERROR
 }
 
