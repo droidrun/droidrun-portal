@@ -17,7 +17,7 @@ Press Connect to Mobilerun button in portal main page.
 Mobilerun default host URL:
 
 ```
-wss://api.mobilerun.ai/v1/devices/{deviceId}/join
+wss://api.mobilerun.ai/v1/providers/personal/join
 ```
 
 The `{deviceId}` placeholder is replaced automatically if present.
@@ -87,5 +87,5 @@ Streaming commands are only supported over reverse connection.
 ## Configure via ContentProvider (optional)
 
 ```bash
-adb shell content insert --uri content://com.droidrun.portal/configure_reverse_connection --bind url:s:"wss://api.mobilerun.ai/v1/devices/{deviceId}/join" --bind token:s:"YOUR_TOKEN" --bind enabled:b:true
+adb shell content insert --uri content://com.droidrun.portal/configure_reverse_connection --bind url:s:"wss://api.mobilerun.ai/v1/providers/personal/join" --bind token:s:"YOUR_TOKEN" --bind enabled:b:true
 ```
