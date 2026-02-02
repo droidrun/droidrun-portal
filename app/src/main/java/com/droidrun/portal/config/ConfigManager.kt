@@ -41,7 +41,7 @@ class ConfigManager private constructor(private val context: Context) {
         private const val DEFAULT_SOCKET_PORT = 8080
         private const val DEFAULT_WEBSOCKET_PORT = 8081
         private const val DEFAULT_REVERSE_CONNECTION_URL =
-            "wss://api.mobilerun.ai/v1/devices/{deviceId}/join"
+            "wss://api.mobilerun.ai/v1/providers/personal/join"
 
         // TODO replace
         @Volatile
