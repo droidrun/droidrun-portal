@@ -47,6 +47,31 @@ Reverse connection uses the same JSON-RPC-style messages as the local WebSocket 
 
 Responses include `status` and `result` or `error`.
 
+## App control
+
+Reverse connection supports the same app commands as local WebSocket:
+
+- `app` with optional `stopBeforeLaunch` (default `false`)
+- `app/stop` to request a best-effort stop
+
+Example:
+
+```json
+{
+  "id": "1",
+  "method": "app",
+  "params": { "package": "com.example.app", "stopBeforeLaunch": true }
+}
+```
+
+```json
+{
+  "id": "2",
+  "method": "app/stop",
+  "params": { "package": "com.example.app" }
+}
+```
+
 ## Streaming (WebRTC)
 
 Streaming commands are only supported over reverse connection.

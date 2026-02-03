@@ -1,6 +1,8 @@
 package com.droidrun.portal.api
 
 import android.accessibilityservice.AccessibilityService
+import android.app.ActivityManager
+import android.Manifest
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.os.Build
@@ -8,6 +10,8 @@ import android.content.Intent
 import android.util.Log
 import android.view.KeyEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.net.Uri
+import android.provider.Settings
 import com.droidrun.portal.input.DroidrunKeyboardIME
 import com.droidrun.portal.core.JsonBuilders
 import com.droidrun.portal.core.StateRepository
@@ -23,6 +27,7 @@ import android.content.Context
 import android.content.IntentFilter
 import android.os.Environment
 import android.os.StatFs
+import android.os.SystemClock
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.io.FilterInputStream
@@ -40,6 +45,7 @@ import android.app.NotificationManager
 import androidx.core.app.NotificationCompat
 import com.droidrun.portal.state.AppVisibilityTracker
 import com.droidrun.portal.ui.PermissionDialogActivity
+import java.util.Locale
 
 class ApiHandler(
     private val stateRepo: StateRepository,
@@ -55,6 +61,7 @@ class ApiHandler(
         private const val INSTALL_FREE_SPACE_MARGIN_BYTES = 200L * 1024 * 1024 // 200 MiB
         private const val INSTALL_UI_DELAY_MS = 1000L
         private const val MAX_ERROR_BODY_SIZE = 2048
+        private const val ENABLE_UI_STOP_FALLBACK = true
         const val ACTION_INSTALL_RESULT = "com.droidrun.portal.action.INSTALL_RESULT"
         const val EXTRA_INSTALL_SUCCESS = "install_success"
         const val EXTRA_INSTALL_MESSAGE = "install_message"
@@ -516,8 +523,674 @@ class ApiHandler(
         }
     }
 
+    fun stopApp(packageName: String): ApiResponse {
+        if (packageName.isBlank()) {
+            return ApiResponse.Error("Missing required param: 'package'")
+        }
+        if (packageName == context.packageName) {
+            return ApiResponse.Error("Refusing to stop Droidrun Portal")
+        }
+
+        val pm = getPackageManager()
+        val appLabel = getAppLabel(packageName)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                pm.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(0L))
+            } else {
+                @Suppress("DEPRECATION")
+                pm.getPackageInfo(packageName, 0)
+            }
+        } catch (e: PackageManager.NameNotFoundException) {
+            return ApiResponse.Error("Package not installed: $packageName")
+        }
+
+        val granted =
+            context.checkSelfPermission(Manifest.permission.KILL_BACKGROUND_PROCESSES) ==
+                PackageManager.PERMISSION_GRANTED
+        if (!granted) {
+            return ApiResponse.Error("Missing permission: KILL_BACKGROUND_PROCESSES")
+        }
+
+        val phoneState = stateRepo.getPhoneState()
+        if (phoneState.packageName == packageName) {
+            GestureController.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
+        }
+
+        var killError: String? = null
+        val killSuccess = try {
+            val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+            am.killBackgroundProcesses(packageName)
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Error stopping app", e)
+            killError = e.message
+            false
+        }
+
+        val uiResult = if (ENABLE_UI_STOP_FALLBACK) {
+            tryForceStopViaSettings(packageName, appLabel)
+        } else {
+            ForceStopUiResult(attempted = false, success = false, reason = "ui_disabled")
+        }
+
+        val overallSuccess = if (uiResult.attempted) uiResult.success else killSuccess
+        val resultJson = JSONObject().apply {
+            put("message", "Stop requested for $packageName")
+            put("killBackgroundProcesses", killSuccess)
+            put("killError", killError ?: JSONObject.NULL)
+            put("uiAttempted", uiResult.attempted)
+            put("uiSuccess", uiResult.success)
+            put("uiReason", uiResult.reason ?: JSONObject.NULL)
+            put("overallSuccess", overallSuccess)
+        }
+
+        return if (overallSuccess) {
+            ApiResponse.RawObject(resultJson)
+        } else {
+            ApiResponse.Error(resultJson.toString())
+        }
+    }
+
     fun getTime(): ApiResponse {
         return ApiResponse.Success(System.currentTimeMillis())
+    }
+
+    private fun getAppLabel(packageName: String): String? {
+        return try {
+            val pm = getPackageManager()
+            val appInfo = pm.getApplicationInfo(packageName, 0)
+            pm.getApplicationLabel(appInfo).toString()
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to get app label for $packageName: ${e.message}")
+            null
+        }
+    }
+
+    private data class ForceStopUiResult(
+        val attempted: Boolean,
+        val success: Boolean,
+        val reason: String?,
+    )
+
+    private enum class ForceStopButtonState {
+        CLICKED,
+        DISABLED,
+        NOT_FOUND,
+        NOT_READY,
+        CLICK_FAILED,
+    }
+
+    private fun tryForceStopViaSettings(packageName: String, appLabel: String?): ForceStopUiResult {
+        val service = DroidrunAccessibilityService.getInstance()
+            ?: return ForceStopUiResult(false, false, "service_unavailable")
+        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+            data = Uri.fromParts("package", packageName, null)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        try {
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to open app settings for $packageName: ${e.message}")
+            return ForceStopUiResult(
+                attempted = true,
+                success = false,
+                reason = "open_settings_failed",
+            )
+        }
+
+        val screenReady = waitForUiAction(
+            timeoutMs = 3000L,
+            intervalMs = 250L,
+        ) {
+            val elements = flattenElements(stateRepo.getVisibleElements())
+            isForceStopConfirmDialogVisible(elements) ||
+                isAppInfoScreenVisible(elements, appLabel, packageName)
+        }
+        if (!screenReady) {
+            Log.d(TAG, "App info screen not ready for $packageName")
+            logUiSnapshot("force_stop_screen_not_ready")
+            service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
+            return ForceStopUiResult(attempted = true, success = false, reason = "screen_not_ready")
+        }
+
+        val dialogAlreadyVisible = waitForUiAction(
+            timeoutMs = 1500L,
+            intervalMs = 200L,
+        ) { isForceStopConfirmDialogVisible() }
+        if (dialogAlreadyVisible) {
+            val confirmed = waitForUiAction(
+                timeoutMs = 4000L,
+                intervalMs = 250L,
+            ) { tryClickForceStopConfirm() }
+            if (!confirmed) {
+                Log.d(TAG, "Force stop confirm dialog not detected for $packageName")
+                logUiSnapshot("force_stop_confirm_not_found")
+            }
+            service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
+            return ForceStopUiResult(true, confirmed, if (confirmed) "confirm_clicked" else "confirm_not_found")
+        }
+
+        var buttonState = ForceStopButtonState.NOT_FOUND
+        val buttonDeadline = SystemClock.elapsedRealtime() + 2500L
+        while (SystemClock.elapsedRealtime() < buttonDeadline) {
+            buttonState = evaluateForceStopButtonState(appLabel, packageName)
+            if (buttonState == ForceStopButtonState.CLICKED ||
+                buttonState == ForceStopButtonState.DISABLED
+            ) {
+                break
+            }
+            SystemClock.sleep(300L)
+        }
+
+        if (buttonState == ForceStopButtonState.DISABLED) {
+            service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
+            return ForceStopUiResult(
+                attempted = true,
+                success = true,
+                reason = "force_stop_disabled",
+            )
+        }
+
+        if (buttonState != ForceStopButtonState.CLICKED) {
+            val confirmed = waitForUiAction(
+                timeoutMs = 1000L,
+                intervalMs = 200L,
+            ) { tryClickForceStopConfirm() }
+            if (confirmed) {
+                service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
+                return ForceStopUiResult(
+                    attempted = true,
+                    success = true,
+                    reason = "confirm_clicked",
+                )
+            }
+            val openVisible = isOpenButtonVisible(flattenElements(stateRepo.getVisibleElements()))
+            if (openVisible) {
+                service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
+                return ForceStopUiResult(
+                    attempted = true,
+                    success = true,
+                    reason = "force_stop_unavailable",
+                )
+            }
+            Log.d(TAG, "Force stop button not found for $packageName")
+            logUiSnapshot("force_stop_button_not_found")
+            service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
+            return ForceStopUiResult(
+                attempted = true,
+                success = false,
+                reason = "force_stop_button_not_found",
+            )
+        }
+
+        val confirmed = waitForUiAction(
+            timeoutMs = 4000L,
+            intervalMs = 250L,
+        ) { tryClickForceStopConfirm() }
+        if (!confirmed) {
+            Log.d(TAG, "Force stop confirm dialog not detected for $packageName")
+            logUiSnapshot("force_stop_confirm_not_found")
+        }
+        service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
+        return ForceStopUiResult(true, confirmed, if (confirmed) "confirm_clicked" else "confirm_not_found")
+    }
+
+    private fun evaluateForceStopButtonState(
+        appLabel: String?,
+        packageName: String,
+    ): ForceStopButtonState {
+        val elements = flattenElements(stateRepo.getVisibleElements())
+        if (isForceStopConfirmDialogVisible(elements)) return ForceStopButtonState.NOT_READY
+        if (!isAppInfoScreenVisible(elements, appLabel, packageName)) return ForceStopButtonState.NOT_READY
+        val button = findForceStopButton(elements) ?: return ForceStopButtonState.NOT_FOUND
+        val info = button.nodeInfo
+        if (!info.isEnabled) return ForceStopButtonState.DISABLED
+        return if (info.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+            ForceStopButtonState.CLICKED
+        } else {
+            ForceStopButtonState.CLICK_FAILED
+        }
+    }
+
+    private fun tryClickForceStopConfirm(): Boolean {
+        val elements = flattenElements(stateRepo.getVisibleElements())
+        if (!isForceStopConfirmDialogVisible(elements)) return false
+        val dialogButton = findDialogPositiveButton(elements)
+        val info = dialogButton?.nodeInfo
+        if (info != null && info.isEnabled) {
+            return info.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        }
+        if (!isEnglishLocale()) return false
+        val button = findBestClickableMatch(
+            elements,
+            listOf("force stop", "force-stop", "ok", "yes", "confirm"),
+        )
+        val fallbackInfo = button?.nodeInfo ?: return false
+        if (!fallbackInfo.isEnabled) return false
+        return fallbackInfo.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+    }
+
+    private fun isForceStopConfirmDialogVisible(): Boolean {
+        val elements = flattenElements(stateRepo.getVisibleElements())
+        return isForceStopConfirmDialogVisible(elements)
+    }
+
+    private fun isForceStopConfirmDialogVisible(
+        elements: List<com.droidrun.portal.model.ElementNode>,
+    ): Boolean {
+        var hasDialogText = false
+        var hasButtons = false
+        var hasButtonPanel = false
+        for (element in elements) {
+            val viewId = element.nodeInfo.viewIdResourceName.orEmpty()
+            if (viewId == "com.android.settings:id/alertTitle" ||
+                viewId == "android:id/alertTitle" ||
+                viewId == "android:id/message"
+            ) {
+                hasDialogText = true
+            }
+            if (viewId == "android:id/button1" || viewId == "android:id/button2") {
+                hasButtons = true
+            }
+            if (viewId == "com.android.settings:id/buttonPanel" ||
+                viewId == "android:id/buttonPanel"
+            ) {
+                hasButtonPanel = true
+            }
+        }
+        if (hasButtons && (hasDialogText || hasButtonPanel)) {
+            return true
+        }
+
+        val dialogButtons = findDialogButtonRow(elements)
+        if (dialogButtons.size < 2) return false
+
+        val screenWidth = elements.maxOfOrNull { it.rect.right }?.toFloat()?.coerceAtLeast(1f) ?: return false
+        val screenHeight = elements.maxOfOrNull { it.rect.bottom }?.toFloat()?.coerceAtLeast(1f) ?: return false
+        var left = dialogButtons.minOf { it.rect.left }
+        var top = dialogButtons.minOf { it.rect.top }
+        var right = dialogButtons.maxOf { it.rect.right }
+        var bottom = dialogButtons.maxOf { it.rect.bottom }
+
+        val buttonsTop = top
+        val horizontalMargin = (screenWidth * 0.08f).toInt()
+        val titleCandidates = elements.filter { element ->
+            if (!element.className.contains("TextView", ignoreCase = true)) return@filter false
+            if (element.text.isBlank()) return@filter false
+            if (element.rect.bottom > buttonsTop) return@filter false
+            val overlaps =
+                element.rect.right >= left - horizontalMargin &&
+                    element.rect.left <= right + horizontalMargin
+            overlaps
+        }
+        if (titleCandidates.isEmpty()) return false
+        left = minOf(left, titleCandidates.minOf { it.rect.left })
+        top = minOf(top, titleCandidates.minOf { it.rect.top })
+        right = maxOf(right, titleCandidates.maxOf { it.rect.right })
+        bottom = maxOf(bottom, titleCandidates.maxOf { it.rect.bottom })
+
+        val heightRatio = (bottom - top).toFloat() / screenHeight
+        val widthRatio = (right - left).toFloat() / screenWidth
+        val leftMargin = left.toFloat() / screenWidth
+        val rightMargin = (screenWidth - right).toFloat() / screenWidth
+        if (heightRatio !in 0.12f..0.6f) return false
+        if (widthRatio !in 0.3f..0.95f) return false
+        if (leftMargin < 0.05f || rightMargin < 0.05f) return false
+
+        return true
+    }
+
+    private fun findDialogButtonRow(
+        elements: List<com.droidrun.portal.model.ElementNode>,
+    ): List<com.droidrun.portal.model.ElementNode> {
+        val screenWidth = elements.maxOfOrNull { it.rect.right }?.toFloat()?.coerceAtLeast(1f) ?: return emptyList()
+        val screenHeight = elements.maxOfOrNull { it.rect.bottom }?.toFloat()?.coerceAtLeast(1f) ?: return emptyList()
+        val minButtonWidth = screenWidth * 0.12f
+        val minButtonHeight = screenHeight * 0.03f
+        val candidates = elements.filter { element ->
+            val info = element.nodeInfo
+            val width = element.rect.width().toFloat()
+            val height = element.rect.height().toFloat()
+            val isButtonClass = element.className.contains("Button", ignoreCase = true)
+            (info.isClickable || isButtonClass) && width >= minButtonWidth && height >= minButtonHeight
+        }
+        if (candidates.isEmpty()) return emptyList()
+        val tolerance = screenHeight * 0.04f
+        val rows = mutableListOf<MutableList<com.droidrun.portal.model.ElementNode>>()
+        for (candidate in candidates) {
+            val centerY = candidate.rect.centerY().toFloat()
+            val row = rows.firstOrNull { group ->
+                val groupCenter = group.first().rect.centerY().toFloat()
+                kotlin.math.abs(groupCenter - centerY) <= tolerance
+            }
+            if (row != null) {
+                row.add(candidate)
+            } else {
+                rows.add(mutableListOf(candidate))
+            }
+        }
+        val bestRow = rows
+            .filter { it.size >= 2 }
+            .maxByOrNull { row ->
+                val minX = row.minOf { it.rect.left }
+                val maxX = row.maxOf { it.rect.right }
+                val span = (maxX - minX).toFloat()
+                val centerY = row.first().rect.centerY().toFloat()
+                span + centerY
+            }
+        return bestRow ?: emptyList()
+    }
+
+    private fun isAppInfoScreenVisible(
+        elements: List<com.droidrun.portal.model.ElementNode>,
+        appLabel: String?,
+        packageName: String,
+    ): Boolean {
+        if (isForceStopConfirmDialogVisible(elements)) return true
+        val hasForceStopText = if (isEnglishLocale()) {
+            elements.any { element ->
+                val text = element.text.lowercase()
+                val desc = element.nodeInfo.contentDescription?.toString()?.lowercase().orEmpty()
+                text.contains("force stop") || desc.contains("force stop")
+            }
+        } else {
+            false
+        }
+        val labelVisible = isAppLabelVisible(elements, appLabel, packageName)
+        val hasForceStopButton = findForceStopButton(elements) != null
+        if (!labelVisible) return false
+        return if (isEnglishLocale()) {
+            hasForceStopText && hasForceStopButton
+        } else {
+            hasForceStopButton
+        }
+    }
+
+    private fun isAppLabelVisible(
+        elements: List<com.droidrun.portal.model.ElementNode>,
+        appLabel: String?,
+        packageName: String,
+    ): Boolean {
+        val label = appLabel?.trim().orEmpty().lowercase()
+        val minLength = 3
+        return elements.any { element ->
+            val text = element.text.lowercase()
+            val desc = element.nodeInfo.contentDescription?.toString()?.lowercase().orEmpty()
+            val labelMatch =
+                label.length >= minLength &&
+                    (text.contains(label) || desc.contains(label))
+            val packageMatch = text.contains(packageName) || desc.contains(packageName)
+            labelMatch || packageMatch
+        }
+    }
+
+    private fun findForceStopButton(
+        elements: List<com.droidrun.portal.model.ElementNode>,
+    ): com.droidrun.portal.model.ElementNode? {
+        val idMatches = listOf(
+            "force_stop",
+            "force_stop_button",
+            "button_force_stop",
+            "forceStop",
+        )
+        for (element in elements) {
+            val viewId = element.nodeInfo.viewIdResourceName.orEmpty()
+            if (idMatches.any { token -> viewId.contains(token, ignoreCase = true) }) {
+                return element
+            }
+        }
+        if (isEnglishLocale()) {
+            val textMatch = findClickableForText(
+                elements,
+                listOf("force stop", "force-stop"),
+            )
+            if (textMatch != null) return textMatch
+        }
+        val settingsButton = findSettingsActionButton(elements)
+        if (settingsButton != null) return settingsButton
+        val actionRowButton = findActionRowForceStopFallback(elements)
+        if (actionRowButton != null) return actionRowButton
+        if (!isEnglishLocale()) return null
+        return findBestClickableMatch(elements, listOf("force stop", "force-stop"))
+    }
+
+    private fun findClickableForText(
+        elements: List<com.droidrun.portal.model.ElementNode>,
+        needles: List<String>,
+    ): com.droidrun.portal.model.ElementNode? {
+        val matches = elements.filter { element ->
+            val text = element.text.lowercase()
+            val desc = element.nodeInfo.contentDescription?.toString()?.lowercase().orEmpty()
+            needles.any { needle -> text.contains(needle) || desc.contains(needle) }
+        }
+        for (match in matches) {
+            val ancestor = findClickableAncestor(match)
+            if (ancestor != null) return ancestor
+            val containing = elements.filter { element ->
+                element.nodeInfo.isClickable && element.rect.contains(match.rect)
+            }
+            if (containing.isNotEmpty()) {
+                return containing.minBy { it.rect.width() * it.rect.height() }
+            }
+        }
+        return null
+    }
+
+    private fun findClickableAncestor(
+        node: com.droidrun.portal.model.ElementNode,
+        maxDepth: Int = 6,
+    ): com.droidrun.portal.model.ElementNode? {
+        var current = node.parent
+        var depth = 0
+        while (current != null && depth < maxDepth) {
+            if (current.nodeInfo.isClickable) return current
+            current = current.parent
+            depth++
+        }
+        return null
+    }
+
+    private fun findSettingsActionButton(
+        elements: List<com.droidrun.portal.model.ElementNode>,
+    ): com.droidrun.portal.model.ElementNode? {
+        val candidates = mutableMapOf<Int, com.droidrun.portal.model.ElementNode>()
+        for (element in elements) {
+            val viewId = element.nodeInfo.viewIdResourceName.orEmpty()
+            if (viewId.startsWith("android:id/button")) continue
+            val index = settingsButtonIndex(viewId) ?: continue
+            candidates[index] = element
+        }
+        if (candidates.isEmpty()) return null
+        val maxIndex = candidates.keys.maxOrNull() ?: return null
+        return if (maxIndex >= 3) candidates[maxIndex] else null
+    }
+
+    private fun findActionRowForceStopFallback(
+        elements: List<com.droidrun.portal.model.ElementNode>,
+    ): com.droidrun.portal.model.ElementNode? {
+        if (elements.isEmpty()) return null
+        val screenWidth = elements.maxOf { it.rect.right }.toFloat().coerceAtLeast(1f)
+        val screenHeight = elements.maxOf { it.rect.bottom }.toFloat().coerceAtLeast(1f)
+        val minWidth = screenWidth * 0.2f
+        val minHeight = screenHeight * 0.05f
+        val candidates = elements.filter { element ->
+            val info = element.nodeInfo
+            if (!info.isClickable) return@filter false
+            val width = element.rect.width().toFloat()
+            val height = element.rect.height().toFloat()
+            width >= minWidth && height >= minHeight
+        }
+        if (candidates.isEmpty()) return null
+        val tolerance = screenHeight * 0.08f
+        val groups = mutableListOf<MutableList<com.droidrun.portal.model.ElementNode>>()
+        for (candidate in candidates) {
+            val centerY = candidate.rect.centerY().toFloat()
+            val group = groups.firstOrNull { group ->
+                val groupCenter = group.first().rect.centerY().toFloat()
+                kotlin.math.abs(groupCenter - centerY) <= tolerance
+            }
+            if (group != null) {
+                group.add(candidate)
+            } else {
+                groups.add(mutableListOf(candidate))
+            }
+        }
+        val bestGroup = groups
+            .filter { it.size >= 3 }
+            .maxByOrNull { group ->
+                val minX = group.minOf { it.rect.left }
+                val maxX = group.maxOf { it.rect.right }
+                val span = (maxX - minX).toFloat()
+                span
+            } ?: return null
+        val minX = bestGroup.minOf { it.rect.left }
+        val maxX = bestGroup.maxOf { it.rect.right }
+        val span = (maxX - minX).toFloat()
+        if (span < screenWidth * 0.6f) return null
+        return bestGroup.maxByOrNull { it.rect.right }
+    }
+
+    private fun settingsButtonIndex(viewId: String): Int? {
+        val prefix = ":id/button"
+        val idx = viewId.lastIndexOf(prefix)
+        if (idx == -1) return null
+        val suffix = viewId.substring(idx + prefix.length)
+        if (suffix.isEmpty()) return null
+        val digit = suffix.trim().toIntOrNull() ?: return null
+        return if (digit in 1..4) digit else null
+    }
+
+    private fun isOpenButtonVisible(
+        elements: List<com.droidrun.portal.model.ElementNode>,
+    ): Boolean {
+        val idMatches = listOf("launch", "open")
+        for (element in elements) {
+            val info = element.nodeInfo
+            val viewId = info.viewIdResourceName.orEmpty()
+            if (idMatches.any { token -> viewId.contains(token, ignoreCase = true) }) {
+                return true
+            }
+            if (isEnglishLocale()) {
+                val text = element.text.lowercase()
+                val desc = info.contentDescription?.toString()?.lowercase().orEmpty()
+                if (text == "open" || desc == "open") return true
+            }
+        }
+        return false
+    }
+
+    private fun isEnglishLocale(): Boolean {
+        return Locale.getDefault().language.equals("en", ignoreCase = true)
+    }
+
+    private fun findDialogPositiveButton(
+        elements: List<com.droidrun.portal.model.ElementNode>,
+    ): com.droidrun.portal.model.ElementNode? {
+        val byId = findBestClickableById(
+            elements,
+            listOf("android:id/button1", "com.android.settings:id/button1"),
+        )
+        if (byId != null) return byId
+
+        val row = findDialogButtonRow(elements)
+        val rightmost = row.maxByOrNull { it.rect.right } ?: return null
+        val ancestor = if (rightmost.nodeInfo.isClickable) null else findClickableAncestor(rightmost)
+        return ancestor ?: rightmost
+    }
+
+    private fun waitForUiAction(
+        timeoutMs: Long,
+        intervalMs: Long,
+        action: () -> Boolean,
+    ): Boolean {
+        val deadline = SystemClock.elapsedRealtime() + timeoutMs
+        while (SystemClock.elapsedRealtime() < deadline) {
+            if (action()) return true
+            SystemClock.sleep(intervalMs)
+        }
+        return false
+    }
+
+    private fun findBestClickableMatch(
+        elements: List<com.droidrun.portal.model.ElementNode>,
+        needles: List<String>,
+    ): com.droidrun.portal.model.ElementNode? {
+        var best: com.droidrun.portal.model.ElementNode? = null
+        var bestScore = Int.MAX_VALUE
+        for (element in elements) {
+            val info = element.nodeInfo
+            if (!info.isClickable) continue
+            val text = element.text.lowercase()
+            val desc = info.contentDescription?.toString()?.lowercase().orEmpty()
+            for (needle in needles) {
+                val score = scoreStringMatch(text, needle) ?: scoreStringMatch(desc, needle)
+                if (score != null && score < bestScore) {
+                    best = element
+                    bestScore = score
+                }
+            }
+        }
+        return best
+    }
+
+    private fun findBestClickableById(
+        elements: List<com.droidrun.portal.model.ElementNode>,
+        viewIdMatches: List<String>,
+    ): com.droidrun.portal.model.ElementNode? {
+        for (element in elements) {
+            val info = element.nodeInfo
+            if (!info.isClickable) continue
+            val viewId = info.viewIdResourceName ?: continue
+            if (viewIdMatches.any { match ->
+                    viewId.equals(match, ignoreCase = true) || viewId.endsWith(match)
+                }
+            ) {
+                return element
+            }
+        }
+        return null
+    }
+
+    private fun flattenElements(
+        elements: List<com.droidrun.portal.model.ElementNode>
+    ): List<com.droidrun.portal.model.ElementNode> {
+        val all = mutableListOf<com.droidrun.portal.model.ElementNode>()
+        fun collect(node: com.droidrun.portal.model.ElementNode) {
+            all.add(node)
+            node.children.forEach { child -> collect(child) }
+        }
+        elements.forEach { root -> collect(root) }
+        return all
+    }
+
+    private fun logUiSnapshot(reason: String) {
+        val elements = flattenElements(stateRepo.getVisibleElements())
+        val total = elements.size
+        val maxLines = 80
+        val sb = StringBuilder()
+        var lines = 0
+        for (element in elements) {
+            val text = element.text.trim()
+            val desc = element.nodeInfo.contentDescription?.toString()?.trim().orEmpty()
+            val viewId = element.nodeInfo.viewIdResourceName?.trim().orEmpty()
+            if (text.isEmpty() && desc.isEmpty() && viewId.isEmpty()) continue
+            sb.append("[").append(element.className).append("] ")
+            if (text.isNotEmpty()) sb.append("text='").append(text).append("' ")
+            if (desc.isNotEmpty()) sb.append("desc='").append(desc).append("' ")
+            if (viewId.isNotEmpty()) sb.append("id='").append(viewId).append("' ")
+            sb.append("rect=").append(element.rect.toShortString())
+            sb.append('\n')
+            lines++
+            if (lines >= maxLines) break
+        }
+        Log.d(TAG, "UI snapshot reason=$reason total=$total listed=$lines\n$sb")
+    }
+
+    private fun scoreStringMatch(haystack: String, needle: String): Int? {
+        if (haystack.isEmpty()) return null
+        if (haystack == needle) return 0
+        if (haystack.contains(needle)) return 10 + (haystack.length - needle.length)
+        return null
     }
 
     fun installApp(
