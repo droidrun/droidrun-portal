@@ -140,7 +140,7 @@ class ConfigManager private constructor(private val context: Context) {
 
     // WebSocket Server Enabled
     var websocketEnabled: Boolean
-        get() = sharedPrefs.getBoolean(KEY_WEBSOCKET_ENABLED, true)
+        get() = sharedPrefs.getBoolean(KEY_WEBSOCKET_ENABLED, false) // Don't make it true
         set(value) {
             sharedPrefs.edit { putBoolean(KEY_WEBSOCKET_ENABLED, value) }
         }
@@ -149,7 +149,7 @@ class ConfigManager private constructor(private val context: Context) {
     var websocketPort: Int
         get() = sharedPrefs.getInt(KEY_WEBSOCKET_PORT, DEFAULT_WEBSOCKET_PORT)
         set(value) {
-            sharedPrefs.edit().putInt(KEY_WEBSOCKET_PORT, value).apply()
+            sharedPrefs.edit { putInt(KEY_WEBSOCKET_PORT, value) }
         }
 
     // Reverse Connection URL

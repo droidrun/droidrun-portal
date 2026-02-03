@@ -61,13 +61,32 @@ class ActionDispatcher(private val apiHandler: ApiHandler) {
             }
 
             "app" -> {
-                val pkg = params.optString("package", "")
+                val pkg = params.optString("package", "").ifEmpty {
+                    params.optString("packageName", "")
+                }
+                if (pkg.isEmpty()) {
+                    return ApiResponse.Error("Missing required param: 'package'")
+                }
                 val activity = params.optString("activity", "")
+                val stopBeforeLaunch = params.optBoolean("stopBeforeLaunch", false)
                 // JSON optString returns "" for missing keys
                 // Let's be safe: treat empty string or "null" literal as null
                 val finalActivity =
                     if (activity.isNullOrEmpty() || activity == "null") null else activity
+                if (stopBeforeLaunch) {
+                    apiHandler.stopApp(pkg)
+                }
                 apiHandler.startApp(pkg, finalActivity)
+            }
+
+            "app/stop" -> {
+                val pkg = params.optString("package", "").ifEmpty {
+                    params.optString("packageName", "")
+                }
+                if (pkg.isEmpty()) {
+                    return ApiResponse.Error("Missing required param: 'package'")
+                }
+                apiHandler.stopApp(pkg)
             }
 
             "keyboard/input", "input" -> {

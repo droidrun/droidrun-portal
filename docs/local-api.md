@@ -53,7 +53,8 @@ Response format:
 | `tap` | `x`, `y` | Tap screen coordinates |
 | `swipe` | `startX`, `startY`, `endX`, `endY`, `duration` | Duration in ms (optional) |
 | `global` | `action` | Accessibility global action ID |
-| `app` | `package`, `activity` | `activity` optional |
+| `app` | `package`, `activity`, `stopBeforeLaunch` | `activity` optional; `stopBeforeLaunch` defaults to `false` |
+| `app/stop` | `package` | Best-effort stop (non-privileged app) |
 | `keyboard/input` | `base64_text`, `clear` | `clear` defaults to `true` |
 | `keyboard/clear` | - | Clears focused input |
 | `keyboard/key` | `key_code` | Uses Android key codes |
