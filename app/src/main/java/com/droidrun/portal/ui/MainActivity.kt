@@ -2,7 +2,6 @@ package com.droidrun.portal.ui
 
 import com.droidrun.portal.config.ConfigManager
 import com.droidrun.portal.service.DroidrunAccessibilityService
-import com.droidrun.portal.service.DroidrunNotificationListener
 import com.droidrun.portal.state.ConnectionState
 import com.droidrun.portal.state.ConnectionStateManager
 import com.droidrun.portal.service.ReverseConnectionService
@@ -30,18 +29,15 @@ import android.graphics.Color
 import org.json.JSONObject
 import androidx.appcompat.app.AlertDialog
 import android.content.ClipboardManager
-import android.content.ComponentName
 import com.droidrun.portal.databinding.ActivityMainBinding
 import com.droidrun.portal.ui.settings.SettingsActivity
 import com.droidrun.portal.state.AppVisibilityTracker
-import androidx.core.net.toUri
 import androidx.core.graphics.toColorInt
 
 import android.content.BroadcastReceiver
 import android.content.IntentFilter
 import com.droidrun.portal.R
 import com.droidrun.portal.api.ApiHandler
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.snackbar.Snackbar
 import com.google.android.material.textfield.TextInputEditText
 
@@ -54,9 +50,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
     // Endpoints collapsible section
     private var isEndpointsExpanded = false
 
-    // Flag to prevent infinite update loops
     private var isProgrammaticUpdate = false
-    private val mainHandler = Handler(Looper.getMainLooper())
     private var isInstallReceiverRegistered = false
 
     private val installResultReceiver = object : BroadcastReceiver() {
@@ -755,57 +749,6 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         }
     }
 
-    private fun fetchPhoneStateData() {
-        try {
-            // Use ContentProvider to get phone state
-            val uri = "content://com.droidrun.portal/".toUri()
-            val command = JSONObject().apply {
-                put("action", "phone_state")
-            }
-
-            val cursor = contentResolver.query(
-                uri,
-                null,
-                command.toString(),
-                null,
-                null
-            )
-
-            cursor?.use {
-                if (it.moveToFirst()) {
-                    val result = it.getString(0)
-                    val jsonResponse = JSONObject(result)
-
-                    if (jsonResponse.getString("status") == "success") {
-                        val data = jsonResponse.getString("data")
-                        // responseText.text = data
-                        Toast.makeText(
-                            this,
-                            "Phone state received successfully!",
-                            Toast.LENGTH_SHORT
-                        ).show()
-
-                        Log.d(
-                            "DROIDRUN_MAIN",
-                            "Phone state received: ${
-                                data.take(100.coerceAtMost(data.length))
-                            }...",
-                        )
-                    } else {
-                        val error = jsonResponse.getString("error")
-                        // responseText.text = error
-                        Toast.makeText(this, "Error: $error", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }
-
-        } catch (e: Exception) {
-            Log.e("DROIDRUN_MAIN", "Error fetching phone state: ${e.message}")
-            Toast.makeText(this, "Error fetching phone state: ${e.message}", Toast.LENGTH_SHORT)
-                .show()
-        }
-    }
-
     // Check if the accessibility service is enabled
     private fun isAccessibilityServiceEnabled(): Boolean {
         val accessibilityServiceName =
@@ -824,16 +767,6 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         }
     }
 
-    // Check if notification listener permission is enabled
-    // Note: Used in settings sheet logic now, but keeping here or moving to shared utility would be better
-    // Leaving for now as it was part of previous logic
-    private fun isNotificationServiceEnabled(): Boolean {
-        val componentName = ComponentName(this, DroidrunNotificationListener::class.java)
-        val flat = Settings.Secure.getString(contentResolver, "enabled_notification_listeners")
-        return flat?.contains(componentName.flattenToString()) == true
-    }
-
-    // Open accessibility settings to enable the service
     private fun updateAccessibilityStatusIndicator() {
         val isEnabled = isAccessibilityServiceEnabled()
 
@@ -941,40 +874,6 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
                 "Error opening accessibility settings",
                 Toast.LENGTH_SHORT
             ).show()
-        }
-    }
-
-    private fun openNotificationSettings() {
-        try {
-            val intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
-            startActivity(intent)
-            Toast.makeText(
-                this,
-                "Please grant Notification Access to Droidrun Portal",
-                Toast.LENGTH_LONG
-            ).show()
-        } catch (e: Exception) {
-            Log.e("DROIDRUN_MAIN", "Error opening notification settings: ${e.message}")
-            Toast.makeText(this, "Error opening settings", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    private fun updateSocketServerPort(port: Int) {
-        try {
-            val configManager = ConfigManager.getInstance(this)
-            configManager.setSocketServerPortWithNotification(port)
-
-            updateAdbForwardCommand()
-
-            // Give the server a moment to restart, then update the status
-            // TODO const
-            mainHandler.postDelayed({
-                updateSocketServerStatus()
-            }, 1000)
-
-            Log.d("DROIDRUN_MAIN", "Socket server port updated: $port")
-        } catch (e: Exception) {
-            Log.e("DROIDRUN_MAIN", "Error updating socket server port: ${e.message}")
         }
     }
 
