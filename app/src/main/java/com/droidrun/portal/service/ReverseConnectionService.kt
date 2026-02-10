@@ -103,6 +103,7 @@ class ReverseConnectionService : Service() {
         isServiceRunning.set(false)
         handler.removeCallbacksAndMessages(null)
         disconnect()
+        ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
         try {
             installExecutor.shutdownNow()
         } catch (_: Exception) {
@@ -261,7 +262,6 @@ class ReverseConnectionService : Service() {
         try {
             webSocketClient?.close()
             webSocketClient = null
-            ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
         } catch (e: Exception) {
             Log.e(TAG, "Error closing connection", e)
         }
@@ -274,6 +274,7 @@ class ReverseConnectionService : Service() {
         handler.removeCallbacksAndMessages(null)
         ScreenCaptureService.requestStop("user_disconnect")
         disconnect()
+        ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
         stopSelf()
     }
 

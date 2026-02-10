@@ -147,6 +147,14 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             disconnectService()
         }
 
+        binding.btnRetryConnection.setOnClickListener {
+            retryConnection()
+        }
+
+        binding.btnDismissError.setOnClickListener {
+            ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
+        }
+
         // Configure endpoints collapsible section
         setupEndpointsCollapsible()
 
@@ -313,8 +321,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
     }
 
     private fun disconnectService() {
-        val configManager = ConfigManager.getInstance(this)
-        configManager.reverseConnectionEnabled = false
+        ConfigManager.getInstance(this).reverseConnectionEnabled = false
 
         val serviceIntent =
             Intent(this, ReverseConnectionService::class.java).apply {
@@ -322,8 +329,19 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             }
         startService(serviceIntent)
 
-        // Explicitly set state to disconnected
         ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
+    }
+
+    private fun retryConnection() {
+        val configManager = ConfigManager.getInstance(this)
+        configManager.reverseConnectionEnabled = true
+
+        val serviceIntent = Intent(this, ReverseConnectionService::class.java)
+        stopService(serviceIntent)
+
+        Handler(Looper.getMainLooper()).postDelayed({
+            startForegroundService(serviceIntent)
+        }, 150)
     }
 
     private fun showCustomConnectionDialog() {
@@ -406,60 +424,53 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
 
     private fun setupConnectionStateObserver() {
         ConnectionStateManager.connectionState.observe(this) { state ->
-            // Hide all layouts first
             binding.layoutDisconnected.visibility = View.GONE
             binding.layoutConnecting.visibility = View.GONE
             binding.layoutConnected.visibility = View.GONE
+            binding.layoutError.visibility = View.GONE
 
             when (state) {
                 ConnectionState.CONNECTED -> {
                     binding.layoutConnected.visibility = View.VISIBLE
-                    val configManager = ConfigManager.getInstance(this)
-                    binding.textDeviceId.text = "Device ID: ${configManager.deviceID}"
+                    binding.textDeviceId.text =
+                        "Device ID: ${ConfigManager.getInstance(this).deviceID}"
                 }
 
                 ConnectionState.CONNECTING, ConnectionState.RECONNECTING -> {
                     binding.layoutConnecting.visibility = View.VISIBLE
-                    binding.textConnectingStatus.text =
-                        if (state == ConnectionState.RECONNECTING) "Reconnecting..." else "Connecting..."
-                    binding.btnCancelConnection.visibility = View.VISIBLE
+                    if (state == ConnectionState.RECONNECTING) {
+                        binding.textConnectingStatus.text = "Reconnecting..."
+                        binding.textConnectingSubtitle.text =
+                            getString(R.string.reconnecting_subtitle)
+                    } else {
+                        binding.textConnectingStatus.text = "Connecting..."
+                        binding.textConnectingSubtitle.text =
+                            getString(R.string.connecting_subtitle)
+                    }
                 }
 
                 ConnectionState.UNAUTHORIZED -> {
-                    binding.layoutDisconnected.visibility = View.VISIBLE
-                    Toast.makeText(
-                        this,
-                        "Connection Failed: Unauthorized (Check API Key)",
-                        Toast.LENGTH_LONG
-                    ).show()
+                    binding.layoutError.visibility = View.VISIBLE
+                    binding.textErrorSubtitle.text = getString(R.string.error_unauthorized)
                 }
 
                 ConnectionState.LIMIT_EXCEEDED -> {
-                    binding.layoutDisconnected.visibility = View.VISIBLE
-                    Toast.makeText(
-                        this,
-                        "Connection Failed: Device Limit Exceeded",
-                        Toast.LENGTH_LONG
-                    ).show()
+                    binding.layoutError.visibility = View.VISIBLE
+                    binding.textErrorSubtitle.text = getString(R.string.error_limit_exceeded)
                 }
 
                 ConnectionState.BAD_REQUEST -> {
-                    binding.layoutDisconnected.visibility = View.VISIBLE
-                    Toast.makeText(
-                        this,
-                        "Connection Failed: Bad Request (Check token & headers)",
-                        Toast.LENGTH_LONG
-                    ).show()
+                    binding.layoutError.visibility = View.VISIBLE
+                    binding.textErrorSubtitle.text = getString(R.string.error_bad_request)
                 }
 
                 ConnectionState.ERROR -> {
-                    binding.layoutDisconnected.visibility = View.VISIBLE
-                    Toast.makeText(this, "Connection Failed: Unknown Error", Toast.LENGTH_LONG).show()
+                    binding.layoutError.visibility = View.VISIBLE
+                    binding.textErrorSubtitle.text = getString(R.string.error_unknown)
                 }
 
                 else -> {
                     binding.layoutDisconnected.visibility = View.VISIBLE
-                    binding.btnCancelConnection.visibility = View.GONE
                 }
             }
         }

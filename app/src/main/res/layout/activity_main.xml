@@ -259,7 +259,8 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:gravity="center"
-                    android:orientation="vertical">
+                    android:orientation="vertical"
+                    android:animateLayoutChanges="true">
 
                     <!-- Disconnected State -->
                     <LinearLayout
@@ -309,14 +310,28 @@
                             android:layout_marginEnd="12dp"
                             android:indeterminateTint="@color/text_white" />
 
-                        <TextView
-                            android:id="@+id/text_connecting_status"
+                        <LinearLayout
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="Connecting..."
-                            android:textColor="@color/text_white"
-                            android:textSize="14sp" />
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:id="@+id/text_connecting_status"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Connecting..."
+                                android:textColor="@color/text_white"
+                                android:textSize="14sp" />
+
+                            <TextView
+                                android:id="@+id/text_connecting_subtitle"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="@string/connecting_subtitle"
+                                android:textColor="@color/text_gray"
+                                android:textSize="12sp" />
+                        </LinearLayout>
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btn_cancel_connection"
@@ -348,12 +363,23 @@
                             android:orientation="horizontal"
                             android:gravity="center_vertical">
 
-                            <ImageView
-                                android:layout_width="24dp"
-                                android:layout_height="24dp"
-                                android:layout_marginEnd="8dp"
-                                android:src="@drawable/cloud"
-                                app:tint="@color/status_success" />
+                            <FrameLayout
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginEnd="8dp">
+
+                                <ImageView
+                                    android:layout_width="24dp"
+                                    android:layout_height="24dp"
+                                    android:src="@drawable/cloud"
+                                    app:tint="@color/status_success" />
+
+                                <View
+                                    android:layout_width="8dp"
+                                    android:layout_height="8dp"
+                                    android:layout_gravity="bottom|end"
+                                    android:background="@drawable/circle_indicator_green" />
+                            </FrameLayout>
 
                             <TextView
                                 android:layout_width="0dp"
@@ -387,6 +413,88 @@
                             android:textSize="12sp"
                             android:visibility="visible"
                             android:layout_marginStart="32dp" />
+                    </LinearLayout>
+
+                    <!-- Error State -->
+                    <LinearLayout
+                        android:id="@+id/layout_error"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="vertical"
+                        android:padding="10dp"
+                        android:visibility="gone">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical">
+
+                            <ImageView
+                                android:layout_width="24dp"
+                                android:layout_height="24dp"
+                                android:layout_marginEnd="8dp"
+                                android:src="@drawable/triangle_alert"
+                                app:tint="@color/status_error" />
+
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:orientation="vertical">
+
+                                <TextView
+                                    android:id="@+id/text_error_title"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="@string/connection_failed_title"
+                                    android:textColor="@color/text_white"
+                                    android:textSize="14sp" />
+
+                                <TextView
+                                    android:id="@+id/text_error_subtitle"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="@string/error_unknown"
+                                    android:textColor="@color/text_gray"
+                                    android:textSize="12sp" />
+                            </LinearLayout>
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="end"
+                            android:layout_marginTop="4dp">
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btn_dismiss_error"
+                                style="@style/Widget.MaterialComponents.Button.TextButton"
+                                android:layout_width="wrap_content"
+                                android:layout_height="36dp"
+                                android:minWidth="0dp"
+                                android:minHeight="0dp"
+                                android:paddingHorizontal="12dp"
+                                android:paddingVertical="0dp"
+                                android:text="@string/dismiss"
+                                android:textColor="@color/text_gray"
+                                android:textSize="12sp" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btn_retry_connection"
+                                style="@style/Widget.MaterialComponents.Button.TextButton"
+                                android:layout_width="wrap_content"
+                                android:layout_height="36dp"
+                                android:minWidth="0dp"
+                                android:minHeight="0dp"
+                                android:paddingHorizontal="12dp"
+                                android:paddingVertical="0dp"
+                                android:text="@string/retry"
+                                android:textColor="@color/status_success"
+                                android:textSize="12sp" />
+                        </LinearLayout>
                     </LinearLayout>
 
                 </LinearLayout>

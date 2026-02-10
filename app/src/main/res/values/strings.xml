@@ -83,6 +83,17 @@
     <string name="install_unknown_apps_label">Install Unknown Apps</string>
     <string name="install_unknown_apps_description">Allow installing APK files</string>
 
+    <!-- Connection States -->
+    <string name="connection_failed_title">Connection Failed</string>
+    <string name="error_unauthorized">Unauthorized \u2014 check your API key</string>
+    <string name="error_limit_exceeded">Device limit exceeded</string>
+    <string name="error_bad_request">Bad request \u2014 check token and headers</string>
+    <string name="error_unknown">An unknown error occurred</string>
+    <string name="connecting_subtitle">Establishing connection\u2026</string>
+    <string name="reconnecting_subtitle">Connection interrupted, retrying\u2026</string>
+    <string name="retry">Retry</string>
+    <string name="dismiss">Dismiss</string>
+
     <!-- Keyboard Warning -->
     <string name="keyboard_not_enabled_warning">Droidrun Keyboard not active. Using accessibility fallback for text input.</string>
     <string name="select_keyboard">Select</string>
