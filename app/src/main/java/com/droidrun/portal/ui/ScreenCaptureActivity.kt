@@ -27,9 +27,13 @@ class ScreenCaptureActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        mediaProjectionManager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        mediaProjectionManager =
+            getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         AutoAcceptGate.armMediaProjection()
-        startActivityForResult(mediaProjectionManager.createScreenCaptureIntent(), REQUEST_CODE_CAPTURE_PERM)
+        startActivityForResult(
+            mediaProjectionManager.createScreenCaptureIntent(),
+            REQUEST_CODE_CAPTURE_PERM
+        )
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -42,10 +46,22 @@ class ScreenCaptureActivity : Activity() {
                     putExtra(ScreenCaptureService.EXTRA_RESULT_CODE, resultCode)
                     putExtra(ScreenCaptureService.EXTRA_RESULT_DATA, data)
                     // Forward stream config from launching intent
-                    putExtra(ScreenCaptureService.EXTRA_WIDTH, intent.getIntExtra(ScreenCaptureService.EXTRA_WIDTH, 720))
-                    putExtra(ScreenCaptureService.EXTRA_HEIGHT, intent.getIntExtra(ScreenCaptureService.EXTRA_HEIGHT, 1280))
-                    putExtra(ScreenCaptureService.EXTRA_FPS, intent.getIntExtra(ScreenCaptureService.EXTRA_FPS, 30))
-                    putExtra(ScreenCaptureService.EXTRA_WAIT_FOR_OFFER, intent.getBooleanExtra(ScreenCaptureService.EXTRA_WAIT_FOR_OFFER, false))
+                    putExtra(
+                        ScreenCaptureService.EXTRA_WIDTH,
+                        intent.getIntExtra(ScreenCaptureService.EXTRA_WIDTH, 720)
+                    )
+                    putExtra(
+                        ScreenCaptureService.EXTRA_HEIGHT,
+                        intent.getIntExtra(ScreenCaptureService.EXTRA_HEIGHT, 1280)
+                    )
+                    putExtra(
+                        ScreenCaptureService.EXTRA_FPS,
+                        intent.getIntExtra(ScreenCaptureService.EXTRA_FPS, 24)
+                    )
+                    putExtra(
+                        ScreenCaptureService.EXTRA_WAIT_FOR_OFFER,
+                        intent.getBooleanExtra(ScreenCaptureService.EXTRA_WAIT_FOR_OFFER, false)
+                    )
                 }
                 startForegroundService(serviceIntent)
             } else {
@@ -53,13 +69,13 @@ class ScreenCaptureActivity : Activity() {
                 // Notify cloud of permission denial
                 notifyPermissionDenied()
             }
-            
+
             finish()
         } else {
             super.onActivityResult(requestCode, resultCode, data)
         }
     }
-    
+
     private fun notifyPermissionDenied() {
         try {
             val service = ReverseConnectionService.getInstance()

@@ -7,9 +7,11 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.wifi.WifiManager
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.droidrun.portal.streaming.WebRtcManager
@@ -53,6 +55,8 @@ class ScreenCaptureService : Service() {
     private var stopFinalized = false
     private val mainHandler = Handler(Looper.getMainLooper())
     private val stopTimeoutRunnable = Runnable { finalizeStop("cleanup_timeout") }
+    private var cpuWakeLock: PowerManager.WakeLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -70,7 +74,7 @@ class ScreenCaptureService : Service() {
                 val resultData = intent.getParcelableExtra<Intent>(EXTRA_RESULT_DATA)
                 val width = intent.getIntExtra(EXTRA_WIDTH, 720)
                 val height = intent.getIntExtra(EXTRA_HEIGHT, 1280)
-                val fps = intent.getIntExtra(EXTRA_FPS, 30)
+                val fps = intent.getIntExtra(EXTRA_FPS, 24)
                 val waitForOffer = intent.getBooleanExtra(EXTRA_WAIT_FOR_OFFER, false)
 
                 if (resultCode == -1 && resultData != null) {
@@ -92,6 +96,7 @@ class ScreenCaptureService : Service() {
                         return START_NOT_STICKY
                     }
                     webRtcManager.setReverseConnectionService(rcs)
+                    acquireStreamingLocks()
 
                     val streamRequestId = webRtcManager.getStreamRequestId()
                     try {
@@ -118,6 +123,7 @@ class ScreenCaptureService : Service() {
                             Log.e(TAG, "Failed to send stream error", jsonEx)
                         }
                         webRtcManager.setStreamRequestId(null)
+                        releaseStreamingLocks()
                         @Suppress("DEPRECATION")
                         stopForeground(true)
                         stopSelf()
@@ -176,10 +182,78 @@ class ScreenCaptureService : Service() {
         if (stopFinalized) return
         stopFinalized = true
         mainHandler.removeCallbacks(stopTimeoutRunnable)
+        releaseStreamingLocks()
         @Suppress("DEPRECATION")
         stopForeground(true)
         ReverseConnectionService.getInstance()?.resumeForegroundAfterStreaming()
         stopSelf()
+    }
+
+    private fun acquireStreamingLocks() {
+        try {
+            val powerManager = getSystemService(POWER_SERVICE) as? PowerManager
+            if (powerManager != null) {
+                if (cpuWakeLock == null) {
+                    cpuWakeLock =
+                        powerManager
+                            .newWakeLock(
+                                PowerManager.PARTIAL_WAKE_LOCK,
+                                "$packageName:stream_cpu_lock"
+                            ).apply { setReferenceCounted(false) }
+                }
+                if (cpuWakeLock?.isHeld != true) {
+                    cpuWakeLock?.acquire(10 * 60 * 1000L /*10 minutes*/)
+                    Log.i(TAG, "Acquired PARTIAL_WAKE_LOCK")
+                }
+            } else {
+                Log.w(TAG, "PowerManager unavailable; CPU wake lock not acquired")
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Failed to acquire PARTIAL_WAKE_LOCK", t)
+        }
+
+        try {
+            val wifiManager = applicationContext.getSystemService(WIFI_SERVICE) as? WifiManager
+            if (wifiManager != null) {
+                if (wifiLock == null) {
+                    wifiLock =
+                        wifiManager
+                            .createWifiLock(
+                                WifiManager.WIFI_MODE_FULL_LOW_LATENCY,
+                                "$packageName:stream_wifi_lock",
+                            )
+                            .apply { setReferenceCounted(false) }
+                }
+                if (wifiLock?.isHeld != true) {
+                    wifiLock?.acquire()
+                    Log.i(TAG, "Acquired WIFI_LOCK")
+                }
+            } else {
+                Log.w(TAG, "WifiManager unavailable; Wi-Fi lock not acquired")
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Failed to acquire WIFI_LOCK", t)
+        }
+    }
+
+    private fun releaseStreamingLocks() {
+        try {
+            if (wifiLock?.isHeld == true) {
+                wifiLock?.release()
+                Log.i(TAG, "Released WIFI_LOCK")
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Failed to release WIFI_LOCK", t)
+        }
+
+        try {
+            if (cpuWakeLock?.isHeld == true) {
+                cpuWakeLock?.release()
+                Log.i(TAG, "Released PARTIAL_WAKE_LOCK")
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Failed to release PARTIAL_WAKE_LOCK", t)
+        }
     }
 
     private fun createNotificationChannel() {

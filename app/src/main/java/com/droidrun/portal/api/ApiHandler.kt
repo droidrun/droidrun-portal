@@ -1727,13 +1727,21 @@ class ApiHandler(
     }
 
     fun startStream(params: JSONObject): ApiResponse {
-        val width = params.optInt("width", 720).coerceIn(144, 1920)
+        val width = params.optInt("width", 720).coerceIn(144, 2560)
         val height = params.optInt("height", 1280).coerceIn(256, 3840)
-        val fps = params.optInt("fps", 30).coerceIn(1, 60)
+        val fps = params.optInt("fps", 24).coerceIn(1, 60)
         val sessionId = params.optString("sessionId")
         val waitForOffer = params.optBoolean("waitForOffer", false)
+        val minBitrateBps = parseOptionalBitrateBps(params, "minBitrateBps", "minBitrateKbps")
+        val startBitrateBps = parseOptionalBitrateBps(params, "startBitrateBps", "startBitrateKbps")
+        val maxBitrateBps = parseOptionalBitrateBps(params, "maxBitrateBps", "maxBitrateKbps")
         val manager = WebRtcManager.getInstance(context)
         manager.setStreamRequestId(sessionId)
+        manager.setStreamEncoderOverrides(
+            minBitrateBps = minBitrateBps,
+            startBitrateBps = startBitrateBps,
+            maxBitrateBps = maxBitrateBps,
+        )
         params.optJSONArray("iceServers")?.let {
             manager.setPendingIceServers(parseIceServers(it))
         }
@@ -1849,8 +1857,20 @@ class ApiHandler(
         return ApiResponse.Success("SDP Answer processed")
     }
 
-    fun handleWebRtcIce(candidateSdp: String, sdpMid: String, sdpMLineIndex: Int): ApiResponse {
+    fun handleWebRtcIce(
+        candidateSdp: String,
+        sdpMid: String,
+        sdpMLineIndex: Int,
+        sessionId: String? = null,
+    ): ApiResponse {
         val manager = WebRtcManager.getInstance(context)
+        if (!sessionId.isNullOrBlank() && !manager.isCurrentSession(sessionId)) {
+            Log.d(
+                TAG,
+                "Ignoring stale ICE candidate: sessionId=$sessionId current=${manager.getStreamRequestId()}",
+            )
+            return ApiResponse.Success("Ignoring stale ICE candidate")
+        }
         if (!manager.isStreamActive())
             return ApiResponse.Error("No active stream")
 
@@ -1862,11 +1882,30 @@ class ApiHandler(
 
     fun handleWebRtcOffer(sdp: String, sessionId: String): ApiResponse {
         val manager = WebRtcManager.getInstance(context)
+        if (!manager.isCurrentSession(sessionId)) {
+            Log.d(
+                TAG,
+                "Ignoring stale SDP offer: sessionId=$sessionId current=${manager.getStreamRequestId()}",
+            )
+            return ApiResponse.Success("Ignoring stale SDP offer")
+        }
         if (!manager.isStreamActive())
             return ApiResponse.Error("No active stream - call stream/start first")
 
         manager.handleOffer(sdp, sessionId)
         return ApiResponse.Success("SDP Offer processed, answer will be sent")
+    }
+
+    private fun parseOptionalBitrateBps(
+        params: JSONObject,
+        bpsKey: String,
+        kbpsKey: String,
+    ): Int? {
+        val bps = params.optInt(bpsKey, -1)
+        if (bps > 0) return bps
+        val kbps = params.optInt(kbpsKey, -1)
+        if (kbps > 0) return kbps * 1000
+        return null
     }
 
     private fun parseIceServers(json: JSONArray): List<PeerConnection.IceServer> {

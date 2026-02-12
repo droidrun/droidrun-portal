@@ -203,10 +203,11 @@ class ActionDispatcher(private val apiHandler: ApiHandler) {
                 if (origin != Origin.WEBSOCKET_REVERSE) {
                     ApiResponse.Error("WebRTC signaling requires reverse WebSocket connection")
                 } else {
+                    val sessionId = params.optString("sessionId").takeIf { it.isNotBlank() }
                     val candidateSdp = params.getString("candidate")
                     val sdpMid = params.optString("sdpMid")
                     val sdpMLineIndex = params.optInt("sdpMLineIndex")
-                    apiHandler.handleWebRtcIce(candidateSdp, sdpMid, sdpMLineIndex)
+                    apiHandler.handleWebRtcIce(candidateSdp, sdpMid, sdpMLineIndex, sessionId)
                 }
             }
 
