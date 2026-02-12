@@ -330,7 +330,7 @@ class WebRtcManager private constructor(private val context: Context) {
 
     @Volatile
     private var controlChannel: DataChannel? = null
-    private var streamingControlHandler: StreamingControlChannel? = null
+    private var streamingControlHandler: ScrcpyControlChannel? = null
     private var idleStopRunnable: Runnable? = null
 
     @Volatile
@@ -1440,7 +1440,7 @@ class WebRtcManager private constructor(private val context: Context) {
             }
         controlChannel = peerConnection?.createDataChannel("control", dcInit)
         controlChannel?.let { dc ->
-            streamingControlHandler = StreamingControlChannel()
+            streamingControlHandler = ScrcpyControlChannel()
             dc.registerObserver(streamingControlHandler)
         }
     }
