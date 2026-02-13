@@ -11,5 +11,5 @@
         android:text="@string/keyboard_on"
         android:layout_centerInParent="true"
         android:textColor="#FFFFFF"
-        android:padding="16dp"/>
+        android:padding="8dp"/>
 </RelativeLayout> 

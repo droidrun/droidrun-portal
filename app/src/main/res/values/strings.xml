@@ -2,7 +2,7 @@
     <string name="app_name">Droidrun Portal</string>
     <string name="accessibility_service_description">Droidrun Portal identifies and visualizes UI elements on screen. This service helps to detect which elements are visible to the user by examining the layers of the UI, which is useful for UI analysis and automation.</string>
     <string name="keyboard_name">Droidrun Keyboard</string>
-    <string name="keyboard_on">Droidrun Keyboard (ON)</string>
+    <string name="keyboard_on">Droidrun Keyboard</string>
 
     <!-- Activity Main -->
     <string name="settings_content_description">Settings</string>
