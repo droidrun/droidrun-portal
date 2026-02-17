@@ -62,6 +62,7 @@ class ApiHandler(
         private const val INSTALL_UI_DELAY_MS = 1000L
         private const val MAX_ERROR_BODY_SIZE = 2048
         private const val ENABLE_UI_STOP_FALLBACK = true
+        private const val FORCE_STOP_SCREEN_READY_TIMEOUT_MS = 5000L
         const val ACTION_INSTALL_RESULT = "com.droidrun.portal.action.INSTALL_RESULT"
         const val EXTRA_INSTALL_SUCCESS = "install_success"
         const val EXTRA_INSTALL_MESSAGE = "install_message"
@@ -573,7 +574,9 @@ class ApiHandler(
             ForceStopUiResult(attempted = false, success = false, reason = "ui_disabled")
         }
 
-        val overallSuccess = if (uiResult.attempted) uiResult.success else killSuccess
+        // UI fallback can be delayed on some devices; don't override a successful
+        // background-process kill with a transient UI readiness failure.
+        val overallSuccess = killSuccess || uiResult.success
         val resultJson = JSONObject().apply {
             put("message", "Stop requested for $packageName")
             put("killBackgroundProcesses", killSuccess)
@@ -639,7 +642,7 @@ class ApiHandler(
         }
 
         val screenReady = waitForUiAction(
-            timeoutMs = 3000L,
+            timeoutMs = FORCE_STOP_SCREEN_READY_TIMEOUT_MS,
             intervalMs = 250L,
         ) {
             val elements = flattenElements(stateRepo.getVisibleElements())
