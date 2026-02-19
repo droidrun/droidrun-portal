@@ -396,21 +396,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             inputToken.setText(existingToken)
         }
 
-        // Strip whitespace and newlines in real-time
-        inputToken.addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-            override fun afterTextChanged(s: Editable?) {
-                val original = s?.toString() ?: return
-                val cleaned = original.replace("\\s+".toRegex(), "")
-                if (original != cleaned) {
-                    inputToken.removeTextChangedListener(this)
-                    inputToken.setText(cleaned)
-                    inputToken.setSelection(cleaned.length)
-                    inputToken.addTextChangedListener(this)
-                }
-            }
-        })
+        inputToken.addWhitespaceStrippingWatcher()
 
         val dialog = AlertDialog.Builder(this, R.style.Theme_DroidrunPortal_Dialog)
             .setView(dialogView)
