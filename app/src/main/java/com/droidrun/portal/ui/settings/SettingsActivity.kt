@@ -16,6 +16,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import com.droidrun.portal.service.DroidrunNotificationListener
 import com.droidrun.portal.service.ReverseConnectionService
 
+import com.droidrun.portal.ui.addWhitespaceStrippingWatcher
 import com.droidrun.portal.state.ConnectionState
 import com.droidrun.portal.state.ConnectionStateManager
 import com.droidrun.portal.state.AppVisibilityTracker
@@ -128,6 +129,8 @@ class SettingsActivity : AppCompatActivity() {
         binding.inputReverseUrl.setText(configManager.reverseConnectionUrl)
         binding.inputReverseToken.setText(configManager.reverseConnectionToken)
 
+        binding.inputReverseToken.addWhitespaceStrippingWatcher()
+
         // Toggle Service on Switch Change
         binding.switchReverseEnabled.setOnCheckedChangeListener { _, isChecked ->
             configManager.reverseConnectionEnabled = isChecked
@@ -138,17 +141,25 @@ class SettingsActivity : AppCompatActivity() {
             )
             if (isChecked) {
                 // Ensure URL is saved before starting
-                val url = binding.inputReverseUrl.text.toString()
-                if (url.isNotBlank()) {
-                    configManager.reverseConnectionUrl = url
-                    // Also save token if user typed it but didn't hit done
-                    configManager.reverseConnectionToken = binding.inputReverseToken.text.toString()
-
-                    startForegroundService(intent)
-                } else {
-                    binding.inputReverseUrl.error = "URL required"
-                    binding.switchReverseEnabled.isChecked = false
+                val url = binding.inputReverseUrl.text.toString().ifBlank {
+                    configManager.reverseConnectionUrlOrDefault
                 }
+
+                val apiKey = binding.inputReverseToken.text.toString().replace("\\s+".toRegex(), "")
+                if (apiKey.isNotBlank() && !apiKey.startsWith(ConfigManager.API_KEY_PREFIX)) {
+                    binding.inputReverseToken.error = "API key must start with ${ConfigManager.API_KEY_PREFIX}"
+                    binding.switchReverseEnabled.isChecked = false
+                    return@setOnCheckedChangeListener
+                }
+                if (apiKey.isNotBlank() && apiKey.length != ConfigManager.API_KEY_LENGTH) {
+                    binding.inputReverseToken.error = "Invalid API key length (expected ${ConfigManager.API_KEY_LENGTH}, got ${apiKey.length})"
+                    binding.switchReverseEnabled.isChecked = false
+                    return@setOnCheckedChangeListener
+                }
+
+                configManager.reverseConnectionUrl = url
+                configManager.reverseConnectionToken = apiKey
+                startForegroundService(intent)
             } else {
                 intent.action = ReverseConnectionService.ACTION_DISCONNECT
                 startService(intent)
@@ -168,9 +179,16 @@ class SettingsActivity : AppCompatActivity() {
 
         binding.inputReverseToken.setOnEditorActionListener { v, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_DONE) {
-                configManager.reverseConnectionToken = v.text.toString()
-                binding.inputReverseToken.clearFocus()
-                restartServiceIfEnabled()
+                val apiKey = v.text.toString().replace("\\s+".toRegex(), "")
+                if (apiKey.isNotBlank() && !apiKey.startsWith(ConfigManager.API_KEY_PREFIX)) {
+                    binding.inputReverseToken.error = "API key must start with ${ConfigManager.API_KEY_PREFIX}"
+                } else if (apiKey.isNotBlank() && apiKey.length != ConfigManager.API_KEY_LENGTH) {
+                    binding.inputReverseToken.error = "Invalid API key length (expected ${ConfigManager.API_KEY_LENGTH}, got ${apiKey.length})"
+                } else {
+                    configManager.reverseConnectionToken = apiKey
+                    binding.inputReverseToken.clearFocus()
+                    restartServiceIfEnabled()
+                }
                 true
             } else {
                 false

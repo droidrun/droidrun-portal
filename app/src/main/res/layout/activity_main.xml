@@ -278,14 +278,32 @@
                             android:src="@drawable/cloud"
                             app:tint="@color/text_white" />
 
-                        <TextView
+                        <LinearLayout
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="Connect to Mobilerun"
-                            android:textColor="@color/text_white"
-                            android:textSize="14sp"
-                            android:textStyle="normal" />
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Connect to Mobilerun"
+                                android:textColor="@color/text_white"
+                                android:textSize="14sp"
+                                android:textStyle="normal" />
+
+                            <TextView
+                                android:id="@+id/btn_logout_disconnected"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="@string/logout"
+                                android:textColor="@color/text_gray"
+                                android:textSize="12sp"
+                                android:visibility="gone"
+                                android:background="?attr/selectableItemBackground"
+                                android:clickable="true"
+                                android:focusable="true" />
+                        </LinearLayout>
 
                         <ImageView
                             android:layout_width="24dp"
@@ -403,16 +421,36 @@
                                 android:textSize="12sp" />
                         </LinearLayout>
 
-                        <TextView
-                            android:id="@+id/text_device_id"
-                            android:layout_width="wrap_content"
+                        <LinearLayout
+                            android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:fontFamily="monospace"
-                            android:text="Device ID: ..."
-                            android:textColor="@color/text_gray"
-                            android:textSize="12sp"
-                            android:visibility="visible"
-                            android:layout_marginStart="32dp" />
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical"
+                            android:layout_marginStart="32dp">
+
+                            <TextView
+                                android:id="@+id/text_device_id"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:fontFamily="monospace"
+                                android:text="Device ID: ..."
+                                android:textColor="@color/text_gray"
+                                android:textSize="12sp" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btn_logout"
+                                style="@style/Widget.MaterialComponents.Button.TextButton"
+                                android:layout_width="wrap_content"
+                                android:layout_height="36dp"
+                                android:minWidth="0dp"
+                                android:minHeight="0dp"
+                                android:paddingHorizontal="12dp"
+                                android:paddingVertical="0dp"
+                                android:text="@string/logout"
+                                android:textColor="@color/text_gray"
+                                android:textSize="12sp" />
+                        </LinearLayout>
                     </LinearLayout>
 
                     <!-- Error State -->

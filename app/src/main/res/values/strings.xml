@@ -60,7 +60,7 @@
     <string name="connect_to_host_label">Connect to Host</string>
     <string name="initiate_outbound_connection_label">Initiate outbound connection</string>
     <string name="host_url_hint">Host URL (ws://...)</string>
-    <string name="token_optional_hint">Token (Optional)</string>
+    <string name="token_optional_hint">API Key</string>
     <string name="reverse_connection_connected">Reverse connection established</string>
     <string name="reverse_connection_service_title">Reverse connection active</string>
     <string name="reverse_connection_service_text">Keeping device connected for tasks</string>
@@ -82,6 +82,15 @@
     <!-- Settings - Permissions -->
     <string name="install_unknown_apps_label">Install Unknown Apps</string>
     <string name="install_unknown_apps_description">Allow installing APK files</string>
+
+    <!-- Logout -->
+    <string name="logout">Logout</string>
+
+    <!-- API Key Dialog -->
+    <string name="connect_with_api_key_title">Connect with API Key</string>
+    <string name="connect_with_api_key_subtitle">Enter your API key to connect</string>
+    <string name="api_key_hint">API Key</string>
+    <string name="connect_button">Connect</string>
 
     <!-- Connection States -->
     <string name="connection_failed_title">Connection Failed</string>
