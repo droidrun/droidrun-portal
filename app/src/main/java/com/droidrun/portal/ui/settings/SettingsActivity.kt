@@ -156,21 +156,18 @@ class SettingsActivity : AppCompatActivity() {
             )
             if (isChecked) {
                 // Ensure URL is saved before starting
-                val url = binding.inputReverseUrl.text.toString()
-                if (url.isBlank()) {
-                    binding.inputReverseUrl.error = "URL required"
-                    binding.switchReverseEnabled.isChecked = false
-                    return@setOnCheckedChangeListener
+                val url = binding.inputReverseUrl.text.toString().ifBlank {
+                    configManager.reverseConnectionUrlOrDefault
                 }
 
                 val apiKey = binding.inputReverseToken.text.toString().replace("\\s+".toRegex(), "")
-                if (apiKey.isNotBlank() && !apiKey.startsWith("dr_sk_")) {
-                    binding.inputReverseToken.error = "API key must start with dr_sk_"
+                if (apiKey.isNotBlank() && !apiKey.startsWith(ConfigManager.API_KEY_PREFIX)) {
+                    binding.inputReverseToken.error = "API key must start with ${ConfigManager.API_KEY_PREFIX}"
                     binding.switchReverseEnabled.isChecked = false
                     return@setOnCheckedChangeListener
                 }
-                if (apiKey.isNotBlank() && apiKey.length != 70) {
-                    binding.inputReverseToken.error = "Invalid API key length (expected 70, got ${apiKey.length})"
+                if (apiKey.isNotBlank() && apiKey.length != ConfigManager.API_KEY_LENGTH) {
+                    binding.inputReverseToken.error = "Invalid API key length (expected ${ConfigManager.API_KEY_LENGTH}, got ${apiKey.length})"
                     binding.switchReverseEnabled.isChecked = false
                     return@setOnCheckedChangeListener
                 }
@@ -198,10 +195,10 @@ class SettingsActivity : AppCompatActivity() {
         binding.inputReverseToken.setOnEditorActionListener { v, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_DONE) {
                 val apiKey = v.text.toString().replace("\\s+".toRegex(), "")
-                if (apiKey.isNotBlank() && !apiKey.startsWith("dr_sk_")) {
-                    binding.inputReverseToken.error = "API key must start with dr_sk_"
-                } else if (apiKey.isNotBlank() && apiKey.length != 70) {
-                    binding.inputReverseToken.error = "Invalid API key length (expected 70, got ${apiKey.length})"
+                if (apiKey.isNotBlank() && !apiKey.startsWith(ConfigManager.API_KEY_PREFIX)) {
+                    binding.inputReverseToken.error = "API key must start with ${ConfigManager.API_KEY_PREFIX}"
+                } else if (apiKey.isNotBlank() && apiKey.length != ConfigManager.API_KEY_LENGTH) {
+                    binding.inputReverseToken.error = "Invalid API key length (expected ${ConfigManager.API_KEY_LENGTH}, got ${apiKey.length})"
                 } else {
                     configManager.reverseConnectionToken = apiKey
                     binding.inputReverseToken.clearFocus()

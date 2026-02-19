@@ -85,7 +85,6 @@
 
     <!-- Logout -->
     <string name="logout">Logout</string>
-    <string name="logout_switch_account">Logout</string>
 
     <!-- API Key Dialog -->
     <string name="connect_with_api_key_title">Connect with API Key</string>

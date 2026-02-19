@@ -348,7 +348,6 @@
                     android:layout_height="56dp"
                     android:inputType="textVisiblePassword"
                     android:maxLines="1"
-                    android:singleLine="true"
                     android:textColor="@color/text_white"
                     android:textSize="16sp" />
             </com.google.android.material.textfield.TextInputLayout>

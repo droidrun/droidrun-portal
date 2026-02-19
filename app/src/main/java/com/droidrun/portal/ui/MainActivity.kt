@@ -51,7 +51,6 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
     private var isEndpointsExpanded = false
 
     private var isProgrammaticUpdate = false
-    private var forceLoginOnNextConnect = false
     private var isInstallReceiverRegistered = false
 
     private val installResultReceiver = object : BroadcastReceiver() {
@@ -123,8 +122,8 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             } else {
                 // No API key — open browser for login
                 val deviceId = configManager.deviceID
-                val forceLogin = if (forceLoginOnNextConnect) "&force_login=true" else ""
-                forceLoginOnNextConnect = false
+                val forceLogin = if (configManager.forceLoginOnNextConnect) "&force_login=true" else ""
+                configManager.forceLoginOnNextConnect = false
                 val url = "https://cloud.mobilerun.ai/auth/device?deviceId=$deviceId$forceLogin"
                 try {
                     val intent = android.content.Intent(
@@ -340,7 +339,6 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         val configManager = ConfigManager.getInstance(this)
         configManager.reverseConnectionEnabled = false
         configManager.reverseConnectionToken = ""
-        configManager.reverseConnectionUrl = ""
 
         val serviceIntent =
             Intent(this, ReverseConnectionService::class.java).apply {
@@ -350,7 +348,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
 
         ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
         updateDisconnectedLogoutVisibility()
-        forceLoginOnNextConnect = true
+        configManager.forceLoginOnNextConnect = true
     }
 
     private fun disconnectService() {
@@ -436,15 +434,15 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
                 return@setOnClickListener
             }
 
-            if (!apiKey.startsWith("dr_sk_")) {
+            if (!apiKey.startsWith(ConfigManager.API_KEY_PREFIX)) {
                 Log.w(TAG, "showCustomConnectionDialog: Invalid API key prefix")
-                Toast.makeText(this, "API key must start with dr_sk_", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "API key must start with ${ConfigManager.API_KEY_PREFIX}", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
 
-            if (apiKey.length != 70) {
+            if (apiKey.length != ConfigManager.API_KEY_LENGTH) {
                 Log.w(TAG, "showCustomConnectionDialog: Invalid API key length=${apiKey.length}")
-                Toast.makeText(this, "Invalid API key length (expected 70, got ${apiKey.length})", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Invalid API key length (expected ${ConfigManager.API_KEY_LENGTH}, got ${apiKey.length})", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
 
@@ -465,11 +463,11 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             Toast.makeText(this, "Connecting...", Toast.LENGTH_SHORT).show()
         }
 
-        dialog.show()
         dialog.window?.setLayout(
             (resources.displayMetrics.widthPixels * 0.9).toInt(),
             android.view.WindowManager.LayoutParams.WRAP_CONTENT
         )
+        dialog.show()
         Log.d(TAG, "showCustomConnectionDialog: Dialog shown")
     }
 

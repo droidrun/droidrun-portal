@@ -296,7 +296,7 @@
                                 android:id="@+id/btn_logout_disconnected"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:text="@string/logout_switch_account"
+                                android:text="@string/logout"
                                 android:textColor="@color/text_gray"
                                 android:textSize="12sp"
                                 android:visibility="gone"

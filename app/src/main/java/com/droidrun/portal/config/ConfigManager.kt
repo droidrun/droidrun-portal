@@ -43,6 +43,9 @@ class ConfigManager private constructor(private val context: Context) {
         private const val DEFAULT_REVERSE_CONNECTION_URL =
             "wss://api.mobilerun.ai/v1/providers/personal/join"
 
+        const val API_KEY_PREFIX = "dr_sk_"
+        const val API_KEY_LENGTH = 70
+
         // TODO replace
         @Volatile
         private var INSTANCE: ConfigManager? = null
@@ -232,6 +235,12 @@ class ConfigManager private constructor(private val context: Context) {
         }
 
     var reverseConnectionEnabled: Boolean = false
+
+    var forceLoginOnNextConnect: Boolean
+        get() = sharedPrefs.getBoolean("force_login_on_next_connect", false)
+        set(value) {
+            sharedPrefs.edit { putBoolean("force_login_on_next_connect", value) }
+        }
 
     var screenShareAutoAcceptEnabled: Boolean
         get() = sharedPrefs.getBoolean("screen_share_auto_accept_enabled", true)
