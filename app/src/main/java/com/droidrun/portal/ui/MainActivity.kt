@@ -925,13 +925,16 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             if (accessibilityService != null) {
                 val status = accessibilityService.getSocketServerStatus()
                 binding.socketServerStatus.text = status
-                binding.socketServerStatus.setTextColor("#00FFA6".toColorInt())
+                val color = if (status.startsWith("Running")) "#0D9373" else "#888888"
+                binding.socketServerStatus.setTextColor(color.toColorInt())
             } else {
                 binding.socketServerStatus.text = "Service not available"
+                binding.socketServerStatus.setTextColor("#888888".toColorInt())
             }
         } catch (e: Exception) {
             Log.e("DROIDRUN_MAIN", "Error updating socket server status: ${e.message}")
             binding.socketServerStatus.text = "Error"
+            binding.socketServerStatus.setTextColor("#888888".toColorInt())
         }
     }
 

@@ -8,59 +8,59 @@
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
 
-    <!-- Droidrun Portal brand colors - teal green palette -->
-    <color name="droidrun_primary">#00B777</color>
-    <color name="droidrun_primary_dark">#00744B</color>
-    <color name="droidrun_primary_light">#00744B</color>
-    <color name="droidrun_accent">#1DEDB8</color>
-    <color name="droidrun_secondary">#00B777</color>
-    <color name="droidrun_green">#00E676</color>
+    <!-- Droidrun Portal brand colors -->
+    <color name="droidrun_primary">#0D9373</color>
+    <color name="droidrun_primary_dark">#0D9373</color>
+    <color name="droidrun_primary_light">#07C983</color>
+    <color name="droidrun_accent">#07C983</color>
+    <color name="droidrun_secondary">#0D9373</color>
+    <color name="droidrun_green">#07C983</color>
     <color name="droidrun_orange">#FFB74D</color>
-    <color name="droidrun_background">#1A1E1C</color>
-    <color name="droidrun_surface">#252A27</color>
-    <color name="droidrun_card">#2A332F</color>
+    <color name="droidrun_background">#0F0F0F</color>
+    <color name="droidrun_surface">#161616</color>
+    <color name="droidrun_card">#1A1A1A</color>
     <color name="droidrun_text_primary">#FFFFFF</color>
-    <color name="droidrun_text_secondary">#B7F0DA</color>
-    <color name="droidrun_text_hint">#8AE0C7</color>
-    <color name="droidrun_text_light">#D5F5EB</color>
+    <color name="droidrun_text_secondary">#07C983</color>
+    <color name="droidrun_text_hint">#0D9373</color>
+    <color name="droidrun_text_light">#B2F0E0</color>
     <color name="droidrun_text_dark">#FFFFFF</color>
 
     <!-- UI element colors -->
-    <color name="droidrun_divider">#3C5A4F</color>
+    <color name="droidrun_divider">#252525</color>
     <color name="droidrun_shadow">#20000000</color>
-    <color name="droidrun_ripple">#3300E5B9</color>
+    <color name="droidrun_ripple">#220D9373</color>
     <color name="droidrun_error">#FF5252</color>
-    <color name="droidrun_success">#00E676</color>
+    <color name="droidrun_success">#07C983</color>
     <color name="droidrun_warning">#FFD740</color>
-    <color name="droidrun_disabled">#757575</color>
+    <color name="droidrun_disabled">#555555</color>
 
-    <!-- UI background colors -->
-    <color name="background_primary">#191919</color>
-    <color name="background_secondary">#1a1a1a</color>
-    <color name="background_tertiary">#222222</color>
-    <color name="background_card">#2d2d2d</color>
-    <color name="background_input">#2F2F2F</color>
-    <color name="background_code">#232323</color>
+    <!-- UI background colors (darker palette) -->
+    <color name="background_primary">#0F0F0F</color>
+    <color name="background_secondary">#111111</color>
+    <color name="background_tertiary">#161616</color>
+    <color name="background_card">#1A1A1A</color>
+    <color name="background_input">#1A1A1A</color>
+    <color name="background_code">#131313</color>
 
     <!-- Alert and status colors -->
-    <color name="alert_error_bg">#BB4A5B</color>
-    <color name="alert_error_button">#C2717E</color>
-    <color name="alert_warning_bg">#6B5A00</color>
-    <color name="alert_warning_button">#8A7A2E</color>
-    <color name="status_success">#00B073</color>
-    <color name="status_error">#d32f2f</color>
+    <color name="alert_error_bg">#7A1F2E</color>
+    <color name="alert_error_button">#9B3444</color>
+    <color name="alert_warning_bg">#473D00</color>
+    <color name="alert_warning_button">#5C5010</color>
+    <color name="status_success">#0D9373</color>
+    <color name="status_error">#C0392B</color>
 
     <!-- Text colors -->
-    <color name="text_white">#ffffff</color>
-    <color name="text_gray">#999999</color>
-    <color name="text_gray_light">#B3B3B3</color>
-    <color name="text_gray_dark">#666666</color>
-    <color name="text_hint">#BDBDBD</color>
+    <color name="text_white">#FFFFFF</color>
+    <color name="text_gray">#888888</color>
+    <color name="text_gray_light">#AAAAAA</color>
+    <color name="text_gray_dark">#555555</color>
+    <color name="text_hint">#999999</color>
 
     <!-- Border and stroke colors -->
-    <color name="stroke_gray">#555555</color>
+    <color name="stroke_gray">#2A2A2A</color>
 
     <!-- HTTP method colors -->
-    <color name="http_get">#4CAF50</color>
-    <color name="http_post">#2196F3</color>
+    <color name="http_get">#0D9373</color>
+    <color name="http_post">#2980B9</color>
 </resources>
