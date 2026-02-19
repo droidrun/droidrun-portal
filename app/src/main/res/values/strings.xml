@@ -106,4 +106,23 @@
     <!-- Keyboard Warning -->
     <string name="keyboard_not_enabled_warning">Droidrun Keyboard not active. Using accessibility fallback for text input.</string>
     <string name="select_keyboard">Select</string>
+
+    <!-- Task Runner -->
+    <string name="task_runner_title">Run a Task</string>
+    <string name="task_runner_hint">Describe what you want the agent to do\u2026</string>
+    <string name="task_runner_run">Run</string>
+    <string name="task_runner_stop">Stop</string>
+    <string name="task_runner_status_running">Running\u2026</string>
+    <string name="task_runner_status_completed">Completed</string>
+    <string name="task_runner_status_failed">Failed</string>
+    <string name="task_runner_status_cancelled">Cancelled</string>
+    <string name="task_runner_no_credits">No credits remaining</string>
+    <string name="task_runner_invalid_key">Invalid API key</string>
+    <string name="task_runner_device_not_ready">Device not ready</string>
+    <string name="task_runner_server_error">Server error, try again later</string>
+    <string name="task_runner_network_error">Network error \u2014 check your connection</string>
+    <string name="task_runner_connect_first">Connect to cloud first</string>
+    <string name="task_runner_enable_a11y">Enable accessibility service first</string>
+    <string name="task_runner_notification_title">Task running</string>
+    <string name="task_runner_notification_cancel">Cancel</string>
 </resources>

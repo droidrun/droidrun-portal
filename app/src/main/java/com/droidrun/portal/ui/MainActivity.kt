@@ -34,12 +34,22 @@ import com.droidrun.portal.ui.settings.SettingsActivity
 import com.droidrun.portal.state.AppVisibilityTracker
 import androidx.core.graphics.toColorInt
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.IntentFilter
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.method.LinkMovementMethod
+import android.text.style.ClickableSpan
+import androidx.core.app.NotificationCompat
 import com.droidrun.portal.R
 import com.droidrun.portal.api.ApiHandler
+import com.droidrun.portal.api.TaskRunnerClient
 import com.google.android.material.snackbar.Snackbar
 import com.google.android.material.textfield.TextInputEditText
+import java.util.concurrent.Executors
 
 class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
 
@@ -52,6 +62,19 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
 
     private var isProgrammaticUpdate = false
     private var isInstallReceiverRegistered = false
+
+    // Task runner state
+    private var currentTaskId: String? = null
+    private val taskExecutor = Executors.newSingleThreadExecutor()
+    private val taskHandler = Handler(Looper.getMainLooper())
+    private var taskPollingRunnable: Runnable? = null
+    private var isTaskCancelReceiverRegistered = false
+
+    private val taskCancelReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == ACTION_CANCEL_TASK) cancelCurrentTask()
+        }
+    }
 
     private val installResultReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -71,6 +94,11 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         private const val MIN_OFFSET = -256
         private const val MAX_OFFSET = 256
         private const val SLIDER_RANGE = MAX_OFFSET - MIN_OFFSET
+
+        private const val TASK_POLL_INTERVAL_MS = 3000L
+        private const val TASK_NOTIFICATION_CHANNEL_ID = "task_runner_channel"
+        private const val TASK_NOTIFICATION_ID = 3002
+        const val ACTION_CANCEL_TASK = "com.droidrun.portal.action.CANCEL_TASK"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -105,36 +133,9 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         binding.btnConnectCloud.setOnClickListener {
             val currentState = ConnectionStateManager.getState()
             if (currentState == ConnectionState.CONNECTED || currentState == ConnectionState.CONNECTING || currentState == ConnectionState.RECONNECTING) {
-                // Ignore click if already connected/connecting, handled by disconnect button inside card
                 return@setOnClickListener
             }
-
-            val configManager = ConfigManager.getInstance(this)
-
-            if (configManager.reverseConnectionToken.isNotBlank()) {
-                // Has API key — connect directly without browser
-                configManager.reverseConnectionEnabled = true
-                val serviceIntent = Intent(this, ReverseConnectionService::class.java)
-                stopService(serviceIntent)
-                Handler(Looper.getMainLooper()).postDelayed({
-                    startForegroundService(serviceIntent)
-                }, 150)
-            } else {
-                // No API key — open browser for login
-                val deviceId = configManager.deviceID
-                val forceLogin = if (configManager.forceLoginOnNextConnect) "&force_login=true" else ""
-                configManager.forceLoginOnNextConnect = false
-                val url = "https://cloud.mobilerun.ai/auth/device?deviceId=$deviceId$forceLogin"
-                try {
-                    val intent = android.content.Intent(
-                        android.content.Intent.ACTION_VIEW,
-                        android.net.Uri.parse(url)
-                    )
-                    startActivity(intent)
-                } catch (e: Exception) {
-                    Toast.makeText(this, "Could not open browser", Toast.LENGTH_SHORT).show()
-                }
-            }
+            initiateCloudConnection()
         }
 
         binding.btnConnectCloud.setOnLongClickListener {
@@ -213,6 +214,9 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             showLogsDialog()
         }
 
+        // Setup task runner
+        setupTaskRunner()
+
         // Check initial accessibility status and sync UI
         updateStatusIndicators()
         syncUIWithAccessibilityService()
@@ -224,12 +228,15 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
     override fun onDestroy() {
         super.onDestroy()
         ConfigManager.getInstance(this).removeListener(this)
+        stopTaskPolling()
+        taskExecutor.shutdownNow()
     }
 
     override fun onStart() {
         super.onStart()
         AppVisibilityTracker.setForeground(true)
         registerInstallResultReceiver()
+        registerTaskCancelReceiver()
     }
 
     override fun onResume() {
@@ -244,6 +251,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
     override fun onStop() {
         super.onStop()
         unregisterInstallResultReceiver()
+        unregisterTaskCancelReceiver()
         AppVisibilityTracker.setForeground(false)
     }
 
@@ -1020,6 +1028,412 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         setIntent(intent)
         handleDeepLink(intent)
     }
+
+    // ── Task Runner ────────────────────────────────────────────────────
+
+    private fun setupTaskRunner() {
+        createTaskNotificationChannel()
+        binding.btnTaskRun.setOnClickListener { startTask() }
+        binding.btnTaskStop.setOnClickListener { cancelCurrentTask() }
+    }
+
+    private fun startTask() {
+        if (!isAccessibilityServiceEnabled()) {
+            Toast.makeText(this, getString(R.string.task_runner_enable_a11y), Toast.LENGTH_SHORT).show()
+            return
+        }
+        val taskText = binding.taskInput.text?.toString()?.trim() ?: ""
+        if (taskText.isBlank()) return
+
+        val connectionState = ConnectionStateManager.getState()
+        if (connectionState != ConnectionState.CONNECTED) {
+            // Auto-connect, then run task once connected
+            autoConnectThenRunTask()
+            return
+        }
+
+        setTaskUiState("running")
+
+        val configManager = ConfigManager.getInstance(this)
+        val apiKey = configManager.reverseConnectionToken
+        val deviceId = configManager.deviceID
+        val userAgent = getAppUserAgent()
+
+        taskExecutor.execute {
+            try {
+                val response = TaskRunnerClient.createTask(apiKey, deviceId, taskText, userAgent)
+                taskHandler.post {
+                    currentTaskId = response.id
+                    showTaskRunningNotification(taskText)
+                    startTaskPolling()
+                }
+            } catch (e: TaskRunnerClient.TaskApiException) {
+                taskHandler.post { handleTaskApiError(e) }
+            } catch (e: Exception) {
+                Log.e(TAG, "Task creation failed", e)
+                taskHandler.post {
+                    setTaskUiState("idle")
+                    setTaskError(getString(R.string.task_runner_network_error))
+                }
+            }
+        }
+    }
+
+    private var pendingTaskAfterConnect = false
+
+    private fun initiateCloudConnection() {
+        val configManager = ConfigManager.getInstance(this)
+
+        if (configManager.reverseConnectionToken.isNotBlank()) {
+            // Has API key — connect directly
+            configManager.reverseConnectionEnabled = true
+            val serviceIntent = Intent(this, ReverseConnectionService::class.java)
+            stopService(serviceIntent)
+            Handler(Looper.getMainLooper()).postDelayed({
+                startForegroundService(serviceIntent)
+            }, 150)
+        } else {
+            // No API key — open browser for login
+            val deviceId = configManager.deviceID
+            val forceLogin = if (configManager.forceLoginOnNextConnect) "&force_login=true" else ""
+            configManager.forceLoginOnNextConnect = false
+            val url = "https://cloud.mobilerun.ai/auth/device?deviceId=$deviceId$forceLogin"
+            try {
+                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+            } catch (e: Exception) {
+                Toast.makeText(this, "Could not open browser", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun autoConnectThenRunTask() {
+        initiateCloudConnection()
+
+        // Watch for connection, then auto-run
+        pendingTaskAfterConnect = true
+        setTaskError("Connecting...")
+        binding.taskStatusText.setTextColor(getColor(R.color.text_gray))
+
+        ConnectionStateManager.connectionState.observe(this) { state ->
+            if (pendingTaskAfterConnect && state == ConnectionState.CONNECTED) {
+                pendingTaskAfterConnect = false
+                binding.taskStatusText.visibility = View.GONE
+                startTask()
+            } else if (pendingTaskAfterConnect && (state == ConnectionState.ERROR ||
+                        state == ConnectionState.UNAUTHORIZED ||
+                        state == ConnectionState.BAD_REQUEST)) {
+                pendingTaskAfterConnect = false
+                setTaskError(getString(R.string.task_runner_connect_first))
+            }
+        }
+    }
+
+    private fun cancelCurrentTask() {
+        val taskId = currentTaskId ?: return
+        stopTaskPolling()
+        setTaskUiState("cancelled")
+        dismissTaskNotification()
+
+        val configManager = ConfigManager.getInstance(this)
+        val apiKey = configManager.reverseConnectionToken
+        val userAgent = getAppUserAgent()
+
+        taskExecutor.execute {
+            try {
+                TaskRunnerClient.cancelTask(apiKey, taskId, userAgent)
+            } catch (e: Exception) {
+                Log.w(TAG, "Cancel task failed", e)
+            }
+        }
+        currentTaskId = null
+    }
+
+    private fun startTaskPolling() {
+        stopTaskPolling()
+        val runnable = object : Runnable {
+            override fun run() {
+                val self = this
+                val taskId = currentTaskId ?: return
+                val configManager = ConfigManager.getInstance(this@MainActivity)
+                val apiKey = configManager.reverseConnectionToken
+                val userAgent = getAppUserAgent()
+
+                taskExecutor.execute {
+                    try {
+                        val statusResponse = TaskRunnerClient.getTaskStatus(apiKey, taskId, userAgent)
+                        taskHandler.post {
+                            when (statusResponse.status) {
+                                "completed" -> onTaskFinished("completed", taskId)
+                                "failed" -> onTaskFinished("failed", taskId)
+                                "cancelled" -> onTaskFinished("cancelled", taskId)
+                                else -> taskHandler.postDelayed(self, TASK_POLL_INTERVAL_MS)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Task polling failed", e)
+                        taskHandler.post {
+                            taskHandler.postDelayed(self, TASK_POLL_INTERVAL_MS)
+                        }
+                    }
+                }
+            }
+        }
+        taskPollingRunnable = runnable
+        taskHandler.postDelayed(runnable, TASK_POLL_INTERVAL_MS)
+    }
+
+    private fun stopTaskPolling() {
+        taskPollingRunnable?.let { taskHandler.removeCallbacks(it) }
+        taskPollingRunnable = null
+    }
+
+    private fun onTaskFinished(status: String, taskId: String) {
+        stopTaskPolling()
+        setTaskUiState(status)
+        currentTaskId = null
+
+        // Fetch task detail for output display and notification
+        val configManager = ConfigManager.getInstance(this)
+        val apiKey = configManager.reverseConnectionToken
+        val userAgent = getAppUserAgent()
+
+        taskExecutor.execute {
+            try {
+                val detail = TaskRunnerClient.getTaskDetail(apiKey, taskId, userAgent)
+                taskHandler.post {
+                    showTaskOutput(detail)
+                    updateTaskFinishedNotification(status, detail.output)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to fetch task detail", e)
+                taskHandler.post { updateTaskFinishedNotification(status, null) }
+            }
+        }
+    }
+
+    private fun showTaskOutput(detail: TaskRunnerClient.TaskDetailResponse) {
+        val parts = mutableListOf<String>()
+
+        if (detail.succeeded != null) {
+            parts.add(if (detail.succeeded) "Result: Success" else "Result: Failed")
+        }
+        if (detail.steps != null) {
+            parts.add("Steps: ${detail.steps}")
+        }
+        if (!detail.output.isNullOrBlank()) {
+            parts.add(detail.output)
+        }
+
+        if (parts.isEmpty()) {
+            binding.taskOutputText.visibility = View.GONE
+            return
+        }
+
+        binding.taskOutputText.visibility = View.VISIBLE
+        binding.taskOutputText.text = parts.joinToString("\n")
+    }
+
+    private fun setTaskUiState(state: String) {
+        when (state) {
+            "idle" -> {
+                binding.taskInput.isEnabled = true
+                binding.btnTaskRun.visibility = View.VISIBLE
+                binding.btnTaskStop.visibility = View.GONE
+                binding.taskStatusText.visibility = View.GONE
+                binding.taskOutputText.visibility = View.GONE
+            }
+            "running" -> {
+                binding.taskInput.isEnabled = false
+                binding.btnTaskRun.visibility = View.GONE
+                binding.btnTaskStop.visibility = View.VISIBLE
+                binding.taskStatusText.visibility = View.VISIBLE
+                binding.taskStatusText.text = getString(R.string.task_runner_status_running)
+                binding.taskStatusText.setTextColor(getColor(R.color.text_gray))
+                binding.taskOutputText.visibility = View.GONE
+            }
+            "completed" -> {
+                binding.taskInput.isEnabled = true
+                binding.btnTaskRun.visibility = View.VISIBLE
+                binding.btnTaskStop.visibility = View.GONE
+                binding.taskStatusText.visibility = View.VISIBLE
+                binding.taskStatusText.text = getString(R.string.task_runner_status_completed)
+                binding.taskStatusText.setTextColor(getColor(R.color.status_success))
+            }
+            "failed" -> {
+                binding.taskInput.isEnabled = true
+                binding.btnTaskRun.visibility = View.VISIBLE
+                binding.btnTaskStop.visibility = View.GONE
+                binding.taskStatusText.visibility = View.VISIBLE
+                binding.taskStatusText.text = getString(R.string.task_runner_status_failed)
+                binding.taskStatusText.setTextColor(getColor(R.color.status_error))
+            }
+            "cancelled" -> {
+                binding.taskInput.isEnabled = true
+                binding.btnTaskRun.visibility = View.VISIBLE
+                binding.btnTaskStop.visibility = View.GONE
+                binding.taskStatusText.visibility = View.VISIBLE
+                binding.taskStatusText.text = getString(R.string.task_runner_status_cancelled)
+                binding.taskStatusText.setTextColor(getColor(R.color.text_gray))
+            }
+        }
+    }
+
+    private fun handleTaskApiError(e: TaskRunnerClient.TaskApiException) {
+        setTaskUiState("idle")
+        when (e.httpCode) {
+            401 -> setTaskError(getString(R.string.task_runner_invalid_key))
+            402 -> setTaskErrorWithLink(
+                getString(R.string.task_runner_no_credits),
+                "https://cloud.mobilerun.ai/billing"
+            )
+            412 -> setTaskError(getString(R.string.task_runner_device_not_ready))
+            422 -> setTaskError(e.message ?: "Validation error")
+            in 500..599 -> setTaskError(getString(R.string.task_runner_server_error))
+            else -> setTaskError(e.message ?: getString(R.string.task_runner_server_error))
+        }
+    }
+
+    private fun setTaskError(message: String) {
+        binding.taskStatusText.visibility = View.VISIBLE
+        binding.taskStatusText.text = message
+        binding.taskStatusText.setTextColor(getColor(R.color.status_error))
+    }
+
+    private fun setTaskErrorWithLink(message: String, url: String) {
+        val fullText = "$message — Manage billing"
+        val spannable = SpannableString(fullText)
+        val linkStart = fullText.indexOf("Manage billing")
+        if (linkStart >= 0) {
+            spannable.setSpan(
+                object : ClickableSpan() {
+                    override fun onClick(widget: View) {
+                        try {
+                            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Failed to open billing URL", e)
+                        }
+                    }
+                },
+                linkStart,
+                fullText.length,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+        }
+        binding.taskStatusText.visibility = View.VISIBLE
+        binding.taskStatusText.text = spannable
+        binding.taskStatusText.movementMethod = LinkMovementMethod.getInstance()
+        binding.taskStatusText.setTextColor(getColor(R.color.status_error))
+    }
+
+    // ── Task Runner Notifications ────────────────────────────────────
+
+    private fun createTaskNotificationChannel() {
+        val manager = getSystemService(NotificationManager::class.java) ?: return
+        val channel = NotificationChannel(
+            TASK_NOTIFICATION_CHANNEL_ID,
+            "Task Runner",
+            NotificationManager.IMPORTANCE_LOW
+        )
+        manager.createNotificationChannel(channel)
+    }
+
+    private fun showTaskRunningNotification(taskDescription: String) {
+        val contentIntent = PendingIntent.getActivity(
+            this, 0,
+            Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val cancelIntent = PendingIntent.getBroadcast(
+            this, 0,
+            Intent(ACTION_CANCEL_TASK).setPackage(packageName),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notification = NotificationCompat.Builder(this, TASK_NOTIFICATION_CHANNEL_ID)
+            .setContentTitle(getString(R.string.task_runner_notification_title))
+            .setContentText(taskDescription.take(100))
+            .setSmallIcon(android.R.drawable.ic_menu_send)
+            .setContentIntent(contentIntent)
+            .addAction(
+                android.R.drawable.ic_menu_close_clear_cancel,
+                getString(R.string.task_runner_notification_cancel),
+                cancelIntent
+            )
+            .setOngoing(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build()
+
+        val manager = getSystemService(NotificationManager::class.java) ?: return
+        manager.notify(TASK_NOTIFICATION_ID, notification)
+    }
+
+    private fun updateTaskFinishedNotification(status: String, output: String?) {
+        val contentIntent = PendingIntent.getActivity(
+            this, 0,
+            Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val title = when (status) {
+            "completed" -> getString(R.string.task_runner_status_completed)
+            "failed" -> getString(R.string.task_runner_status_failed)
+            else -> getString(R.string.task_runner_status_cancelled)
+        }
+        val contentText = output?.take(200) ?: title
+
+        val notification = NotificationCompat.Builder(this, TASK_NOTIFICATION_CHANNEL_ID)
+            .setContentTitle(title)
+            .setContentText(contentText)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(contentText))
+            .setSmallIcon(android.R.drawable.ic_menu_send)
+            .setContentIntent(contentIntent)
+            .setOngoing(false)
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build()
+
+        val manager = getSystemService(NotificationManager::class.java) ?: return
+        manager.notify(TASK_NOTIFICATION_ID, notification)
+    }
+
+    private fun dismissTaskNotification() {
+        val manager = getSystemService(NotificationManager::class.java) ?: return
+        manager.cancel(TASK_NOTIFICATION_ID)
+    }
+
+    private fun registerTaskCancelReceiver() {
+        if (isTaskCancelReceiverRegistered) return
+        val filter = IntentFilter(ACTION_CANCEL_TASK)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(taskCancelReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("DEPRECATION")
+            registerReceiver(taskCancelReceiver, filter)
+        }
+        isTaskCancelReceiverRegistered = true
+    }
+
+    private fun unregisterTaskCancelReceiver() {
+        if (!isTaskCancelReceiverRegistered) return
+        try {
+            unregisterReceiver(taskCancelReceiver)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to unregister task cancel receiver", e)
+        } finally {
+            isTaskCancelReceiverRegistered = false
+        }
+    }
+
+    private fun getAppUserAgent(): String {
+        return try {
+            val versionName = packageManager.getPackageInfo(packageName, 0).versionName
+            "DroidrunPortal/$versionName"
+        } catch (e: Exception) {
+            "DroidrunPortal/unknown"
+        }
+    }
+
+    // ── End Task Runner ──────────────────────────────────────────────
 
     private fun handleDeepLink(intent: Intent?) {
         try {

@@ -538,6 +538,111 @@
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
+            <!-- Task Runner Card -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/card_task_runner"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="24dp"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="0dp"
+                app:strokeWidth="0dp"
+                app:cardBackgroundColor="@color/background_card">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/task_runner_title"
+                        android:textColor="@color/text_white"
+                        android:textSize="16sp"
+                        android:textStyle="bold"
+                        android:layout_marginBottom="12dp" />
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:id="@+id/task_input_layout"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="12dp"
+                        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                        app:boxStrokeColor="@color/stroke_gray"
+                        app:hintTextColor="@color/text_gray">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/task_input"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:hint="@string/task_runner_hint"
+                            android:textColor="@color/text_white"
+                            android:textSize="14sp"
+                            android:inputType="textMultiLine"
+                            android:minLines="2"
+                            android:maxLines="4"
+                            android:background="@color/background_input" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <TextView
+                            android:id="@+id/task_status_text"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:textSize="13sp"
+                            android:textColor="@color/text_gray"
+                            android:visibility="gone" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btn_task_run"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/task_runner_run"
+                            android:textColor="@color/text_white"
+                            android:textSize="14sp"
+                            android:paddingVertical="8dp"
+                            app:cornerRadius="8dp"
+                            app:backgroundTint="@color/droidrun_primary" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btn_task_stop"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/task_runner_stop"
+                            android:textColor="@color/text_white"
+                            android:textSize="14sp"
+                            android:paddingVertical="8dp"
+                            android:visibility="gone"
+                            app:cornerRadius="8dp"
+                            app:backgroundTint="@color/status_error" />
+                    </LinearLayout>
+
+                    <!-- Task output / result area -->
+                    <TextView
+                        android:id="@+id/task_output_text"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:background="@color/background_code"
+                        android:padding="12dp"
+                        android:textColor="@color/text_gray_light"
+                        android:textSize="12sp"
+                        android:fontFamily="monospace"
+                        android:maxLines="10"
+                        android:scrollbars="vertical"
+                        android:textIsSelectable="true"
+                        android:visibility="gone" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
