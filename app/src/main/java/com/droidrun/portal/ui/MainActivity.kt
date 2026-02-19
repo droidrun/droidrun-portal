@@ -51,6 +51,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
     private var isEndpointsExpanded = false
 
     private var isProgrammaticUpdate = false
+    private var forceLoginOnNextConnect = false
     private var isInstallReceiverRegistered = false
 
     private val installResultReceiver = object : BroadcastReceiver() {
@@ -110,17 +111,30 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             }
 
             val configManager = ConfigManager.getInstance(this)
-            val deviceId = configManager.deviceID
-            val url = "https://cloud.mobilerun.ai/auth/device?deviceId=$deviceId"
 
-            try {
-                val intent = android.content.Intent(
-                    android.content.Intent.ACTION_VIEW,
-                    android.net.Uri.parse(url)
-                )
-                startActivity(intent)
-            } catch (e: Exception) {
-                Toast.makeText(this, "Could not open browser", Toast.LENGTH_SHORT).show()
+            if (configManager.reverseConnectionToken.isNotBlank()) {
+                // Has API key — connect directly without browser
+                configManager.reverseConnectionEnabled = true
+                val serviceIntent = Intent(this, ReverseConnectionService::class.java)
+                stopService(serviceIntent)
+                Handler(Looper.getMainLooper()).postDelayed({
+                    startForegroundService(serviceIntent)
+                }, 150)
+            } else {
+                // No API key — open browser for login
+                val deviceId = configManager.deviceID
+                val forceLogin = if (forceLoginOnNextConnect) "&force_login=true" else ""
+                forceLoginOnNextConnect = false
+                val url = "https://cloud.mobilerun.ai/auth/device?deviceId=$deviceId$forceLogin"
+                try {
+                    val intent = android.content.Intent(
+                        android.content.Intent.ACTION_VIEW,
+                        android.net.Uri.parse(url)
+                    )
+                    startActivity(intent)
+                } catch (e: Exception) {
+                    Toast.makeText(this, "Could not open browser", Toast.LENGTH_SHORT).show()
+                }
             }
         }
 
@@ -135,6 +149,14 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
 
         binding.btnDisconnect.setOnClickListener {
             disconnectService()
+        }
+
+        binding.btnLogout.setOnClickListener {
+            logoutAndClearCredentials()
+        }
+
+        binding.btnLogoutDisconnected.setOnClickListener {
+            logoutAndClearCredentials()
         }
 
         binding.btnCancelConnection.setOnClickListener {
@@ -314,6 +336,23 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         }
     }
 
+    private fun logoutAndClearCredentials() {
+        val configManager = ConfigManager.getInstance(this)
+        configManager.reverseConnectionEnabled = false
+        configManager.reverseConnectionToken = ""
+        configManager.reverseConnectionUrl = ""
+
+        val serviceIntent =
+            Intent(this, ReverseConnectionService::class.java).apply {
+                action = ReverseConnectionService.ACTION_DISCONNECT
+            }
+        startService(serviceIntent)
+
+        ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
+        updateDisconnectedLogoutVisibility()
+        forceLoginOnNextConnect = true
+    }
+
     private fun disconnectService() {
         ConfigManager.getInstance(this).reverseConnectionEnabled = false
 
@@ -324,6 +363,11 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         startService(serviceIntent)
 
         ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
+    }
+
+    private fun updateDisconnectedLogoutVisibility() {
+        val hasApiKey = ConfigManager.getInstance(this).reverseConnectionToken.isNotBlank()
+        binding.btnLogoutDisconnected.visibility = if (hasApiKey) View.VISIBLE else View.GONE
     }
 
     private fun retryConnection() {
@@ -341,24 +385,34 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
     private fun showCustomConnectionDialog() {
         Log.d(TAG, "showCustomConnectionDialog: Opening dialog")
         val dialogView = layoutInflater.inflate(R.layout.dialog_custom_connection, null)
-        val inputUrl = dialogView.findViewById<TextInputEditText>(R.id.input_custom_url)
         val inputToken = dialogView.findViewById<TextInputEditText>(R.id.input_custom_token)
         val btnCancel = dialogView.findViewById<com.google.android.material.button.MaterialButton>(R.id.btn_cancel)
         val btnConnect = dialogView.findViewById<com.google.android.material.button.MaterialButton>(R.id.btn_connect)
 
         val configManager = ConfigManager.getInstance(this)
 
-        // Pre-fill with existing values if any
-        val existingUrl = configManager.reverseConnectionUrl
-        Log.d(TAG, "showCustomConnectionDialog: Existing URL='$existingUrl'")
-        if (existingUrl.isNotBlank()) {
-            inputUrl.setText(existingUrl)
-        }
+        // Pre-fill with existing API key if any
         val existingToken = configManager.reverseConnectionToken
-        Log.d(TAG, "showCustomConnectionDialog: Existing token length=${existingToken.length}")
+        Log.d(TAG, "showCustomConnectionDialog: Existing API key length=${existingToken.length}")
         if (existingToken.isNotBlank()) {
             inputToken.setText(existingToken)
         }
+
+        // Strip whitespace and newlines in real-time
+        inputToken.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                val original = s?.toString() ?: return
+                val cleaned = original.replace("\\s+".toRegex(), "")
+                if (original != cleaned) {
+                    inputToken.removeTextChangedListener(this)
+                    inputToken.setText(cleaned)
+                    inputToken.setSelection(cleaned.length)
+                    inputToken.addTextChangedListener(this)
+                }
+            }
+        })
 
         val dialog = AlertDialog.Builder(this, R.style.Theme_DroidrunPortal_Dialog)
             .setView(dialogView)
@@ -372,47 +426,50 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         }
 
         btnConnect.setOnClickListener {
-            val url = inputUrl.text?.toString()?.trim() ?: ""
-            val token = inputToken.text?.toString()?.trim() ?: ""
+            val apiKey = inputToken.text?.toString()?.replace("\\s+".toRegex(), "") ?: ""
 
-            Log.d(TAG, "showCustomConnectionDialog: Connect clicked, URL='$url', token length=${token.length}")
+            Log.d(TAG, "showCustomConnectionDialog: Connect clicked, API key length=${apiKey.length}")
 
-            if (url.isBlank()) {
-                Log.w(TAG, "showCustomConnectionDialog: URL is blank")
-                Toast.makeText(this, "Please enter a WebSocket URL", Toast.LENGTH_SHORT).show()
+            if (apiKey.isBlank()) {
+                Log.w(TAG, "showCustomConnectionDialog: API key is blank")
+                Toast.makeText(this, "Please enter an API key", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
 
-            if (!url.startsWith("ws://") && !url.startsWith("wss://")) {
-                Log.w(TAG, "showCustomConnectionDialog: Invalid URL scheme")
-                Toast.makeText(this, "URL must start with ws:// or wss://", Toast.LENGTH_SHORT).show()
+            if (!apiKey.startsWith("dr_sk_")) {
+                Log.w(TAG, "showCustomConnectionDialog: Invalid API key prefix")
+                Toast.makeText(this, "API key must start with dr_sk_", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            if (apiKey.length != 70) {
+                Log.w(TAG, "showCustomConnectionDialog: Invalid API key length=${apiKey.length}")
+                Toast.makeText(this, "Invalid API key length (expected 70, got ${apiKey.length})", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
 
             Log.d(TAG, "showCustomConnectionDialog: Saving config...")
-            // Save configuration
-            configManager.reverseConnectionUrl = url
-            configManager.reverseConnectionToken = token
+            configManager.reverseConnectionToken = apiKey
             configManager.reverseConnectionEnabled = true
-            Log.d(TAG, "showCustomConnectionDialog: Config saved, reverseConnectionEnabled=${configManager.reverseConnectionEnabled}")
 
             // Stop existing service and restart
-            Log.d(TAG, "showCustomConnectionDialog: Stopping existing service...")
             val serviceIntent = Intent(this, ReverseConnectionService::class.java)
             stopService(serviceIntent)
 
-            Log.d(TAG, "showCustomConnectionDialog: Scheduling service start in 150ms...")
             Handler(Looper.getMainLooper()).postDelayed({
-                Log.d(TAG, "showCustomConnectionDialog: Starting foreground service now")
+                Log.d(TAG, "showCustomConnectionDialog: Starting foreground service")
                 startForegroundService(serviceIntent)
-                Log.d(TAG, "showCustomConnectionDialog: startForegroundService() called")
             }, 150)
 
             dialog.dismiss()
-            Toast.makeText(this, "Connecting to custom server...", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Connecting...", Toast.LENGTH_SHORT).show()
         }
 
         dialog.show()
+        dialog.window?.setLayout(
+            (resources.displayMetrics.widthPixels * 0.9).toInt(),
+            android.view.WindowManager.LayoutParams.WRAP_CONTENT
+        )
         Log.d(TAG, "showCustomConnectionDialog: Dialog shown")
     }
 
@@ -465,6 +522,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
 
                 else -> {
                     binding.layoutDisconnected.visibility = View.VISIBLE
+                    updateDisconnectedLogoutVisibility()
                 }
             }
         }

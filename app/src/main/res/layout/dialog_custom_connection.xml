@@ -9,7 +9,7 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Custom Connection"
+        android:text="@string/connect_with_api_key_title"
         android:textSize="20sp"
         android:textStyle="bold"
         android:textColor="@color/text_white"
@@ -18,7 +18,7 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Connect to a custom WebSocket server"
+        android:text="@string/connect_with_api_key_subtitle"
         android:textColor="@color/text_gray"
         android:textSize="14sp"
         android:layout_marginBottom="20dp" />
@@ -26,46 +26,23 @@
     <com.google.android.material.textfield.TextInputLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="16dp"
-        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
-        app:boxStrokeColor="@color/text_gray"
-        app:hintTextColor="@color/text_gray"
-        android:hint="WebSocket URL">
-
-        <com.google.android.material.textfield.TextInputEditText
-            android:id="@+id/input_custom_url"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:inputType="textUri"
-            android:textColor="@color/text_white"
-            android:hint="ws://localhost:8083/v1/devices/{deviceId}/join" />
-    </com.google.android.material.textfield.TextInputLayout>
-
-    <com.google.android.material.textfield.TextInputLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="8dp"
+        android:layout_marginBottom="20dp"
         style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
         app:boxStrokeColor="@color/text_gray"
         app:hintTextColor="@color/text_gray"
         app:endIconMode="password_toggle"
-        android:hint="Token (optional)">
+        android:hint="@string/api_key_hint">
 
         <com.google.android.material.textfield.TextInputEditText
             android:id="@+id/input_custom_token"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:inputType="textPassword"
-            android:textColor="@color/text_white" />
+            android:inputType="textMultiLine|textNoSuggestions"
+            android:maxLines="4"
+            android:textColor="@color/text_white"
+            android:textSize="18sp"
+            android:paddingVertical="16dp" />
     </com.google.android.material.textfield.TextInputLayout>
-
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Use {deviceId} in URL to auto-replace with device ID"
-        android:textColor="@color/text_hint"
-        android:textSize="12sp"
-        android:layout_marginBottom="20dp" />
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -78,7 +55,7 @@
             style="@style/Widget.MaterialComponents.Button.TextButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Cancel"
+            android:text="@string/cancel"
             android:textColor="@color/text_gray" />
 
         <com.google.android.material.button.MaterialButton
@@ -86,7 +63,7 @@
             style="@style/Widget.MaterialComponents.Button.UnelevatedButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Connect"
+            android:text="@string/connect_button"
             app:backgroundTint="@color/status_success" />
     </LinearLayout>
 

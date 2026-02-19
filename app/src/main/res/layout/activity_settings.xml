@@ -345,9 +345,12 @@
                 <com.google.android.material.textfield.TextInputEditText
                     android:id="@+id/input_reverse_token"
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
+                    android:layout_height="56dp"
                     android:inputType="textVisiblePassword"
-                    android:textColor="@color/text_white" />
+                    android:maxLines="1"
+                    android:singleLine="true"
+                    android:textColor="@color/text_white"
+                    android:textSize="16sp" />
             </com.google.android.material.textfield.TextInputLayout>
 
             <View

@@ -16,6 +16,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import com.droidrun.portal.service.DroidrunNotificationListener
 import com.droidrun.portal.service.ReverseConnectionService
 
+import android.text.Editable
+import android.text.TextWatcher
 import com.droidrun.portal.state.ConnectionState
 import com.droidrun.portal.state.ConnectionStateManager
 import com.droidrun.portal.state.AppVisibilityTracker
@@ -128,6 +130,22 @@ class SettingsActivity : AppCompatActivity() {
         binding.inputReverseUrl.setText(configManager.reverseConnectionUrl)
         binding.inputReverseToken.setText(configManager.reverseConnectionToken)
 
+        // Strip whitespace and newlines in real-time
+        binding.inputReverseToken.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                val original = s?.toString() ?: return
+                val cleaned = original.replace("\\s+".toRegex(), "")
+                if (original != cleaned) {
+                    binding.inputReverseToken.removeTextChangedListener(this)
+                    binding.inputReverseToken.setText(cleaned)
+                    binding.inputReverseToken.setSelection(cleaned.length)
+                    binding.inputReverseToken.addTextChangedListener(this)
+                }
+            }
+        })
+
         // Toggle Service on Switch Change
         binding.switchReverseEnabled.setOnCheckedChangeListener { _, isChecked ->
             configManager.reverseConnectionEnabled = isChecked
@@ -139,16 +157,27 @@ class SettingsActivity : AppCompatActivity() {
             if (isChecked) {
                 // Ensure URL is saved before starting
                 val url = binding.inputReverseUrl.text.toString()
-                if (url.isNotBlank()) {
-                    configManager.reverseConnectionUrl = url
-                    // Also save token if user typed it but didn't hit done
-                    configManager.reverseConnectionToken = binding.inputReverseToken.text.toString()
-
-                    startForegroundService(intent)
-                } else {
+                if (url.isBlank()) {
                     binding.inputReverseUrl.error = "URL required"
                     binding.switchReverseEnabled.isChecked = false
+                    return@setOnCheckedChangeListener
                 }
+
+                val apiKey = binding.inputReverseToken.text.toString().replace("\\s+".toRegex(), "")
+                if (apiKey.isNotBlank() && !apiKey.startsWith("dr_sk_")) {
+                    binding.inputReverseToken.error = "API key must start with dr_sk_"
+                    binding.switchReverseEnabled.isChecked = false
+                    return@setOnCheckedChangeListener
+                }
+                if (apiKey.isNotBlank() && apiKey.length != 70) {
+                    binding.inputReverseToken.error = "Invalid API key length (expected 70, got ${apiKey.length})"
+                    binding.switchReverseEnabled.isChecked = false
+                    return@setOnCheckedChangeListener
+                }
+
+                configManager.reverseConnectionUrl = url
+                configManager.reverseConnectionToken = apiKey
+                startForegroundService(intent)
             } else {
                 intent.action = ReverseConnectionService.ACTION_DISCONNECT
                 startService(intent)
@@ -168,9 +197,16 @@ class SettingsActivity : AppCompatActivity() {
 
         binding.inputReverseToken.setOnEditorActionListener { v, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_DONE) {
-                configManager.reverseConnectionToken = v.text.toString()
-                binding.inputReverseToken.clearFocus()
-                restartServiceIfEnabled()
+                val apiKey = v.text.toString().replace("\\s+".toRegex(), "")
+                if (apiKey.isNotBlank() && !apiKey.startsWith("dr_sk_")) {
+                    binding.inputReverseToken.error = "API key must start with dr_sk_"
+                } else if (apiKey.isNotBlank() && apiKey.length != 70) {
+                    binding.inputReverseToken.error = "Invalid API key length (expected 70, got ${apiKey.length})"
+                } else {
+                    configManager.reverseConnectionToken = apiKey
+                    binding.inputReverseToken.clearFocus()
+                    restartServiceIfEnabled()
+                }
                 true
             } else {
                 false
