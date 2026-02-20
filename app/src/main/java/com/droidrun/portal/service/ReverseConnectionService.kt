@@ -221,6 +221,9 @@ class ReverseConnectionService : Service() {
                     logNetworkState("onClose")
 
                     if (isTerminalClose(reason)) {
+                        // Cancel any reconnect scheduled by onError (which fires before onClose)
+                        isReconnecting.set(false)
+                        handler.removeCallbacksAndMessages(null)
                         val r = reason ?: return // isTerminalClose(null) is false, so reason is non-null here
                         val state = when {
                             r.contains("401") || r.contains("Unauthorized") ->
@@ -342,7 +345,8 @@ class ReverseConnectionService : Service() {
                 requestId,
             )
         ) {
-            manager.notifyStreamStopped("ws_reconnected")
+            // Use async variant — this runs on the WS receive thread
+            manager.notifyStreamStoppedAsync("ws_reconnected")
         }
     }
 
