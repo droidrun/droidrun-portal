@@ -1,7 +1,9 @@
 package com.droidrun.portal.ui.settings
 
 import android.os.Bundle
+import android.view.View
 import android.view.inputmethod.EditorInfo
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.droidrun.portal.config.ConfigManager
 import com.droidrun.portal.databinding.ActivitySettingsBinding
@@ -47,11 +49,13 @@ class SettingsActivity : AppCompatActivity() {
         configManager = ConfigManager.getInstance(this)
 
         setupToolbar()
-        setupServerSettings()
-        setupWebSocketSettings()
         setupReverseConnectionSettings()
         setupPermissions()
         setupEventFilters()
+        setupDevMode()
+        setupServerSettings()
+        setupWebSocketSettings()
+        setupResetButton()
 
         setupConnectionStateObserver()
     }
@@ -75,6 +79,20 @@ class SettingsActivity : AppCompatActivity() {
     override fun onStop() {
         super.onStop()
         AppVisibilityTracker.setForeground(false)
+    }
+
+    private fun setupDevMode() {
+        binding.switchDevMode.isChecked = configManager.devModeEnabled
+        updateDevModeVisibility(configManager.devModeEnabled)
+
+        binding.switchDevMode.setOnCheckedChangeListener { _, isChecked ->
+            configManager.devModeEnabled = isChecked
+            updateDevModeVisibility(isChecked)
+        }
+    }
+
+    private fun updateDevModeVisibility(enabled: Boolean) {
+        binding.devModeSection.visibility = if (enabled) View.VISIBLE else View.GONE
     }
 
     private fun setupServerSettings() {
@@ -284,16 +302,37 @@ class SettingsActivity : AppCompatActivity() {
         setupEventToggle(binding.switchEventNotification, EventType.NOTIFICATION)
     }
 
+    private fun setupResetButton() {
+        binding.btnResetSettings.setOnClickListener {
+            AlertDialog.Builder(this)
+                .setTitle("Reset to Defaults")
+                .setMessage("This will reset all settings to their default values and disconnect any active connections. Continue?")
+                .setPositiveButton("Reset") { _, _ ->
+                    // Disconnect service before resetting
+                    val serviceIntent = Intent(this, ReverseConnectionService::class.java).apply {
+                        action = ReverseConnectionService.ACTION_DISCONNECT
+                    }
+                    startService(serviceIntent)
+
+                    configManager.resetToDefaults()
+                    ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
+
+                    android.widget.Toast.makeText(this, "Settings reset to defaults", android.widget.Toast.LENGTH_SHORT).show()
+
+                    // Restart activity fresh (not recreate, which restores EditText state)
+                    val intent = Intent(this, SettingsActivity::class.java)
+                    finish()
+                    startActivity(intent)
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
+    }
+
     private fun setupConnectionStateObserver() {
         ConnectionStateManager.connectionState.observe(this) { state ->
-            // Reflect state in the switch (e.g. if it disconnects due to error, switch should turn off?)
-            // Or just keep the switch as "enabled preference" vs "actual state".
-            // For now, let's keep the switch reflecting the preference, but we could add a status indicator if needed.
-            // If the service disconnects and gives up, we might want to update the switch.
-
             if (state == ConnectionState.DISCONNECTED && configManager.reverseConnectionEnabled) {
-                // Maybe show a toast or update UI to show retry?
-                // For now, the toggle listener handles user intent.
+                // The toggle listener handles user intent.
             }
         }
     }

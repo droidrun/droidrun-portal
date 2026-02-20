@@ -197,7 +197,10 @@ class ReverseConnectionService : Service() {
             Log.d(TAG, "connectToHost: deviceId='$deviceId', finalUrl='$finalUrl'")
             val uri = URI(finalUrl)
             val headers = buildHeaders()
-            Log.d(TAG, "connectToHost: headers=${headers.keys.joinToString()}")
+            val token = configManager.reverseConnectionToken
+            Log.d(TAG, "connectToHost: apiKey='${if (token.length > 20) "${token.take(10)}...${token.takeLast(10)} (${token.length})" else token}'")
+            Log.d(TAG, "connectToHost: url='$finalUrl'")
+            Log.d(TAG, "connectToHost: headers=${headers.entries.joinToString { "${it.key}=${it.value}" }}")
 
             webSocketClient = object : WebSocketClient(uri, headers) {
                 override fun onOpen(handshakedata: ServerHandshake?) {

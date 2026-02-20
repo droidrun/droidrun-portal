@@ -31,6 +31,7 @@ class ConfigManager private constructor(private val context: Context) {
         private const val KEY_REVERSE_CONNECTION_ENABLED = "reverse_connection_enabled"
         private const val KEY_REVERSE_CONNECTION_SERVICE_KEY = "reverse_connection_service_key"
         private const val KEY_PRODUCTION_MODE = "production_mode"
+        private const val KEY_DEV_MODE_ENABLED = "dev_mode_enabled"
         private const val KEY_INSTALL_AUTO_ACCEPT_ENABLED = "install_auto_accept_enabled"
         private const val PREFIX_EVENT_ENABLED = "event_enabled_"
         private const val KEY_AUTH_TOKEN = "auth_token"
@@ -157,7 +158,10 @@ class ConfigManager private constructor(private val context: Context) {
 
     // Reverse Connection URL
     var reverseConnectionUrl: String
-        get() = sharedPrefs.getString(KEY_REVERSE_CONNECTION_URL, "") ?: ""
+        get() {
+            val stored = sharedPrefs.getString(KEY_REVERSE_CONNECTION_URL, null)
+            return if (stored.isNullOrBlank()) DEFAULT_REVERSE_CONNECTION_URL else stored
+        }
         set(value) {
             sharedPrefs.edit { putString(KEY_REVERSE_CONNECTION_URL, value) }
         }
@@ -190,6 +194,12 @@ class ConfigManager private constructor(private val context: Context) {
         set(value) {
             sharedPrefs.edit { putBoolean(KEY_PRODUCTION_MODE, value) }
             listeners.forEach { it.onProductionModeChanged(value) }
+        }
+
+    var devModeEnabled: Boolean
+        get() = sharedPrefs.getBoolean(KEY_DEV_MODE_ENABLED, false)
+        set(value) {
+            sharedPrefs.edit { putBoolean(KEY_DEV_MODE_ENABLED, value) }
         }
 
     val deviceName: String
@@ -410,6 +420,39 @@ class ConfigManager private constructor(private val context: Context) {
                 }
             }
             websocketPort?.let { listeners.forEach { listener -> listener.onWebSocketPortChanged(it) } }
+        }
+    }
+
+    fun resetToDefaults() {
+        sharedPrefs.edit(commit = true) {
+            clear()
+            putBoolean(KEY_OVERLAY_VISIBLE, true)
+            putInt(KEY_OVERLAY_OFFSET, DEFAULT_OFFSET)
+            putBoolean(KEY_AUTO_OFFSET_ENABLED, true)
+            putBoolean(KEY_AUTO_OFFSET_CALCULATED, false)
+            putBoolean(KEY_SOCKET_SERVER_ENABLED, false)
+            putInt(KEY_SOCKET_SERVER_PORT, DEFAULT_SOCKET_PORT)
+            putBoolean(KEY_WEBSOCKET_ENABLED, false)
+            putInt(KEY_WEBSOCKET_PORT, DEFAULT_WEBSOCKET_PORT)
+            putString(KEY_REVERSE_CONNECTION_URL, DEFAULT_REVERSE_CONNECTION_URL)
+            putString(KEY_REVERSE_CONNECTION_TOKEN, "")
+            putBoolean(KEY_REVERSE_CONNECTION_ENABLED, false)
+            putString(KEY_REVERSE_CONNECTION_SERVICE_KEY, "")
+            putBoolean(KEY_PRODUCTION_MODE, false)
+            putBoolean(KEY_DEV_MODE_ENABLED, false)
+            putBoolean(KEY_INSTALL_AUTO_ACCEPT_ENABLED, false)
+            putBoolean("screen_share_auto_accept_enabled", true)
+            putBoolean("force_login_on_next_connect", false)
+        }
+        // Notify listeners
+        listeners.forEach {
+            it.onOverlayVisibilityChanged(true)
+            it.onOverlayOffsetChanged(DEFAULT_OFFSET)
+            it.onSocketServerEnabledChanged(false)
+            it.onSocketServerPortChanged(DEFAULT_SOCKET_PORT)
+            it.onWebSocketEnabledChanged(false)
+            it.onWebSocketPortChanged(DEFAULT_WEBSOCKET_PORT)
+            it.onProductionModeChanged(false)
         }
     }
 
