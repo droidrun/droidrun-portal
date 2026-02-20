@@ -54,9 +54,12 @@ class ReverseConnectionService : Service() {
          */
         internal fun isTerminalClose(reason: String?): Boolean {
             if (reason == null) return false
-            return reason.contains("401") || reason.contains("Unauthorized") ||
-                    reason.contains("403") || reason.contains("Forbidden") ||
-                    reason.contains("400") || reason.contains("Bad Request")
+            return reason.contains("Unauthorized", ignoreCase = true) ||
+                    reason.contains("Forbidden", ignoreCase = true) ||
+                    reason.contains("Bad Request", ignoreCase = true) ||
+                    reason.startsWith("401") ||
+                    reason.startsWith("403") ||
+                    reason.startsWith("400")
         }
 
         /** Returns true if reconnection attempts have exceeded the give-up timeout. */
@@ -218,10 +221,11 @@ class ReverseConnectionService : Service() {
                     logNetworkState("onClose")
 
                     if (isTerminalClose(reason)) {
+                        val r = reason ?: return // isTerminalClose(null) is false, so reason is non-null here
                         val state = when {
-                            reason!!.contains("401") || reason.contains("Unauthorized") ->
+                            r.contains("401") || r.contains("Unauthorized") ->
                                 ConnectionState.UNAUTHORIZED
-                            reason.contains("403") || reason.contains("Forbidden") ->
+                            r.contains("403") || r.contains("Forbidden") ->
                                 ConnectionState.LIMIT_EXCEEDED
                             else -> ConnectionState.BAD_REQUEST
                         }
@@ -256,6 +260,7 @@ class ReverseConnectionService : Service() {
     }
 
     private var isReconnecting = AtomicBoolean(false)
+    @Volatile
     private var reconnectStartedAtMs = 0L
 
     private fun scheduleReconnect() {
@@ -271,8 +276,8 @@ class ReverseConnectionService : Service() {
             Log.w(TAG, "Reconnect attempts exceeded ${RECONNECT_GIVE_UP_MS / 60_000}min, giving up")
             isReconnecting.set(false)
             reconnectStartedAtMs = 0L
-            handleWsDisconnected()
             ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
+            handleWsDisconnected()
             return
         }
 
