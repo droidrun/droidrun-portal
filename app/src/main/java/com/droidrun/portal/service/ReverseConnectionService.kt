@@ -11,7 +11,6 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.content.pm.ServiceInfo
 import android.os.Binder
-import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -38,7 +37,8 @@ class ReverseConnectionService : Service() {
         private const val TAG = "ReverseConnService"
         private const val CHANNEL_ID = "reverse_connection_channel"
         private const val NOTIFICATION_ID = 2002
-        private const val RECONNECT_DELAY_MS = 3000L
+        internal const val RECONNECT_DELAY_MS = 3000L
+        internal const val RECONNECT_GIVE_UP_MS = 30 * 60 * 1000L // 30 minutes
         private const val TOAST_DEBOUNCE_MS = 60_000L
         private const val CONNECTION_LOST_TIMEOUT_SEC = 30
         const val ACTION_DISCONNECT = "com.droidrun.portal.action.REVERSE_DISCONNECT"
@@ -47,6 +47,34 @@ class ReverseConnectionService : Service() {
         private var instance: ReverseConnectionService? = null
 
         fun getInstance(): ReverseConnectionService? = instance
+
+        /**
+         * Returns true if the WS close reason indicates a terminal error
+         * where we should tear down media and NOT auto-reconnect.
+         */
+        internal fun isTerminalClose(reason: String?): Boolean {
+            if (reason == null) return false
+            return reason.contains("Unauthorized", ignoreCase = true) ||
+                    reason.contains("Forbidden", ignoreCase = true) ||
+                    reason.contains("Bad Request", ignoreCase = true) ||
+                    reason.startsWith("401") ||
+                    reason.startsWith("403") ||
+                    reason.startsWith("400")
+        }
+
+        /** Returns true if reconnection attempts have exceeded the give-up timeout. */
+        internal fun shouldGiveUpReconnecting(reconnectStartedAtMs: Long, nowMs: Long): Boolean {
+            if (reconnectStartedAtMs <= 0L) return false
+            return nowMs - reconnectStartedAtMs >= RECONNECT_GIVE_UP_MS
+        }
+
+        internal fun shouldNotifyStreamStoppedAfterReconnect(
+            captureActive: Boolean,
+            streamActive: Boolean,
+            requestId: String?,
+        ): Boolean {
+            return captureActive && !streamActive && !requestId.isNullOrBlank()
+        }
     }
 
     private val binder = LocalBinder()
@@ -174,13 +202,14 @@ class ReverseConnectionService : Service() {
             webSocketClient = object : WebSocketClient(uri, headers) {
                 override fun onOpen(handshakedata: ServerHandshake?) {
                     Log.i(TAG, "onOpen: Connected to Host: $hostUrl, status=${handshakedata?.httpStatus}, message=${handshakedata?.httpStatusMessage}")
+                    reconnectStartedAtMs = 0L
                     ConnectionStateManager.setState(ConnectionState.CONNECTED)
                     showReverseConnectionToastIfEnoughTimeIsPassed()
                     WebRtcManager.getExistingInstance()?.let { manager ->
                         manager.setReverseConnectionService(this@ReverseConnectionService)
                         manager.onReverseConnectionOpen()
+                        notifyStreamStateAfterReconnect(manager)
                     }
-
                 }
 
                 override fun onMessage(message: String?) {
@@ -191,39 +220,34 @@ class ReverseConnectionService : Service() {
                     Log.w(TAG, "Disconnected from Host: code=$code reason=$reason remote=$remote")
                     logNetworkState("onClose")
 
-                    if (reason != null) {
-                        if (reason.contains("401") || reason.contains("Unauthorized")) {
-                            ConnectionStateManager.setState(ConnectionState.UNAUTHORIZED)
-                            handleWsDisconnected()
-                            // Do not reconnect automatically on auth error
-                            return
-                        } else if (reason.contains("403") || reason.contains("Forbidden")) {
-                            // 403 Forbidden = device limit reached
-                            Log.w(TAG, "onClose: 403 Forbidden - device limit reached")
-                            ConnectionStateManager.setState(ConnectionState.LIMIT_EXCEEDED)
-                            handleWsDisconnected()
-                            return
-                        } else if (reason.contains("400") || reason.contains("Bad Request")) {
-                            // 400 Bad Request - missing headers or invalid request
-                            Log.w(TAG, "onClose: 400 Bad Request - check required headers (X-Device-Name, X-Device-Country)")
-                            ConnectionStateManager.setState(ConnectionState.BAD_REQUEST)
-                            handleWsDisconnected()
-                            return
+                    if (isTerminalClose(reason)) {
+                        // Cancel any reconnect scheduled by onError (which fires before onClose)
+                        isReconnecting.set(false)
+                        handler.removeCallbacksAndMessages(null)
+                        val r = reason ?: return // isTerminalClose(null) is false, so reason is non-null here
+                        val state = when {
+                            r.contains("401") || r.contains("Unauthorized") ->
+                                ConnectionState.UNAUTHORIZED
+                            r.contains("403") || r.contains("Forbidden") ->
+                                ConnectionState.LIMIT_EXCEEDED
+                            else -> ConnectionState.BAD_REQUEST
                         }
+                        Log.w(TAG, "onClose: Terminal error ($state), tearing down media")
+                        ConnectionStateManager.setState(state)
+                        handleWsDisconnected()
+                        return
                     }
 
+                    // Transient disconnect: preserve media pipeline, just reconnect WS
                     ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
-                    handleWsDisconnected()
                     scheduleReconnect()
                 }
 
                 override fun onError(ex: Exception?) {
                     Log.e(TAG, "onError: Connection Error: ${ex?.javaClass?.simpleName}: ${ex?.message}", ex)
                     logNetworkState("onError")
-                    // Don't set state here, onClose usually follows
-                    if (webSocketClient == null || webSocketClient?.isOpen != true)
-                        handleWsDisconnected()
-
+                    // onClose usually follows; schedule reconnect as safety net
+                    // (isReconnecting guard prevents duplicate scheduling)
                     scheduleReconnect()
                 }
             }
@@ -239,10 +263,26 @@ class ReverseConnectionService : Service() {
     }
 
     private var isReconnecting = AtomicBoolean(false)
+    @Volatile
+    private var reconnectStartedAtMs = 0L
 
     private fun scheduleReconnect() {
         if (!isServiceRunning.get()) return
         if (isReconnecting.getAndSet(true)) return // Already scheduled
+
+        val now = SystemClock.elapsedRealtime()
+        if (reconnectStartedAtMs <= 0L) {
+            reconnectStartedAtMs = now
+        }
+
+        if (shouldGiveUpReconnecting(reconnectStartedAtMs, now)) {
+            Log.w(TAG, "Reconnect attempts exceeded ${RECONNECT_GIVE_UP_MS / 60_000}min, giving up")
+            isReconnecting.set(false)
+            reconnectStartedAtMs = 0L
+            ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
+            handleWsDisconnected()
+            return
+        }
 
         ConnectionStateManager.setState(ConnectionState.RECONNECTING)
         Log.d(TAG, "Scheduling reconnect in ${RECONNECT_DELAY_MS}ms")
@@ -271,6 +311,7 @@ class ReverseConnectionService : Service() {
         configManager.reverseConnectionEnabled = false
         isServiceRunning.set(false)
         isReconnecting.set(false)
+        reconnectStartedAtMs = 0L
         handler.removeCallbacksAndMessages(null)
         ScreenCaptureService.requestStop("user_disconnect")
         disconnect()
@@ -278,6 +319,7 @@ class ReverseConnectionService : Service() {
         stopSelf()
     }
 
+    /** Called only for terminal disconnects (auth errors, user action). Tears down media. */
     private fun handleWsDisconnected() {
         val manager = WebRtcManager.getExistingInstance()
         if (manager != null) {
@@ -287,6 +329,24 @@ class ReverseConnectionService : Service() {
             manager.requestGracefulStop("ws_disconnected")
         } else {
             ScreenCaptureService.requestStop("ws_disconnected")
+        }
+    }
+
+    /**
+     * After WS reconnect, check if capture survived but the peer connection died
+     * during the outage. If so, notify the server so it can request a new stream
+     * (which will reuse existing capture via startStreamWithExistingCapture).
+     */
+    private fun notifyStreamStateAfterReconnect(manager: WebRtcManager) {
+        val requestId = manager.getStreamRequestId()
+        if (shouldNotifyStreamStoppedAfterReconnect(
+                manager.isCaptureActive(),
+                manager.isStreamActive(),
+                requestId,
+            )
+        ) {
+            // Use async variant — this runs on the WS receive thread
+            manager.notifyStreamStoppedAsync("ws_reconnected")
         }
     }
 
