@@ -77,10 +77,17 @@ class ScreenCaptureService : Service() {
                     stopRequested = false
                     val rcs = ReverseConnectionService.getInstance()
                     rcs?.suspendForegroundForStreaming()
-                    startForeground(
-                        NOTIFICATION_ID, createNotification(),
-                        ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
-                    )
+
+                    // Start foreground service with SDK 29+ check
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                        startForeground(
+                            NOTIFICATION_ID, createNotification(),
+                            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+                        )
+                    } else {
+                        @Suppress("DEPRECATION")
+                        startForeground(NOTIFICATION_ID, createNotification())
+                    }
 
                     if (rcs == null) {
                         Log.e(

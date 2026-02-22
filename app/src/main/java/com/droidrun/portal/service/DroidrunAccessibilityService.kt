@@ -88,10 +88,21 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
         super.onCreate()
         overlayManager = OverlayManager(this)
         val windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-        // TODO increase SDK version to 30
-        val windowMetrics = windowManager.currentWindowMetrics
-        val bounds = windowMetrics.bounds
-        screenBounds.set(0, 0, bounds.width(), bounds.height())
+
+        // Get screen bounds with SDK 30+ check
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            val windowMetrics = windowManager.currentWindowMetrics
+            val bounds = windowMetrics.bounds
+            screenBounds.set(0, 0, bounds.width(), bounds.height())
+        } else {
+            // Fallback for SDK 29 and below
+            @Suppress("DEPRECATION")
+            val display = windowManager.defaultDisplay
+            val displayMetrics = android.util.DisplayMetrics()
+            @Suppress("DEPRECATION")
+            display.getRealMetrics(displayMetrics)
+            screenBounds.set(0, 0, displayMetrics.widthPixels, displayMetrics.heightPixels)
+        }
 
         // Initialize ConfigManager
         configManager = ConfigManager.getInstance(this)
@@ -514,7 +525,7 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
                 val id = ElementNode.createId(rect, className.substringAfterLast('.'), displayText)
 
                 currentElement = ElementNode(
-                    AccessibilityNodeInfo(node),
+                    AccessibilityNodeInfo.obtain(node),
                     Rect(rect),
                     displayText,
                     className.substringAfterLast('.'),
