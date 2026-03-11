@@ -115,7 +115,7 @@ class OverlayManager(private val context: Context) {
                 )
                 -insets.top  // Negative to shift upward
             } else {
-                getStatusBarHeightFromResources()  // Fallback
+                getStatusBarHeightFromResources()  // Fallback for SDK 29 and below
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error getting insets-based offset: ${e.message}", e)
