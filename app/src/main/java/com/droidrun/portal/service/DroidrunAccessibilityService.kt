@@ -127,7 +127,7 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
         )
 
         actionDispatcher = ActionDispatcher(apiHandler)
-        socketServer = SocketServer(apiHandler, configManager, actionDispatcher)
+        socketServer = SocketServer(apiHandler, actionDispatcher)
 
         isInitialized = true
     }
@@ -803,7 +803,6 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
                 websocketServer = PortalWebSocketServer(
                     port,
                     actionDispatcher,
-                    configManager,
                 ) {
                     showWebSocketServerStartedToastIfEnoughTimeIsPassed(port)
                     showLocalWebSocketConnectionNotificationIfEligible()

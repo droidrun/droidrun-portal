@@ -34,7 +34,6 @@ class ConfigManager private constructor(private val context: Context) {
         private const val KEY_DEV_MODE_ENABLED = "dev_mode_enabled"
         private const val KEY_INSTALL_AUTO_ACCEPT_ENABLED = "install_auto_accept_enabled"
         private const val PREFIX_EVENT_ENABLED = "event_enabled_"
-        private const val KEY_AUTH_TOKEN = "auth_token"
         private const val KEY_DEVICE_ID = "device_id"
         private const val DEVICE_ID_PLACEHOLDER = "{deviceId}"
 
@@ -66,18 +65,6 @@ class ConfigManager private constructor(private val context: Context) {
             sharedPrefs.edit { putBoolean(KEY_REVERSE_CONNECTION_ENABLED, false) }
         }
     }
-
-    // Auth Token (Auto-generated if missing)
-    // TODO add external injection from some config file
-    val authToken: String
-        get() {
-            var token = sharedPrefs.getString(KEY_AUTH_TOKEN, null)
-            if (token == null) {
-                token = java.util.UUID.randomUUID().toString()
-                sharedPrefs.edit { putString(KEY_AUTH_TOKEN, token) }
-            }
-            return token
-        }
 
     val deviceID: String
         get() {
@@ -466,7 +453,6 @@ class ConfigManager private constructor(private val context: Context) {
         val socketServerPort: Int,
         val websocketEnabled: Boolean,
         val websocketPort: Int,
-        val authToken: String
     )
 
     fun getCurrentConfiguration(): Configuration {
@@ -479,7 +465,6 @@ class ConfigManager private constructor(private val context: Context) {
             socketServerPort = socketServerPort,
             websocketEnabled = websocketEnabled,
             websocketPort = websocketPort,
-            authToken = authToken
         )
     }
 }

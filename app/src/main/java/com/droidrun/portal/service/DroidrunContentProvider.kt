@@ -33,7 +33,6 @@ class DroidrunContentProvider : ContentProvider() {
         private const val SOCKET_PORT = 11
         private const val OVERLAY_VISIBLE = 12
         private const val TOGGLE_WEBSOCKET_SERVER = 13
-        private const val AUTH_TOKEN = 14
         private const val CONFIGURE_REVERSE_CONNECTION = 15
         private const val TOGGLE_PRODUCTION_MODE = 16
         private const val TOGGLE_SOCKET_SERVER = 17
@@ -52,7 +51,6 @@ class DroidrunContentProvider : ContentProvider() {
             addURI(AUTHORITY, "socket_port", SOCKET_PORT)
             addURI(AUTHORITY, "overlay_visible", OVERLAY_VISIBLE)
             addURI(AUTHORITY, "toggle_websocket_server", TOGGLE_WEBSOCKET_SERVER)
-            addURI(AUTHORITY, "auth_token", AUTH_TOKEN)
             addURI(AUTHORITY, "configure_reverse_connection", CONFIGURE_REVERSE_CONNECTION)
             addURI(AUTHORITY, "toggle_production_mode", TOGGLE_PRODUCTION_MODE)
             addURI(AUTHORITY, "toggle_socket_server", TOGGLE_SOCKET_SERVER)
@@ -114,7 +112,6 @@ class DroidrunContentProvider : ContentProvider() {
             val match = uriMatcher.match(uri)
             val response = when (match) {
                 VERSION -> ApiResponse.Success(getAppVersion())
-                AUTH_TOKEN -> ApiResponse.Text(configManager.authToken)
                 else -> {
                     val handler = getHandler()
                     if (handler == null) {

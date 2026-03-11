@@ -9,65 +9,21 @@ import org.java_websocket.server.WebSocketServer
 import java.net.InetSocketAddress
 import java.nio.ByteBuffer
 import com.droidrun.portal.service.ActionDispatcher
-import com.droidrun.portal.config.ConfigManager
 import org.json.JSONObject
 import java.util.concurrent.Executors
 
 class PortalWebSocketServer(
     port: Int,
     private val actionDispatcher: ActionDispatcher,
-    private val configManager: ConfigManager,
     private val onServerStarted: (() -> Unit)? = null,
 ) : WebSocketServer(InetSocketAddress(port)) {
 
     companion object {
         private const val TAG = "PortalWSServer"
-        private const val AUTHORIZATION_HEADER = "Authorization"
-        private const val BEARER_PREFIX = "Bearer "
-        private const val TOKEN_QUERY_PARAM_PREFIX = "token="
-        private const val HTTP_UNAUTHORIZED_CODE = 401
         private const val EXPECTED_REQUEST_ID_BYTES = 36
-        private const val UNAUTHORIZED = "Unauthorized"
     }
 
     private val installExecutor = Executors.newSingleThreadExecutor()
-
-    override fun onWebsocketHandshakeReceivedAsServer(
-        conn: WebSocket?,
-        draft: org.java_websocket.drafts.Draft?,
-        request: ClientHandshake?
-    ): org.java_websocket.handshake.ServerHandshakeBuilder {
-        val descriptor = request?.resourceDescriptor ?: ""
-
-        // Check for token in header
-        var token = request?.getFieldValue(AUTHORIZATION_HEADER)
-        if (!token.isNullOrEmpty() && token.startsWith(BEARER_PREFIX)) {
-            token = token.removePrefix(BEARER_PREFIX).trim()
-        }
-
-        // Fallback: Check query param (e.g. /?token=abc)
-        if (token.isNullOrEmpty() && descriptor.contains(TOKEN_QUERY_PARAM_PREFIX)) {
-            val query = descriptor.substringAfter("?")
-            val params = query.split("&")
-            for (param in params) {
-                if (param.startsWith(TOKEN_QUERY_PARAM_PREFIX)) {
-                    token = param.removePrefix(TOKEN_QUERY_PARAM_PREFIX)
-                    break
-                }
-            }
-        }
-
-        // Validate Token
-        if (token != configManager.authToken) {
-            Log.w(TAG, "Rejecting connection: Invalid or missing token")
-            throw org.java_websocket.exceptions.InvalidDataException(
-                HTTP_UNAUTHORIZED_CODE,
-                UNAUTHORIZED,
-            )
-        }
-
-        return super.onWebsocketHandshakeReceivedAsServer(conn, draft, request)
-    }
 
     override fun onOpen(conn: WebSocket?, handshake: ClientHandshake?) {
         Log.d(TAG, "New connection from ${conn?.remoteSocketAddress}")

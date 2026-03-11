@@ -915,43 +915,6 @@
 
                                 </LinearLayout>
 
-                                <LinearLayout
-                                    android:layout_width="match_parent"
-                                    android:layout_height="wrap_content"
-                                    android:orientation="horizontal"
-                                    android:gravity="center_vertical">
-
-                                    <TextView
-                                        android:layout_width="wrap_content"
-                                        android:layout_height="wrap_content"
-                                        android:text="@string/token_label"
-                                        android:textColor="@color/text_gray"
-                                        android:fontFamily="monospace" />
-
-                                    <TextView
-                                        android:id="@+id/auth_token_text"
-                                        android:layout_width="0dp"
-                                        android:layout_height="wrap_content"
-                                        android:layout_weight="1"
-                                        android:text="..."
-                                        android:textColor="@color/text_white"
-                                        android:textStyle="bold"
-                                        android:fontFamily="monospace"
-                                        android:ellipsize="end"
-                                        android:maxLines="1" />
-
-                                    <ImageView
-                                        android:id="@+id/btn_copy_token"
-                                        android:layout_width="20dp"
-                                        android:layout_height="20dp"
-                                        android:contentDescription="@string/copy_token_content_description"
-                                        android:src="@drawable/baseline_content_copy_24"
-                                        app:tint="@color/text_white"
-                                        android:background="?attr/selectableItemBackgroundBorderless"
-                                        android:clickable="true"
-                                        android:focusable="true" />
-
-                                </LinearLayout>
 
                             </LinearLayout>
 

@@ -548,17 +548,6 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
     }
 
     private fun setupNetworkInfo() {
-        val configManager = ConfigManager.getInstance(this)
-
-        binding.authTokenText.text = configManager.authToken
-
-        binding.btnCopyToken.setOnClickListener {
-            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            val clip = android.content.ClipData.newPlainText("Auth Token", configManager.authToken)
-            clipboard.setPrimaryClip(clip)
-            Toast.makeText(this, "Token copied", Toast.LENGTH_SHORT).show()
-        }
-
         binding.deviceIpText.text = getIpAddress() ?: "Unavailable (Check WiFi)"
     }
 

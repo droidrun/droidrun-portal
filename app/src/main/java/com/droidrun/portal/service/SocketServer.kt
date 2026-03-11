@@ -6,7 +6,6 @@ import android.util.Log
 import com.droidrun.portal.api.ApiHandler
 import com.droidrun.portal.api.ApiResponse
 import org.json.JSONObject
-import com.droidrun.portal.config.ConfigManager
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.io.OutputStream
@@ -19,7 +18,6 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 class SocketServer(
     private val apiHandler: ApiHandler,
-    private val configManager: ConfigManager,
     private val actionDispatcher: ActionDispatcher,
 ) {
     companion object {
@@ -29,11 +27,7 @@ class SocketServer(
         private const val HTTP_STATUS_OK = 200
         private const val HTTP_REASON_OK = "OK"
         private const val HTTP_STATUS_BAD_REQUEST = 400
-        private const val HTTP_STATUS_UNAUTHORIZED = 401
-        private const val AUTHORIZATION_HEADER_PREFIX = "Authorization:"
-        private const val BEARER_PREFIX = "Bearer "
         private const val POST_BODY_BUFFER_SIZE = 1024
-        private const val UNAUTHORIZED = "Unauthorized"
     }
 
     private var serverSocket: ServerSocket? = null
@@ -124,26 +118,15 @@ class SocketServer(
                 val method = parts[0]
                 val path = parts[1]
 
-                var authToken: String? = null
-
                 // Consume headers
                 var line = reader.readLine()
                 var contentLength = 0
-                
+
                 while (!line.isNullOrEmpty()) {
-                    if (line.startsWith(AUTHORIZATION_HEADER_PREFIX, ignoreCase = true)) {
-                        authToken = line.substring(14).trim().removePrefix(BEARER_PREFIX).trim()
-                    } else if (line.startsWith("Content-Length:", ignoreCase = true)) {
+                    if (line.startsWith("Content-Length:", ignoreCase = true)) {
                         contentLength = line.substring(15).trim().toIntOrNull() ?: 0
                     }
                     line = reader.readLine()
-                }
-
-                // Validate Auth Token (Skip for ping, but safer to require for all because of ping attacks)
-                // For now, /ping without auth for easier connectivity checks
-                if (path != "/ping" && authToken != configManager.authToken) {
-                    sendErrorResponse(outputStream, HTTP_STATUS_UNAUTHORIZED, UNAUTHORIZED)
-                    return
                 }
 
                 when (method) {
