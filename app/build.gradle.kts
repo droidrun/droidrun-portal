@@ -15,6 +15,7 @@ android {
         versionName = project.findProperty("versionName") as String
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        setProperty("archivesBaseName", "$applicationId-$versionName")
     }
 
     buildFeatures {

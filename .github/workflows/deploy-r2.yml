@@ -1,0 +1,62 @@
+name: Deploy to Cloudflare R2
+
+on:
+  workflow_call:
+    inputs:
+      artifact-name:
+        description: Name of the artifact containing the files to upload
+        required: true
+        type: string
+      file-prefix:
+        description: "Filename prefix for the APK (e.g. com.droidrun.portal)"
+        required: true
+        type: string
+      tag:
+        description: Version tag used in the filename
+        required: true
+        type: string
+      r2-destination-prefix:
+        description: "Path prefix inside the R2 bucket (e.g. portal)"
+        required: false
+        type: string
+        default: portal
+      environments:
+        description: 'JSON array of {environment, variant} objects'
+        required: false
+        type: string
+        default: '[{"environment":"dev","variant":"debug"},{"environment":"staging","variant":"debug"},{"environment":"prod","variant":"release"}]'
+    secrets:
+      R2_ACCESS_KEY_ID:
+        required: true
+      R2_SECRET_ACCESS_KEY:
+        required: true
+      R2_ACCOUNT_ID:
+        required: true
+      R2_BUCKET:
+        required: true
+
+jobs:
+  deploy-r2:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include: ${{ fromJson(inputs.environments) }}
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}
+
+      - name: Upload to Cloudflare R2 (${{ matrix.environment }})
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+        run: |
+          FILE="${{ inputs.file-prefix }}-${{ inputs.tag }}-${{ matrix.variant }}.apk"
+          BUCKET="${{ secrets.R2_BUCKET }}"
+          DEST="${{ matrix.environment }}/${{ inputs.r2-destination-prefix }}/${FILE}"
+
+          aws s3 cp "${FILE}" "s3://${BUCKET}/${DEST}" --endpoint-url "${R2_ENDPOINT}"
+          echo "Uploaded ${FILE} to ${BUCKET}/${DEST}"

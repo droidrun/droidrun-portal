@@ -12,29 +12,43 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      version-name: ${{ steps.version.outputs.VERSION_NAME }}
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
           cache: gradle
-          
+
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
-        
-      - name: Build with Gradle
+
+      - name: Resolve version
+        id: version
         run: |
           if [[ "${GITHUB_REF_TYPE}" == "tag" && "${GITHUB_REF}" == refs/tags/v* ]]; then
             VERSION_NAME="${GITHUB_REF#refs/tags/v}"
             VERSION_CODE="${GITHUB_RUN_NUMBER}"
-            ./gradlew assembleDebug --no-daemon -PversionName="${VERSION_NAME}" -PversionCode="${VERSION_CODE}"
           elif [[ "${GITHUB_REF_TYPE}" == "tag" && "${GITHUB_REF}" == refs/tags/* ]]; then
             VERSION_NAME="${GITHUB_REF#refs/tags/}"
             VERSION_CODE="${GITHUB_RUN_NUMBER}"
-            ./gradlew assembleDebug --no-daemon -PversionName="${VERSION_NAME}" -PversionCode="${VERSION_CODE}"
+          else
+            VERSION_NAME="$(grep '^versionName=' gradle.properties | cut -d= -f2-)"
+            VERSION_CODE="$(grep '^versionCode=' gradle.properties | cut -d= -f2-)"
+          fi
+          echo "VERSION_NAME=${VERSION_NAME}" >> "$GITHUB_OUTPUT"
+          echo "VERSION_CODE=${VERSION_CODE}" >> "$GITHUB_OUTPUT"
+
+      - name: Build with Gradle
+        run: |
+          VERSION_NAME="${{ steps.version.outputs.VERSION_NAME }}"
+          VERSION_CODE="${{ steps.version.outputs.VERSION_CODE }}"
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            ./gradlew assembleRelease assembleDebug --no-daemon -PversionName="${VERSION_NAME}" -PversionCode="${VERSION_CODE}"
           else
             ./gradlew assembleDebug --no-daemon
           fi
@@ -43,16 +57,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ "${GITHUB_REF_TYPE}" == "tag" && "${GITHUB_REF}" == refs/tags/v* ]]; then
-            EXPECTED_VERSION_NAME="${GITHUB_REF#refs/tags/v}"
-            EXPECTED_VERSION_CODE="${GITHUB_RUN_NUMBER}"
-          elif [[ "${GITHUB_REF_TYPE}" == "tag" && "${GITHUB_REF}" == refs/tags/* ]]; then
-            EXPECTED_VERSION_NAME="${GITHUB_REF#refs/tags/}"
-            EXPECTED_VERSION_CODE="${GITHUB_RUN_NUMBER}"
-          else
-            EXPECTED_VERSION_NAME="$(grep '^versionName=' gradle.properties | cut -d= -f2-)"
-            EXPECTED_VERSION_CODE="$(grep '^versionCode=' gradle.properties | cut -d= -f2-)"
-          fi
+          EXPECTED_VERSION_NAME="${{ steps.version.outputs.VERSION_NAME }}"
+          EXPECTED_VERSION_CODE="${{ steps.version.outputs.VERSION_CODE }}"
 
           SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
           if [[ -z "${SDK_ROOT}" ]]; then
@@ -72,7 +78,8 @@ jobs:
             exit 1
           fi
 
-          BADGING="$("${AAPT_BIN}" dump badging app/build/outputs/apk/debug/app-debug.apk)"
+          APK="$(find app/build/outputs/apk/debug -name '*.apk' | head -n1)"
+          BADGING="$("${AAPT_BIN}" dump badging "${APK}")"
           ACTUAL_VERSION_NAME="$(printf '%s\n' "${BADGING}" | sed -n "s/.* versionName='\([^']*\)'.*/\1/p" | head -n1)"
           ACTUAL_VERSION_CODE="$(printf '%s\n' "${BADGING}" | sed -n "s/.* versionCode='\([^']*\)'.*/\1/p" | head -n1)"
 
@@ -81,13 +88,29 @@ jobs:
 
           [[ "${ACTUAL_VERSION_NAME}" == "${EXPECTED_VERSION_NAME}" ]]
           [[ "${ACTUAL_VERSION_CODE}" == "${EXPECTED_VERSION_CODE}" ]]
-        
-      - name: Upload APK
+
+      - name: Copy APKs to workspace root
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          VERSION_NAME="${{ steps.version.outputs.VERSION_NAME }}"
+          cp "app/build/outputs/apk/debug/com.droidrun.portal-${VERSION_NAME}-debug.apk" .
+          cp "app/build/outputs/apk/release/com.droidrun.portal-${VERSION_NAME}-release.apk" .
+
+      - name: Upload APKs
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-artifact@v4
+        with:
+          name: apks
+          path: com.droidrun.portal-*.apk
+          retention-days: 1
+
+      - name: Upload debug APK
+        if: "!startsWith(github.ref, 'refs/tags/')"
         uses: actions/upload-artifact@v4
         with:
           name: app-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
-          
+          path: app/build/outputs/apk/debug/*.apk
+
   release:
     needs: build
     if: startsWith(github.ref, 'refs/tags/')
@@ -95,16 +118,11 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Download built APK
+      - name: Download built APKs
         uses: actions/download-artifact@v4
         with:
-          name: app-debug
+          name: apks
           path: artifacts
-
-      - name: Rename APK with version
-        run: |
-          TAG_NAME=${GITHUB_REF#refs/tags/}
-          mv artifacts/app-debug.apk "artifacts/droidrun-portal-${TAG_NAME}.apk"
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
@@ -113,3 +131,17 @@ jobs:
           draft: false
           prerelease: false
           generate_release_notes: true
+
+  deploy-r2:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    uses: ./.github/workflows/deploy-r2.yml
+    with:
+      artifact-name: apks
+      file-prefix: com.droidrun.portal
+      tag: ${{ needs.build.outputs.version-name }}
+    secrets:
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
