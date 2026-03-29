@@ -63,7 +63,10 @@ sealed class PortalTaskLaunchResult {
 
 sealed class PortalBalanceResult {
     data class Success(val value: PortalBalanceInfo) : PortalBalanceResult()
-    data class Error(val message: String) : PortalBalanceResult()
+    data class Error(
+        val message: String,
+        val retryable: Boolean = false,
+    ) : PortalBalanceResult()
     data class Unavailable(val message: String? = null) : PortalBalanceResult()
 }
 
@@ -837,6 +840,7 @@ class PortalCloudClient(
                 callback(
                     PortalBalanceResult.Error(
                         "Could not reach Mobilerun billing right now. Check the connection and try again.",
+                        retryable = true,
                     ),
                 )
             }
@@ -857,6 +861,7 @@ class PortalCloudClient(
 
                             in 500..599 -> PortalBalanceResult.Error(
                                 "Mobilerun could not load credits right now. Try again in a moment.",
+                                retryable = true,
                             )
 
                             else -> PortalBalanceResult.Error(

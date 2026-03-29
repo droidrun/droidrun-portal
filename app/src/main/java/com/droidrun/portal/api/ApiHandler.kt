@@ -283,8 +283,7 @@ class ApiHandler(
      */
     private fun isKeyboardImeActiveAndSelected(): Boolean {
         if (!DroidrunKeyboardIME.isAvailable()) return false
-        val service = DroidrunAccessibilityService.getInstance() ?: return false
-        return DroidrunKeyboardIME.isSelected(service)
+        return DroidrunKeyboardIME.isSelected(applicationContext)
     }
 
     fun keyboardKey(keyCode: Int): ApiResponse {
@@ -331,15 +330,15 @@ class ApiHandler(
 
         // DEL key: prefer IME direct dispatch, then fall back to accessibility
         if (keyCode == KeyEvent.KEYCODE_DEL) {
-            val service =
-                DroidrunAccessibilityService.getInstance()
-                    ?: return ApiResponse.Success("Delete handled (no service)")
             if (isKeyboardImeActiveAndSelected()) {
                 val keyboard = getKeyboardIME() ?: DroidrunKeyboardIME.getInstance()
                 if (keyboard != null && keyboard.sendKeyEventDirect(keyCode)) {
                     return ApiResponse.Success("Delete handled")
                 }
             }
+            val service =
+                DroidrunAccessibilityService.getInstance()
+                    ?: return ApiResponse.Success("Delete handled (no service)")
             service.deleteText(1)
             return ApiResponse.Success("Delete handled")
         }

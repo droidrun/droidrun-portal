@@ -109,7 +109,7 @@ object PortalBalanceRepository {
                         previousState.copy(
                             message = result.message,
                             isLoading = false,
-                            hasLoaded = true,
+                            hasLoaded = !result.retryable,
                             loadedAtMs = loadedAtMs,
                         )
                     }

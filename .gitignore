@@ -15,4 +15,4 @@
 local.properties
 output
 .idea
-test/
+/test/
