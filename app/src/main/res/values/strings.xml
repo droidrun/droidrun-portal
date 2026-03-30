@@ -238,6 +238,25 @@
     <string name="task_prompt_status_unexpected_response">Mobilerun returned an unexpected response.</string>
 
     <!-- Keyboard Warning -->
+    <string name="keyboard_enabled_message">Droidrun Keyboard active.</string>
     <string name="keyboard_not_enabled_warning">Droidrun Keyboard not active. Using accessibility fallback for text input.</string>
+    <string name="keyboard_enable_settings_help">Enable Droidrun Keyboard, then select it as your keyboard.</string>
+    <string name="keyboard_switch_settings_help">Enable another keyboard, then switch to it.</string>
+    <string name="keyboard_switch_unavailable">Could not open keyboard switching options.</string>
     <string name="select_keyboard">Select</string>
+    <string name="switch_keyboard">Switch</string>
+
+    <!-- Credits -->
+    <string name="credits_section_header">Credits</string>
+    <string name="credits_card_title">Credits</string>
+    <string name="credits_card_badge">Billing</string>
+    <string name="credits_card_subtitle">Track the credits available on this account.</string>
+    <string name="credits_refresh_action">Refresh</string>
+    <string name="credits_balance_line">%1$s credits remaining</string>
+    <string name="credits_usage_line">%1$s credits used</string>
+    <string name="credits_no_reset_scheduled">No reset scheduled</string>
+    <string name="credits_loading">Loading credits…</string>
+    <string name="credits_refreshing">Refreshing credits…</string>
+    <string name="credits_sign_in_required">Sign in with Mobilerun or add a valid API key to view credits.</string>
+    <string name="credits_unsupported_host">Credits balance is only available for official Mobilerun cloud connections.</string>
 </resources>

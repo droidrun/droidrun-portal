@@ -46,6 +46,12 @@ data class PortalTaskLaunchSuccess(
     val taskId: String,
 )
 
+data class PortalBalanceInfo(
+    val balance: Int,
+    val usage: Int,
+    val nextReset: String?,
+)
+
 data class PortalTaskStatusSuccess(
     val status: String,
 )
@@ -53,6 +59,15 @@ data class PortalTaskStatusSuccess(
 sealed class PortalTaskLaunchResult {
     data class Success(val value: PortalTaskLaunchSuccess) : PortalTaskLaunchResult()
     data class Error(val message: String) : PortalTaskLaunchResult()
+}
+
+sealed class PortalBalanceResult {
+    data class Success(val value: PortalBalanceInfo) : PortalBalanceResult()
+    data class Error(
+        val message: String,
+        val retryable: Boolean = false,
+    ) : PortalBalanceResult()
+    data class Unavailable(val message: String? = null) : PortalBalanceResult()
 }
 
 sealed class PortalTaskStatusResult {
@@ -149,6 +164,46 @@ class PortalCloudClient(
                         append(uri.port)
                     }
                     append("/v1")
+                }
+            } catch (_: Exception) {
+                null
+            }
+        }
+
+        fun deriveCloudBaseUrl(reverseConnectionUrl: String): String? {
+            if (reverseConnectionUrl.isBlank()) return null
+
+            return try {
+                val normalizedUrl = reverseConnectionUrl.trim().replace("{deviceId}", "device")
+                val uri = URI(normalizedUrl)
+                when (uri.scheme?.lowercase(Locale.US)) {
+                    "ws", "wss" -> Unit
+                    else -> return null
+                }
+
+                val normalizedPath = uri.path?.trimEnd('/') ?: return null
+                if (normalizedPath != SUPPORTED_JOIN_PATH) {
+                    return null
+                }
+
+                val host = uri.host?.trim().orEmpty()
+                if (host.isBlank()) {
+                    return null
+                }
+
+                val cloudHost = when {
+                    host.startsWith("api.", ignoreCase = true) -> "cloud.${host.removePrefix("api.")}"
+                    host.startsWith("cloud.", ignoreCase = true) -> host
+                    else -> return null
+                }
+
+                buildString {
+                    append("https://")
+                    append(cloudHost)
+                    if (uri.port != -1) {
+                        append(":")
+                        append(uri.port)
+                    }
                 }
             } catch (_: Exception) {
                 null
@@ -369,6 +424,17 @@ class PortalCloudClient(
                 .build()
         }
 
+        fun buildBalanceRequest(
+            cloudBaseUrl: String,
+            authToken: String,
+        ): Request {
+            return Request.Builder()
+                .url("${cloudBaseUrl.trimEnd('/')}/api/billing/balance")
+                .addHeader("Authorization", "Bearer $authToken")
+                .get()
+                .build()
+        }
+
         fun buildListTasksRequest(
             restBaseUrl: String,
             authToken: String,
@@ -486,10 +552,30 @@ class PortalCloudClient(
             }
         }
 
+        fun parseBalanceInfo(body: String): PortalBalanceInfo? {
+            return try {
+                val root = JSONObject(body)
+                PortalBalanceInfo(
+                    balance = if (root.has("balance") && !root.isNull("balance")) root.optInt("balance") else 0,
+                    usage = if (root.has("usage") && !root.isNull("usage")) root.optInt("usage") else 0,
+                    nextReset = firstNonBlankString(root, "nextReset", "next_reset_at"),
+                )
+            } catch (_: Exception) {
+                null
+            }
+        }
+
         private fun firstNonBlankString(json: JSONObject, vararg keys: String): String? {
-            return keys
-                .mapNotNull { key -> json.optString(key).trim().takeIf { it.isNotBlank() } }
-                .firstOrNull()
+            return keys.firstNotNullOfOrNull { key ->
+                if (!json.has(key) || json.isNull(key)) {
+                    null
+                } else {
+                    json.opt(key)
+                        ?.toString()
+                        ?.trim()
+                        ?.takeIf { it.isNotBlank() && !it.equals("null", ignoreCase = true) }
+                }
+            }
         }
 
         private fun optInt(json: JSONObject, vararg keys: String): Int? {
@@ -671,9 +757,16 @@ class PortalCloudClient(
             return when (output) {
                 is String -> output.trim().takeIf { it.isNotBlank() }
                 is JSONObject -> {
-                    listOf("summary", "message", "detail", "error", "result", "output")
-                        .mapNotNull { key -> output.optString(key).trim().takeIf { it.isNotBlank() } }
-                        .firstOrNull()
+                    listOf(
+                        "summary",
+                        "message",
+                        "detail",
+                        "error",
+                        "result",
+                        "output"
+                    ).firstNotNullOfOrNull { key ->
+                        output.optString(key).trim().takeIf { it.isNotBlank() }
+                    }
                         ?: output.toString()
                 }
 
@@ -731,6 +824,65 @@ class PortalCloudClient(
                             loadedFromServer = true,
                         ),
                     )
+                }
+            }
+        })
+    }
+
+    fun loadBalance(
+        cloudBaseUrl: String,
+        authToken: String,
+        callback: (PortalBalanceResult) -> Unit,
+    ) {
+        val request = buildBalanceRequest(cloudBaseUrl, authToken)
+        okHttpClient.newCall(request).enqueue(object : okhttp3.Callback {
+            override fun onFailure(call: okhttp3.Call, e: IOException) {
+                callback(
+                    PortalBalanceResult.Error(
+                        "Could not reach Mobilerun billing right now. Check the connection and try again.",
+                        retryable = true,
+                    ),
+                )
+            }
+
+            override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                response.use {
+                    val body = response.body?.string().orEmpty()
+                    if (!response.isSuccessful) {
+                        val parsedDetail = parseErrorDetail(body)
+                        val result = when (response.code) {
+                            401, 403 -> PortalBalanceResult.Error(
+                                "Mobilerun rejected the saved API key. Sign in again or update the key.",
+                            )
+
+                            404 -> PortalBalanceResult.Unavailable(
+                                parsedDetail ?: "Credits balance is unavailable for this connection.",
+                            )
+
+                            in 500..599 -> PortalBalanceResult.Error(
+                                "Mobilerun could not load credits right now. Try again in a moment.",
+                                retryable = true,
+                            )
+
+                            else -> PortalBalanceResult.Error(
+                                parsedDetail ?: "Mobilerun returned an unexpected response.",
+                            )
+                        }
+                        callback(result)
+                        return
+                    }
+
+                    val info = parseBalanceInfo(body)
+                    if (info == null) {
+                        callback(
+                            PortalBalanceResult.Error(
+                                "Mobilerun returned an unexpected response.",
+                            ),
+                        )
+                        return
+                    }
+
+                    callback(PortalBalanceResult.Success(info))
                 }
             }
         })
