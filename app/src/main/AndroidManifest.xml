@@ -110,6 +110,11 @@
             android:exported="false" />
 
         <receiver
+            android:name=".update.UpdateInstallReceiver"
+            android:enabled="true"
+            android:exported="false" />
+
+        <receiver
             android:name=".triggers.TriggerBootReceiver"
             android:enabled="true"
             android:exported="true">

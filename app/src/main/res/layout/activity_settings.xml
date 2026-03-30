@@ -604,6 +604,46 @@
                 android:background="@color/divider_color"
                 android:layout_marginVertical="8dp" />
 
+            <!-- App version + update check -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:paddingHorizontal="24dp"
+                android:paddingVertical="4dp">
+
+                <TextView
+                    android:id="@+id/text_app_version"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:textColor="@color/text_gray"
+                    android:textSize="13sp"
+                    tools:text="Version 0.6.1"
+                    xmlns:tools="http://schemas.android.com/tools" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_check_updates"
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:paddingHorizontal="14dp"
+                    android:paddingVertical="0dp"
+                    android:text="@string/update_check_for_updates"
+                    android:textSize="12sp"
+                    android:textColor="@color/text_white"
+                    app:strokeColor="@color/stroke_gray"
+                    app:cornerRadius="8dp" />
+
+            </LinearLayout>
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:background="@color/divider_color"
+                android:layout_marginVertical="8dp" />
+
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_reset_settings"
                 style="@style/Widget.MaterialComponents.Button.OutlinedButton"
