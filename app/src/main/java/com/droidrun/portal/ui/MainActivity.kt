@@ -1229,7 +1229,10 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
 
     private fun isOfficialMobilerunCloudConnection(): Boolean {
         val configManager = ConfigManager.getInstance(this)
-        return configManager.reverseConnectionUrlOrDefault == configManager.defaultReverseConnectionUrl
+        return PortalCloudClient.isOfficialMobilerunCloudConnection(
+            reverseConnectionUrl = configManager.reverseConnectionUrlOrDefault,
+            defaultReverseConnectionUrl = configManager.defaultReverseConnectionUrl,
+        )
     }
 
     private fun shouldOfferBrowserReauth(state: ConnectionState): Boolean {
