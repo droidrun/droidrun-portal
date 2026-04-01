@@ -215,14 +215,18 @@
     <string name="connect_to_mobilerun_title">Connect to Mobilerun</string>
     <string name="connect_to_mobilerun_subtitle">Choose how to authenticate this device</string>
     <string name="sign_in_with_browser">Sign in with Browser</string>
+    <string name="sign_out">Sign Out</string>
     <string name="use_api_key">Use API Key</string>
     <string name="custom_connection">Custom Connection</string>
     <string name="error_unauthorized_actionable">Your API key was rejected. Sign in again or enter a new key.</string>
+    <string name="sign_out_confirmation_title">Sign out on this device?</string>
+    <string name="sign_out_confirmation_message">This removes the saved Mobilerun sign-in from this portal only.</string>
 
     <!-- Connection States -->
     <string name="connection_failed_title">Connection Failed</string>
     <string name="error_unauthorized">Unauthorized \u2014 check your API key</string>
     <string name="error_limit_exceeded">Device limit exceeded</string>
+    <string name="error_bad_request_actionable">Saved Mobilerun credentials may belong to a different account. Sign in again or update the connection.</string>
     <string name="error_bad_request">Bad request \u2014 check token and headers</string>
     <string name="error_unknown">An unknown error occurred</string>
     <string name="connecting_subtitle">Establishing connection\u2026</string>

@@ -196,12 +196,16 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             disconnectService()
         }
 
+        binding.btnSignOut.setOnClickListener {
+            showSignOutConfirmation()
+        }
+
         binding.btnCancelConnection.setOnClickListener {
             disconnectService()
         }
 
         binding.btnErrorPrimaryAction.setOnClickListener {
-            if (ConnectionStateManager.getState() == ConnectionState.UNAUTHORIZED) {
+            if (shouldOfferBrowserReauth(ConnectionStateManager.getState())) {
                 openBrowserSignIn(forceFreshLogin = true)
             } else {
                 retryConnection()
@@ -1202,6 +1206,37 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
     }
 
+    private fun showSignOutConfirmation() {
+        AlertDialog.Builder(this, R.style.Theme_DroidrunPortal_Dialog)
+            .setTitle(getString(R.string.sign_out_confirmation_title))
+            .setMessage(getString(R.string.sign_out_confirmation_message))
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(getString(R.string.sign_out)) { _, _ ->
+                signOutLocally()
+            }
+            .show()
+    }
+
+    private fun signOutLocally() {
+        val configManager = ConfigManager.getInstance(this)
+        disconnectService()
+        configManager.reverseConnectionToken = ""
+        configManager.reverseConnectionEnabled = false
+        configManager.forceLoginOnNextConnect = true
+        ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
+        refreshCreditsBalance(force = true)
+    }
+
+    private fun isOfficialMobilerunCloudConnection(): Boolean {
+        val configManager = ConfigManager.getInstance(this)
+        return configManager.reverseConnectionUrlOrDefault == configManager.defaultReverseConnectionUrl
+    }
+
+    private fun shouldOfferBrowserReauth(state: ConnectionState): Boolean {
+        return state == ConnectionState.UNAUTHORIZED ||
+            (state == ConnectionState.BAD_REQUEST && isOfficialMobilerunCloudConnection())
+    }
+
     private fun openBrowserSignIn(forceFreshLogin: Boolean) {
         val configManager = ConfigManager.getInstance(this)
         if (forceFreshLogin) {
@@ -1425,7 +1460,15 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
 
                 ConnectionState.BAD_REQUEST -> {
                     binding.layoutError.visibility = View.VISIBLE
-                    binding.textErrorSubtitle.text = getString(R.string.error_bad_request)
+                    if (isOfficialMobilerunCloudConnection()) {
+                        binding.textErrorSubtitle.text =
+                            getString(R.string.error_bad_request_actionable)
+                        binding.btnErrorPrimaryAction.text = getString(R.string.sign_in_with_browser)
+                        binding.btnErrorUseApiKey.visibility = View.VISIBLE
+                        binding.btnErrorCustomConnection.visibility = View.VISIBLE
+                    } else {
+                        binding.textErrorSubtitle.text = getString(R.string.error_bad_request)
+                    }
                 }
 
                 ConnectionState.ERROR -> {
