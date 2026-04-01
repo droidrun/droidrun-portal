@@ -2,6 +2,7 @@ package com.droidrun.portal.taskprompt
 
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -42,6 +43,55 @@ class PortalCloudClientTest {
         val url = "wss://portal.example.com/v1/providers/personal/join"
 
         assertNull(PortalCloudClient.deriveCloudBaseUrl(url))
+    }
+
+    @Test
+    fun isOfficialMobilerunCloudConnection_acceptsEquivalentMobilerunUrlVariants() {
+        val defaultUrl = "wss://api.mobilerun.ai/v1/providers/personal/join"
+
+        assertTrue(PortalCloudClient.isOfficialMobilerunCloudConnection(defaultUrl, defaultUrl))
+        assertTrue(
+            PortalCloudClient.isOfficialMobilerunCloudConnection(
+                "wss://cloud.mobilerun.ai/v1/providers/personal/join",
+                defaultUrl,
+            ),
+        )
+        assertTrue(
+            PortalCloudClient.isOfficialMobilerunCloudConnection(
+                "  wss://cloud.mobilerun.ai/v1/providers/personal/join/  ",
+                defaultUrl,
+            ),
+        )
+        assertTrue(
+            PortalCloudClient.isOfficialMobilerunCloudConnection(
+                "wss://api.mobilerun.ai:443/v1/providers/personal/join",
+                defaultUrl,
+            ),
+        )
+    }
+
+    @Test
+    fun isOfficialMobilerunCloudConnection_rejectsUnsupportedHostsPathsAndPorts() {
+        val defaultUrl = "wss://api.mobilerun.ai/v1/providers/personal/join"
+
+        assertFalse(
+            PortalCloudClient.isOfficialMobilerunCloudConnection(
+                "wss://api.mobilerun.ai:8443/v1/providers/personal/join",
+                defaultUrl,
+            ),
+        )
+        assertFalse(
+            PortalCloudClient.isOfficialMobilerunCloudConnection(
+                "wss://portal.example.com/v1/providers/personal/join",
+                defaultUrl,
+            ),
+        )
+        assertFalse(
+            PortalCloudClient.isOfficialMobilerunCloudConnection(
+                "wss://api.mobilerun.ai/ws",
+                defaultUrl,
+            ),
+        )
     }
 
     @Test

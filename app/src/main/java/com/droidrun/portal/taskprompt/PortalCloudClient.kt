@@ -210,6 +210,38 @@ class PortalCloudClient(
             }
         }
 
+        fun isOfficialMobilerunCloudConnection(
+            reverseConnectionUrl: String,
+            defaultReverseConnectionUrl: String,
+        ): Boolean {
+            val cloudBaseUrl = normalizeCloudBaseUrl(deriveCloudBaseUrl(reverseConnectionUrl))
+            val defaultCloudBaseUrl =
+                normalizeCloudBaseUrl(deriveCloudBaseUrl(defaultReverseConnectionUrl))
+            return cloudBaseUrl != null && cloudBaseUrl == defaultCloudBaseUrl
+        }
+
+        private fun normalizeCloudBaseUrl(cloudBaseUrl: String?): String? {
+            if (cloudBaseUrl.isNullOrBlank()) return null
+
+            return try {
+                val httpUrl = cloudBaseUrl.trim().toHttpUrl()
+                if (httpUrl.scheme.lowercase(Locale.US) != "https") {
+                    return null
+                }
+
+                buildString {
+                    append("https://")
+                    append(httpUrl.host.lowercase(Locale.US))
+                    if (httpUrl.port != 443) {
+                        append(":")
+                        append(httpUrl.port)
+                    }
+                }
+            } catch (_: Exception) {
+                null
+            }
+        }
+
         fun normalizeModelIds(body: String): List<String> {
             val normalized = LinkedHashSet<String>()
             val trimmedBody = body.trim()
