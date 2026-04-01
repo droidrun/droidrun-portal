@@ -38,4 +38,82 @@ class DroidrunAccessibilityServiceTest {
         val result = DroidrunAccessibilityService.calculateInputText("Existing", "Search", "query", false)
         assertEquals("Existingquery", result)
     }
+
+    @Test
+    fun testCalculateInputText_InsertAtCursor() {
+        val result = DroidrunAccessibilityService.calculateInputText(
+            currentText = "hello world",
+            hintText = null,
+            newText = " brave",
+            clear = false,
+            selectionStart = 5,
+            selectionEnd = 5,
+        )
+        assertEquals("hello brave world", result)
+    }
+
+    @Test
+    fun testCalculateInputText_ReplaceSelection() {
+        val result = DroidrunAccessibilityService.calculateInputText(
+            currentText = "hello world",
+            hintText = null,
+            newText = "planet",
+            clear = false,
+            selectionStart = 6,
+            selectionEnd = 11,
+        )
+        assertEquals("hello planet", result)
+    }
+
+    @Test
+    fun testCalculateDeleteText_BackspaceAtCursor() {
+        val result = DroidrunAccessibilityService.calculateDeleteText(
+            currentText = "hello",
+            hintText = null,
+            count = 1,
+            forward = false,
+            selectionStart = 3,
+            selectionEnd = 3,
+        )
+        assertEquals("helo", result)
+    }
+
+    @Test
+    fun testCalculateDeleteText_DeleteSelection() {
+        val result = DroidrunAccessibilityService.calculateDeleteText(
+            currentText = "hello world",
+            hintText = null,
+            count = 1,
+            forward = false,
+            selectionStart = 5,
+            selectionEnd = 11,
+        )
+        assertEquals("hello", result)
+    }
+
+    @Test
+    fun testCalculateDeleteText_ForwardDeleteAtCursor() {
+        val result = DroidrunAccessibilityService.calculateDeleteText(
+            currentText = "hello",
+            hintText = null,
+            count = 1,
+            forward = true,
+            selectionStart = 2,
+            selectionEnd = 2,
+        )
+        assertEquals("helo", result)
+    }
+
+    @Test
+    fun testCalculateDeleteText_DeleteReversedSelection() {
+        val result = DroidrunAccessibilityService.calculateDeleteText(
+            currentText = "hello world",
+            hintText = null,
+            count = 1,
+            forward = false,
+            selectionStart = 11,
+            selectionEnd = 5,
+        )
+        assertEquals("hello", result)
+    }
 }

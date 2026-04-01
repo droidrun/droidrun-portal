@@ -2,12 +2,18 @@ package com.droidrun.portal.input
 
 import com.droidrun.portal.R
 
+import android.content.Context
+import android.content.Intent
 import android.inputmethodservice.InputMethodService
+import android.provider.Settings
 import android.util.Base64
 import android.util.Log
 import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.ExtractedTextRequest
+import android.view.inputmethod.InputMethodManager
+import android.widget.Button
+import android.widget.Toast
 
 class DroidrunKeyboardIME : InputMethodService() {
     private val TAG = "DroidrunKeyboardIME"
@@ -136,9 +142,12 @@ class DroidrunKeyboardIME : InputMethodService() {
 
     override fun onCreateInputView(): View {
         Log.d(TAG, "onCreateInputView called")
-        
-        // Inflate the existing keyboard layout XML
-        return layoutInflater.inflate(R.layout.keyboard_view, null)
+
+        val view = layoutInflater.inflate(R.layout.keyboard_view, null)
+        view.findViewById<Button>(R.id.switch_keyboard_button)?.setOnClickListener {
+            handleSwitchKeyboard()
+        }
+        return view
     }
 
     override fun onStartInput(attribute: android.view.inputmethod.EditorInfo?, restarting: Boolean) {
@@ -155,5 +164,36 @@ class DroidrunKeyboardIME : InputMethodService() {
         Log.d(TAG, "DroidrunKeyboardIME: onDestroy() called")
         instance = null
         super.onDestroy()
+    }
+
+    private fun handleSwitchKeyboard() {
+        if (showInputMethodPickerIfAlternativeExists()) return
+        openInputMethodSettings()
+    }
+
+    private fun showInputMethodPickerIfAlternativeExists(): Boolean {
+        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager ?: return false
+        if (imm.enabledInputMethodList.size <= 1) return false
+
+        return try {
+            imm.showInputMethodPicker()
+            true
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to show input method picker", e)
+            false
+        }
+    }
+
+    private fun openInputMethodSettings() {
+        try {
+            val intent = Intent(Settings.ACTION_INPUT_METHOD_SETTINGS).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(intent)
+            Toast.makeText(this, R.string.keyboard_switch_settings_help, Toast.LENGTH_LONG).show()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error opening keyboard settings", e)
+            Toast.makeText(this, R.string.keyboard_switch_unavailable, Toast.LENGTH_SHORT).show()
+        }
     }
 }

@@ -228,14 +228,18 @@
     <string name="connect_to_mobilerun_title">Connect to Mobilerun</string>
     <string name="connect_to_mobilerun_subtitle">Choose how to authenticate this device</string>
     <string name="sign_in_with_browser">Sign in with Browser</string>
+    <string name="sign_out">Sign Out</string>
     <string name="use_api_key">Use API Key</string>
     <string name="custom_connection">Custom Connection</string>
     <string name="error_unauthorized_actionable">Your API key was rejected. Sign in again or enter a new key.</string>
+    <string name="sign_out_confirmation_title">Sign out on this device?</string>
+    <string name="sign_out_confirmation_message">This removes the saved Mobilerun sign-in from this portal only.</string>
 
     <!-- Connection States -->
     <string name="connection_failed_title">Connection Failed</string>
     <string name="error_unauthorized">Unauthorized \u2014 check your API key</string>
     <string name="error_limit_exceeded">Device limit exceeded</string>
+    <string name="error_bad_request_actionable">Saved Mobilerun credentials may belong to a different account. Sign in again or update the connection.</string>
     <string name="error_bad_request">Bad request \u2014 check token and headers</string>
     <string name="error_unknown">An unknown error occurred</string>
     <string name="connecting_subtitle">Establishing connection\u2026</string>
@@ -251,6 +255,25 @@
     <string name="task_prompt_status_unexpected_response">Mobilerun returned an unexpected response.</string>
 
     <!-- Keyboard Warning -->
+    <string name="keyboard_enabled_message">Droidrun Keyboard active.</string>
     <string name="keyboard_not_enabled_warning">Droidrun Keyboard not active. Using accessibility fallback for text input.</string>
+    <string name="keyboard_enable_settings_help">Enable Droidrun Keyboard, then select it as your keyboard.</string>
+    <string name="keyboard_switch_settings_help">Enable another keyboard, then switch to it.</string>
+    <string name="keyboard_switch_unavailable">Could not open keyboard switching options.</string>
     <string name="select_keyboard">Select</string>
+    <string name="switch_keyboard">Switch</string>
+
+    <!-- Credits -->
+    <string name="credits_section_header">Credits</string>
+    <string name="credits_card_title">Credits</string>
+    <string name="credits_card_badge">Billing</string>
+    <string name="credits_card_subtitle">Track the credits available on this account.</string>
+    <string name="credits_refresh_action">Refresh</string>
+    <string name="credits_balance_line">%1$s credits remaining</string>
+    <string name="credits_usage_line">%1$s credits used</string>
+    <string name="credits_no_reset_scheduled">No reset scheduled</string>
+    <string name="credits_loading">Loading credits…</string>
+    <string name="credits_refreshing">Refreshing credits…</string>
+    <string name="credits_sign_in_required">Sign in with Mobilerun or add a valid API key to view credits.</string>
+    <string name="credits_unsupported_host">Credits balance is only available for official Mobilerun cloud connections.</string>
 </resources>

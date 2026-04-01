@@ -283,8 +283,7 @@ class ApiHandler(
      */
     private fun isKeyboardImeActiveAndSelected(): Boolean {
         if (!DroidrunKeyboardIME.isAvailable()) return false
-        val service = DroidrunAccessibilityService.getInstance() ?: return false
-        return DroidrunKeyboardIME.isSelected(service)
+        return DroidrunKeyboardIME.isSelected(applicationContext)
     }
 
     fun keyboardKey(keyCode: Int): ApiResponse {
@@ -295,8 +294,15 @@ class ApiHandler(
             KeyEvent.KEYCODE_APP_SWITCH -> return performGlobalAction(AccessibilityService.GLOBAL_ACTION_RECENTS)
         }
 
-        // ENTER key: use ACTION_IME_ENTER first, then fallback to newline insertion
+        // ENTER key: prefer direct IME dispatch, then ACTION_IME_ENTER, then newline insertion
         if (keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER) {
+            if (isKeyboardImeActiveAndSelected()) {
+                val keyboard = DroidrunKeyboardIME.getInstance()
+                if (keyboard != null && keyboard.sendKeyEventDirect(keyCode)) {
+                    return ApiResponse.Success("Enter sent via IME")
+                }
+            }
+
             val state = stateRepo.getPhoneState()
             val focusedNode = state.focusedElement
 
@@ -322,37 +328,19 @@ class ApiHandler(
                 ApiResponse.Success("Enter handled (no focused element)")
         }
 
-        // DEL key: manipulate text via accessibility
+        // DEL key: prefer IME direct dispatch, then fall back to accessibility
         if (keyCode == KeyEvent.KEYCODE_DEL) {
-            val state = stateRepo.getPhoneState()
-            val focusedNode = state.focusedElement
-
-            val currentText: String?
-            val hintText: String?
-            try {
-                currentText = focusedNode?.text?.toString()
-                hintText = focusedNode?.hintText?.toString()
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to read focused text for delete", e)
-                return ApiResponse.Success("Delete handled (could not read focused text)")
-            } finally {
-                try {
-                    focusedNode?.recycle()
-                } catch (_: Exception) {
+            if (isKeyboardImeActiveAndSelected()) {
+                val keyboard = getKeyboardIME() ?: DroidrunKeyboardIME.getInstance()
+                if (keyboard != null && keyboard.sendKeyEventDirect(keyCode)) {
+                    return ApiResponse.Success("Delete handled")
                 }
             }
-
-            val effectiveText =
-                if (!hintText.isNullOrEmpty() && currentText == hintText) "" else currentText.orEmpty()
-
-            if (effectiveText.isEmpty())
-                return ApiResponse.Success("Delete noop (field is empty)")
-
-            val updatedText = effectiveText.dropLast(1)
-            return if (stateRepo.inputText(updatedText, clear = true))
-                ApiResponse.Success("Delete performed via Accessibility")
-            else
-                ApiResponse.Success("Delete handled")
+            val service =
+                DroidrunAccessibilityService.getInstance()
+                    ?: return ApiResponse.Success("Delete handled (no service)")
+            service.deleteText(1)
+            return ApiResponse.Success("Delete handled")
         }
 
         // Forward DEL key: accessibility only

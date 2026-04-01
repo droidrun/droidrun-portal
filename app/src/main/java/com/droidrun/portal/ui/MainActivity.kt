@@ -21,7 +21,6 @@ import android.widget.SeekBar
 import android.widget.Toast
 import android.provider.Settings
 import android.view.View
-import android.view.ViewGroup
 import android.os.Handler
 import android.os.Looper
 import android.net.Uri
@@ -31,8 +30,10 @@ import androidx.appcompat.app.AlertDialog
 import android.content.ClipboardManager
 import com.droidrun.portal.databinding.ActivityMainBinding
 import com.droidrun.portal.taskprompt.PortalActiveTaskRecord
+import com.droidrun.portal.taskprompt.PortalBalanceCacheState
 import com.droidrun.portal.taskprompt.PortalCloudClient
 import com.droidrun.portal.taskprompt.PortalModelOption
+import com.droidrun.portal.taskprompt.PortalBalanceRepository
 import com.droidrun.portal.taskprompt.PortalTaskCancelResult
 import com.droidrun.portal.taskprompt.PortalTaskDetails
 import com.droidrun.portal.taskprompt.PortalTaskDetailsResult
@@ -63,6 +64,7 @@ import com.droidrun.portal.update.UpdateInfo
 import com.droidrun.portal.update.UpdateInstallReceiver
 import com.google.android.material.snackbar.Snackbar
 import com.google.android.material.textfield.TextInputEditText
+import java.text.NumberFormat
 
 class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
 
@@ -202,8 +204,20 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             showCustomConnectionDialog()
         }
 
+        binding.btnRefreshCreditsStandard.setOnClickListener {
+            refreshCreditsBalance(force = true)
+        }
+
+        binding.btnRefreshCreditsProduction.setOnClickListener {
+            refreshCreditsBalance(force = true)
+        }
+
         binding.btnDisconnect.setOnClickListener {
             disconnectService()
+        }
+
+        binding.btnSignOut.setOnClickListener {
+            showSignOutConfirmation()
         }
 
         binding.btnCancelConnection.setOnClickListener {
@@ -211,7 +225,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         }
 
         binding.btnErrorPrimaryAction.setOnClickListener {
-            if (ConnectionStateManager.getState() == ConnectionState.UNAUTHORIZED) {
+            if (shouldOfferBrowserReauth(ConnectionStateManager.getState())) {
                 openBrowserSignIn(forceFreshLogin = true)
             } else {
                 retryConnection()
@@ -281,6 +295,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         setupConnectionStateObserver()
         updateProductionModeUI()
         refreshTaskPromptUi()
+        refreshCreditsBalance()
     }
 
     override fun onDestroy() {
@@ -307,6 +322,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         updateSocketServerStatus()
         updateProductionModeUI()
         refreshTaskPromptUi()
+        refreshCreditsBalance()
         syncTaskPromptPolling(immediate = true)
         checkForUpdates()
     }
@@ -341,6 +357,133 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         }
         attachTaskPromptCardToActiveContainer()
         refreshTaskPromptUi()
+        renderCreditsUi()
+    }
+
+    private fun refreshCreditsBalance(force: Boolean = false) {
+        val configManager = ConfigManager.getInstance(this)
+        val authToken = configManager.reverseConnectionToken.trim()
+        val cloudBaseUrl = PortalCloudClient.deriveCloudBaseUrl(configManager.reverseConnectionUrlOrDefault)
+        val fingerprint = currentCreditsFingerprint(authToken, cloudBaseUrl)
+        PortalBalanceRepository.observeFingerprint(fingerprint)
+
+        renderCreditsUi()
+
+        if (!PortalTaskUiSupport.shouldShowTaskSurface(currentConnectionState, authToken) ||
+            cloudBaseUrl == null ||
+            fingerprint == null
+        ) {
+            return
+        }
+
+        PortalBalanceRepository.loadBalance(
+            fingerprint = fingerprint,
+            cloudBaseUrl = cloudBaseUrl,
+            authToken = authToken,
+            force = force,
+            loader = portalCloudClient::loadBalance,
+        ) {
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+
+                renderCreditsUi()
+            }
+        }
+    }
+
+    private fun renderCreditsUi() {
+        val configManager = ConfigManager.getInstance(this)
+        val authToken = configManager.reverseConnectionToken.trim()
+        val cloudBaseUrl = PortalCloudClient.deriveCloudBaseUrl(configManager.reverseConnectionUrlOrDefault)
+        val creditsState = PortalBalanceRepository.snapshot(currentCreditsFingerprint(authToken, cloudBaseUrl))
+        val shouldShow =
+            PortalTaskUiSupport.shouldShowTaskSurface(currentConnectionState, authToken) &&
+                cloudBaseUrl != null
+        val isProductionMode = configManager.productionMode
+
+        renderCreditsCard(
+            show = shouldShow && !isProductionMode,
+            state = creditsState,
+            metricsCard = binding.cardCreditsMetricsStandard,
+            balanceView = binding.textCreditsBalanceStandard,
+            usageView = binding.textCreditsUsageStandard,
+            messageView = binding.textCreditsMessageStandard,
+            refreshButton = binding.btnRefreshCreditsStandard,
+            card = binding.cardCreditsStandard,
+        )
+        renderCreditsCard(
+            show = shouldShow && isProductionMode,
+            state = creditsState,
+            metricsCard = binding.cardCreditsMetricsProduction,
+            balanceView = binding.textCreditsBalanceProduction,
+            usageView = binding.textCreditsUsageProduction,
+            messageView = binding.textCreditsMessageProduction,
+            refreshButton = binding.btnRefreshCreditsProduction,
+            card = binding.cardCreditsProduction,
+        )
+    }
+
+    private fun renderCreditsCard(
+        show: Boolean,
+        state: PortalBalanceCacheState,
+        metricsCard: View,
+        balanceView: TextView,
+        usageView: TextView,
+        messageView: TextView,
+        refreshButton: View,
+        card: View,
+    ) {
+        card.visibility = if (show) View.VISIBLE else View.GONE
+        if (!show) {
+            return
+        }
+
+        val info = state.info
+        val balanceLine = info?.let {
+            getString(
+                R.string.credits_balance_line,
+                formatCreditsCount(info.balance),
+            )
+        }?.takeIf { it.isNotBlank() }
+        val usageLine = info?.let {
+            getString(
+                R.string.credits_usage_line,
+                formatCreditsCount(info.usage),
+            )
+        }?.takeIf { it.isNotBlank() }
+
+        val hasMetrics =
+            bindCreditsLine(balanceView, balanceLine) or
+                bindCreditsLine(usageView, usageLine)
+        metricsCard.visibility = if (hasMetrics) View.VISIBLE else View.GONE
+
+        val message = when {
+            state.isLoading && hasMetrics -> getString(R.string.credits_refreshing)
+            state.isLoading -> getString(R.string.credits_loading)
+            !state.message.isNullOrBlank() -> state.message
+            else -> null
+        }
+        messageView.text = message
+        messageView.visibility = if (message.isNullOrBlank()) View.GONE else View.VISIBLE
+        refreshButton.isEnabled = !state.isLoading
+    }
+
+    private fun formatCreditsCount(value: Int): String {
+        return NumberFormat.getIntegerInstance().format(value)
+    }
+
+    private fun currentCreditsFingerprint(authToken: String, cloudBaseUrl: String?): String? {
+        if (authToken.isBlank() || cloudBaseUrl == null) {
+            return null
+        }
+        return PortalBalanceRepository.buildFingerprint(cloudBaseUrl, authToken)
+    }
+
+    private fun bindCreditsLine(view: TextView, text: String?): Boolean {
+        val normalized = text?.takeIf { it.isNotBlank() }
+        view.text = normalized.orEmpty()
+        view.visibility = if (normalized == null) View.GONE else View.VISIBLE
+        return normalized != null
     }
 
     private fun attachTaskPromptCardToActiveContainer() {
@@ -1109,12 +1252,47 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
     }
 
+    private fun showSignOutConfirmation() {
+        AlertDialog.Builder(this, R.style.Theme_DroidrunPortal_Dialog)
+            .setTitle(getString(R.string.sign_out_confirmation_title))
+            .setMessage(getString(R.string.sign_out_confirmation_message))
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(getString(R.string.sign_out)) { _, _ ->
+                signOutLocally()
+            }
+            .show()
+    }
+
+    private fun signOutLocally() {
+        val configManager = ConfigManager.getInstance(this)
+        disconnectService()
+        configManager.reverseConnectionToken = ""
+        configManager.reverseConnectionEnabled = false
+        configManager.forceLoginOnNextConnect = true
+        ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
+        refreshCreditsBalance(force = true)
+    }
+
+    private fun isOfficialMobilerunCloudConnection(): Boolean {
+        val configManager = ConfigManager.getInstance(this)
+        return PortalCloudClient.isOfficialMobilerunCloudConnection(
+            reverseConnectionUrl = configManager.reverseConnectionUrlOrDefault,
+            defaultReverseConnectionUrl = configManager.defaultReverseConnectionUrl,
+        )
+    }
+
+    private fun shouldOfferBrowserReauth(state: ConnectionState): Boolean {
+        return state == ConnectionState.UNAUTHORIZED ||
+            (state == ConnectionState.BAD_REQUEST && isOfficialMobilerunCloudConnection())
+    }
+
     private fun openBrowserSignIn(forceFreshLogin: Boolean) {
         val configManager = ConfigManager.getInstance(this)
         if (forceFreshLogin) {
             configManager.reverseConnectionToken = ""
             configManager.reverseConnectionEnabled = false
             configManager.forceLoginOnNextConnect = true
+            refreshCreditsBalance(force = true)
         }
         openCloudLogin(configManager)
     }
@@ -1191,6 +1369,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
 
             Log.d(TAG, "showApiKeyDialog: Restarting reverse connection service")
             restartReverseConnectionService()
+            refreshCreditsBalance(force = true)
 
             dialog.dismiss()
             Toast.makeText(this, "Connecting...", Toast.LENGTH_SHORT).show()
@@ -1272,6 +1451,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
 
             Log.d(TAG, "showCustomConnectionDialog: Restarting reverse connection service")
             restartReverseConnectionService()
+            refreshCreditsBalance(force = true)
 
             dialog.dismiss()
             Toast.makeText(this, "Connecting to custom server...", Toast.LENGTH_SHORT).show()
@@ -1329,7 +1509,15 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
 
                 ConnectionState.BAD_REQUEST -> {
                     binding.layoutError.visibility = View.VISIBLE
-                    binding.textErrorSubtitle.text = getString(R.string.error_bad_request)
+                    if (isOfficialMobilerunCloudConnection()) {
+                        binding.textErrorSubtitle.text =
+                            getString(R.string.error_bad_request_actionable)
+                        binding.btnErrorPrimaryAction.text = getString(R.string.sign_in_with_browser)
+                        binding.btnErrorUseApiKey.visibility = View.VISIBLE
+                        binding.btnErrorCustomConnection.visibility = View.VISIBLE
+                    } else {
+                        binding.textErrorSubtitle.text = getString(R.string.error_bad_request)
+                    }
                 }
 
                 ConnectionState.ERROR -> {
@@ -1342,6 +1530,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
                 }
             }
             refreshTaskPromptUi()
+            refreshCreditsBalance()
         }
     }
 
@@ -1647,10 +1836,57 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
     private fun updateKeyboardWarningBanner() {
         val isKeyboardSelected = isKeyboardSelected()
         val isAccessibilityEnabled = isAccessibilityServiceEnabled()
+        val oneDp = (resources.displayMetrics.density + 0.5f).toInt()
 
-        // Only show the keyboard warning if accessibility is enabled (so the app is functional)
-        // but the keyboard IME is not selected as active input method (so we're using fallback input)
-        if (isAccessibilityEnabled && !isKeyboardSelected) {
+        // Keep keyboard switching accessible from the main screen whenever the app is
+        // functional via accessibility or Droidrun Keyboard is currently selected.
+        if (isAccessibilityEnabled || isKeyboardSelected) {
+            val bannerBackgroundColor = ContextCompat.getColor(
+                this,
+                if (isKeyboardSelected) R.color.background_card else R.color.alert_warning_bg
+            )
+            val bannerStrokeColor = ContextCompat.getColor(this, R.color.stroke_gray)
+            val buttonBackgroundColor = ContextCompat.getColor(
+                this,
+                if (isKeyboardSelected) android.R.color.transparent else R.color.alert_warning_button
+            )
+            val buttonTextColor = ContextCompat.getColor(
+                this,
+                if (isKeyboardSelected) R.color.status_success else R.color.text_white
+            )
+
+            binding.keyboardWarningBanner.setCardBackgroundColor(bannerBackgroundColor)
+            binding.keyboardWarningBanner.strokeWidth = if (isKeyboardSelected) oneDp else 0
+            binding.keyboardWarningBanner.setStrokeColor(bannerStrokeColor)
+            binding.enableKeyboardButton.setBackgroundTintList(
+                android.content.res.ColorStateList.valueOf(buttonBackgroundColor)
+            )
+            binding.enableKeyboardButton.setTextColor(buttonTextColor)
+            if (isKeyboardSelected) {
+                binding.keyboardWarningText.maxLines = 1
+                binding.keyboardWarningText.ellipsize = android.text.TextUtils.TruncateAt.END
+            } else {
+                binding.keyboardWarningText.maxLines = Int.MAX_VALUE
+                binding.keyboardWarningText.ellipsize = null
+            }
+            binding.keyboardWarningText.text = getString(
+                if (isKeyboardSelected) R.string.keyboard_enabled_message
+                else R.string.keyboard_not_enabled_warning
+            )
+            binding.enableKeyboardButton.text = getString(
+                if (isKeyboardSelected) R.string.switch_keyboard
+                else R.string.select_keyboard
+            )
+            binding.keyboardWarningIcon.setImageResource(
+                if (isKeyboardSelected) R.drawable.circle_check else R.drawable.info
+            )
+            binding.keyboardWarningIcon.imageTintList = if (isKeyboardSelected) {
+                null
+            } else {
+                android.content.res.ColorStateList.valueOf(
+                    ContextCompat.getColor(this, R.color.droidrun_warning)
+                )
+            }
             binding.keyboardWarningBanner.visibility = View.VISIBLE
         } else {
             binding.keyboardWarningBanner.visibility = View.GONE
@@ -1664,23 +1900,16 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
 
     // Open keyboard/input method settings
     private fun openKeyboardSettings() {
-        // First check if keyboard is enabled but not selected - show input method picker
-        val isEnabled = isKeyboardEnabled()
-
-        if (isEnabled) {
-            // Keyboard is enabled, just needs to be selected - show the IME picker
-            try {
-                val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-                imm.showInputMethodPicker()
-            } catch (e: Exception) {
-                Log.e("MainActivity", "Error showing IME picker: ${e.message}")
-                // Fallback to settings
-                openInputMethodSettings()
-            }
-        } else {
-            // Keyboard is not enabled - go to settings to enable it first
-            openInputMethodSettings()
+        if (!isKeyboardEnabled()) {
+            openInputMethodSettings(R.string.keyboard_enable_settings_help)
+            return
         }
+
+        if (hasAlternativeEnabledKeyboard() && showInputMethodPicker()) {
+            return
+        }
+
+        openInputMethodSettings(R.string.keyboard_switch_settings_help)
     }
 
     // Check if DroidrunKeyboardIME is enabled (in the list of available keyboards)
@@ -1698,14 +1927,35 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         }
     }
 
+    private fun hasAlternativeEnabledKeyboard(): Boolean {
+        return try {
+            val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+            imm.enabledInputMethodList.size > 1
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Error checking enabled keyboard count: ${e.message}")
+            false
+        }
+    }
+
+    private fun showInputMethodPicker(): Boolean {
+        return try {
+            val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+            imm.showInputMethodPicker()
+            true
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Error showing IME picker: ${e.message}")
+            false
+        }
+    }
+
     // Open input method settings
-    private fun openInputMethodSettings() {
+    private fun openInputMethodSettings(messageResId: Int) {
         try {
             val intent = Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)
             startActivity(intent)
             Toast.makeText(
                 this,
-                "Enable Droidrun Keyboard, then select it as your keyboard",
+                getString(messageResId),
                 Toast.LENGTH_LONG
             ).show()
         } catch (e: Exception) {
@@ -1958,6 +2208,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
                     configManager.reverseConnectionEnabled = true
                     configManager.forceLoginOnNextConnect = false
                     restartReverseConnectionService()
+                    refreshCreditsBalance(force = true)
                 } else {
                     Toast.makeText(this, "Invalid connection data received", Toast.LENGTH_LONG)
                         .show()

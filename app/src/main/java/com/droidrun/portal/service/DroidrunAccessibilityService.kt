@@ -66,6 +66,24 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
             newText: String,
             clear: Boolean
         ): String {
+            return calculateInputText(
+                currentText = currentText,
+                hintText = hintText,
+                newText = newText,
+                clear = clear,
+                selectionStart = null,
+                selectionEnd = null,
+            )
+        }
+
+        fun calculateInputText(
+            currentText: String?,
+            hintText: String?,
+            newText: String,
+            clear: Boolean,
+            selectionStart: Int?,
+            selectionEnd: Int?,
+        ): String {
             if (clear) return newText
 
             val safeCurrentText = currentText.orEmpty()
@@ -73,7 +91,55 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
             // If the current text matches the hint text, treat it as empty.
             if (hintText != null && safeCurrentText == hintText) return newText
 
-            return safeCurrentText + newText
+            val length = safeCurrentText.length
+            val rawStart = selectionStart ?: length
+            val rawEnd = selectionEnd ?: rawStart
+            val start = rawStart.coerceIn(0, length)
+            val end = rawEnd.coerceIn(0, length)
+            val replaceStart = minOf(start, end)
+            val replaceEnd = maxOf(start, end)
+
+            val before = safeCurrentText.take(replaceStart)
+            val after = safeCurrentText.substring(replaceEnd)
+            return before + newText + after
+        }
+
+        fun calculateDeleteText(
+            currentText: String?,
+            hintText: String?,
+            count: Int,
+            forward: Boolean,
+            selectionStart: Int?,
+            selectionEnd: Int?,
+        ): String? {
+            if (count <= 0) return currentText
+
+            val safeCurrentText = currentText.orEmpty()
+
+            if (hintText != null && safeCurrentText == hintText) return null
+            if (safeCurrentText.isEmpty()) return null
+
+            val length = safeCurrentText.length
+            val rawStart = selectionStart ?: length
+            val rawEnd = selectionEnd ?: rawStart
+            val start = rawStart.coerceIn(0, length)
+            val end = rawEnd.coerceIn(0, length)
+            val replaceStart = minOf(start, end)
+            val replaceEnd = maxOf(start, end)
+
+            if (replaceStart != replaceEnd) {
+                return safeCurrentText.take(replaceStart) + safeCurrentText.substring(replaceEnd)
+            }
+
+            return if (forward) {
+                val deleteEnd = minOf(length, replaceEnd + count)
+                if (deleteEnd == replaceEnd) safeCurrentText
+                else safeCurrentText.take(replaceEnd) + safeCurrentText.substring(deleteEnd)
+            } else {
+                val deleteStart = maxOf(0, replaceStart - count)
+                if (deleteStart == replaceStart) safeCurrentText
+                else safeCurrentText.substring(0, deleteStart) + safeCurrentText.substring(replaceStart)
+            }
         }
     }
 
@@ -719,7 +785,33 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
             // Delegate logic to pure function for testability
             val currentText = targetNode.text?.toString()
             val hintText = targetNode.hintText?.toString()
-            val finalText = calculateInputText(currentText, hintText, text, clear)
+            val effectiveCurrent =
+                if (!hintText.isNullOrEmpty() && currentText == hintText) ""
+                else currentText.orEmpty()
+            val currentLength = effectiveCurrent.length
+            val rawStart = targetNode.textSelectionStart
+            val rawEnd = targetNode.textSelectionEnd
+            val selectionStart =
+                if (rawStart >= 0) rawStart.coerceIn(0, currentLength) else currentLength
+            val selectionEnd =
+                if (rawEnd >= 0) rawEnd.coerceIn(0, currentLength) else selectionStart
+            val replaceStart = minOf(selectionStart, selectionEnd)
+
+            val finalText = calculateInputText(
+                currentText = currentText,
+                hintText = hintText,
+                newText = text,
+                clear = clear,
+                selectionStart = selectionStart,
+                selectionEnd = selectionEnd,
+            )
+
+            val desiredSelection =
+                if (clear) {
+                    finalText.length
+                } else {
+                    (replaceStart + text.length).coerceIn(0, finalText.length)
+                }
 
             // Note: ACTION_SET_TEXT always replaces existing content with the argument.
             // So for clear=true, we just set 'text'.
@@ -730,7 +822,11 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
                 AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
                 finalText
             )
-            return targetNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
+            val setTextSuccess = targetNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
+            if (!setTextSuccess) return false
+
+            setSelectionOnFocusedInput(targetNode, desiredSelection)
+            return true
         } catch (e: Exception) {
             Log.e(TAG, "Error setting text via accessibility: ${e.message}")
             return false
@@ -760,17 +856,38 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
         try {
             val currentText = targetNode.text?.toString() ?: return false
             val hintText = targetNode.hintText?.toString()
+            val currentLength = currentText.length
+            val rawStart = targetNode.textSelectionStart
+            val rawEnd = targetNode.textSelectionEnd
+            val selectionStart =
+                if (rawStart >= 0) rawStart.coerceIn(0, currentLength) else currentLength
+            val selectionEnd =
+                if (rawEnd >= 0) rawEnd.coerceIn(0, currentLength) else selectionStart
+            val replaceStart = minOf(selectionStart, selectionEnd)
+            val replaceEnd = maxOf(selectionStart, selectionEnd)
 
-            // If current text matches hint, treat as empty
-            if (hintText != null && currentText == hintText) return false
-            if (currentText.isEmpty()) return false
+            val newText = calculateDeleteText(
+                currentText = currentText,
+                hintText = hintText,
+                count = count,
+                forward = forward,
+                selectionStart = selectionStart,
+                selectionEnd = selectionEnd,
+            ) ?: return false
 
-            val newText = if (forward) {
-                // Forward delete: remove characters from the start (not typical, but supported)
-                if (count >= currentText.length) "" else currentText.substring(count)
-            } else {
-                // Backspace: remove characters from the end
-                if (count >= currentText.length) "" else currentText.dropLast(count)
+            val desiredSelection =
+                if (replaceStart != replaceEnd) {
+                    replaceStart
+                } else if (forward) {
+                    replaceStart
+                } else {
+                    maxOf(0, replaceStart - count)
+                }.coerceIn(0, newText.length)
+
+            // Avoid unnecessary churn if the delete request is effectively a noop.
+            if (newText == currentText) {
+                setSelectionOnFocusedInput(targetNode, desiredSelection)
+                return true
             }
 
             val arguments = android.os.Bundle()
@@ -778,7 +895,11 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
                 AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
                 newText
             )
-            return targetNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
+            val setTextSuccess = targetNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
+            if (!setTextSuccess) return false
+
+            setSelectionOnFocusedInput(targetNode, desiredSelection)
+            return true
         } catch (e: Exception) {
             Log.e(TAG, "Error deleting text via accessibility: ${e.message}")
             return false
@@ -803,6 +924,27 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
             child.recycle()
         }
         return null
+    }
+
+    private fun setSelectionOnFocusedInput(targetNode: AccessibilityNodeInfo, selection: Int): Boolean {
+        val args = android.os.Bundle().apply {
+            putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, selection)
+            putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, selection)
+        }
+
+        if (targetNode.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, args)) {
+            return true
+        }
+
+        val focusedNode = findFocus(AccessibilityNodeInfo.FOCUS_INPUT) ?: return false
+        return try {
+            focusedNode.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, args)
+        } finally {
+            try {
+                if (focusedNode != targetNode) focusedNode.recycle()
+            } catch (_: Exception) {
+            }
+        }
     }
 
     fun getSocketServerStatus(): String {
