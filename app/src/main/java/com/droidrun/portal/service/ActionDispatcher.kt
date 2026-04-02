@@ -319,6 +319,50 @@ class ActionDispatcher(
                 }
             }
 
+            "webrtc/rtcConfiguration" -> {
+                if (origin != Origin.WEBSOCKET_REVERSE) {
+                    ApiResponse.Error("WebRTC signaling requires reverse WebSocket connection")
+                } else {
+                    apiHandler.handleWebRtcRtcConfiguration(params)
+                }
+            }
+
+            "webrtc/requestFrame" -> {
+                if (origin != Origin.WEBSOCKET_REVERSE) {
+                    ApiResponse.Error("WebRTC signaling requires reverse WebSocket connection")
+                } else {
+                    val sessionId = params.optString("sessionId")
+                    if (sessionId.isNullOrBlank()) {
+                        return ApiResponse.Error("Missing required param: 'sessionId'")
+                    }
+                    apiHandler.handleWebRtcRequestFrame(sessionId)
+                }
+            }
+
+            "webrtc/keepAlive" -> {
+                if (origin != Origin.WEBSOCKET_REVERSE) {
+                    ApiResponse.Error("WebRTC signaling requires reverse WebSocket connection")
+                } else {
+                    val sessionId = params.optString("sessionId")
+                    if (sessionId.isNullOrBlank()) {
+                        return ApiResponse.Error("Missing required param: 'sessionId'")
+                    }
+                    apiHandler.handleWebRtcKeepAlive(sessionId)
+                }
+            }
+
+            "webrtc/connect" -> {
+                if (origin != Origin.WEBSOCKET_REVERSE) {
+                    ApiResponse.Error("WebRTC signaling requires reverse WebSocket connection")
+                } else {
+                    val sessionId = params.optString("sessionId")
+                    if (sessionId.isNullOrBlank()) {
+                        return ApiResponse.Error("Missing required param: 'sessionId'")
+                    }
+                    apiHandler.connectWebRtc(params)
+                }
+            }
+
             else -> ApiResponse.Error("Unknown method: $method")
         }
     }

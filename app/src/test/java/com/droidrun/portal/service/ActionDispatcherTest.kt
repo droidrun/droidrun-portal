@@ -236,6 +236,122 @@ class ActionDispatcherTest {
     }
 
     @Test
+    fun dispatch_webrtcRtcConfiguration_passesParams() {
+        val apiHandler = mockk<ApiHandler>()
+        every { apiHandler.handleWebRtcRtcConfiguration(any()) } returns ApiResponse.Success("ok")
+        val dispatcher = ActionDispatcher(apiHandler)
+        val params = JSONObject().apply {
+            put("sessionId", "session-1")
+            put("iceServers", JSONArray())
+        }
+
+        assertEquals(
+            ApiResponse.Success("ok"),
+            dispatcher.dispatch(
+                "webrtc/rtcConfiguration",
+                params,
+                ActionDispatcher.Origin.WEBSOCKET_REVERSE,
+            ),
+        )
+        verify(exactly = 1) { apiHandler.handleWebRtcRtcConfiguration(params) }
+    }
+
+    @Test
+    fun dispatch_webrtcConnect_requiresSessionId() {
+        val apiHandler = mockk<ApiHandler>(relaxed = true)
+        val dispatcher = ActionDispatcher(apiHandler)
+
+        assertEquals(
+            ApiResponse.Error("Missing required param: 'sessionId'"),
+            dispatcher.dispatch(
+                "webrtc/connect",
+                JSONObject(),
+                ActionDispatcher.Origin.WEBSOCKET_REVERSE,
+            ),
+        )
+    }
+
+    @Test
+    fun dispatch_webrtcConnect_passesParams() {
+        val apiHandler = mockk<ApiHandler>()
+        every { apiHandler.connectWebRtc(any()) } returns ApiResponse.Success("ok")
+        val dispatcher = ActionDispatcher(apiHandler)
+        val params = JSONObject().apply { put("sessionId", "session-1") }
+
+        assertEquals(
+            ApiResponse.Success("ok"),
+            dispatcher.dispatch("webrtc/connect", params, ActionDispatcher.Origin.WEBSOCKET_REVERSE),
+        )
+        verify(exactly = 1) { apiHandler.connectWebRtc(params) }
+    }
+
+    @Test
+    fun dispatch_webrtcRequestFrame_requiresSessionId() {
+        val apiHandler = mockk<ApiHandler>(relaxed = true)
+        val dispatcher = ActionDispatcher(apiHandler)
+
+        assertEquals(
+            ApiResponse.Error("Missing required param: 'sessionId'"),
+            dispatcher.dispatch(
+                "webrtc/requestFrame",
+                JSONObject(),
+                ActionDispatcher.Origin.WEBSOCKET_REVERSE,
+            ),
+        )
+    }
+
+    @Test
+    fun dispatch_webrtcRequestFrame_passesSessionId() {
+        val apiHandler = mockk<ApiHandler>()
+        every { apiHandler.handleWebRtcRequestFrame("session-1") } returns ApiResponse.Success("ok")
+        val dispatcher = ActionDispatcher(apiHandler)
+        val params = JSONObject().apply { put("sessionId", "session-1") }
+
+        assertEquals(
+            ApiResponse.Success("ok"),
+            dispatcher.dispatch(
+                "webrtc/requestFrame",
+                params,
+                ActionDispatcher.Origin.WEBSOCKET_REVERSE,
+            ),
+        )
+        verify(exactly = 1) { apiHandler.handleWebRtcRequestFrame("session-1") }
+    }
+
+    @Test
+    fun dispatch_webrtcKeepAlive_requiresSessionId() {
+        val apiHandler = mockk<ApiHandler>(relaxed = true)
+        val dispatcher = ActionDispatcher(apiHandler)
+
+        assertEquals(
+            ApiResponse.Error("Missing required param: 'sessionId'"),
+            dispatcher.dispatch(
+                "webrtc/keepAlive",
+                JSONObject(),
+                ActionDispatcher.Origin.WEBSOCKET_REVERSE,
+            ),
+        )
+    }
+
+    @Test
+    fun dispatch_webrtcKeepAlive_passesSessionId() {
+        val apiHandler = mockk<ApiHandler>()
+        every { apiHandler.handleWebRtcKeepAlive("session-1") } returns ApiResponse.Success("ok")
+        val dispatcher = ActionDispatcher(apiHandler)
+        val params = JSONObject().apply { put("sessionId", "session-1") }
+
+        assertEquals(
+            ApiResponse.Success("ok"),
+            dispatcher.dispatch(
+                "webrtc/keepAlive",
+                params,
+                ActionDispatcher.Origin.WEBSOCKET_REVERSE,
+            ),
+        )
+        verify(exactly = 1) { apiHandler.handleWebRtcKeepAlive("session-1") }
+    }
+
+    @Test
     fun dispatch_triggerCatalogStatusAndLists_returnStructuredResults() {
         val apiHandler = mockk<ApiHandler>(relaxed = true)
         val triggerApi = mockk<TriggerApi>()

@@ -7,6 +7,10 @@ object HeadlessActionSupport {
             normalizedMethod == "global" ||
             normalizedMethod == "webrtc/answer" ||
             normalizedMethod == "webrtc/offer" ||
+            normalizedMethod == "webrtc/connect" ||
+            normalizedMethod == "webrtc/rtcConfiguration" ||
+            normalizedMethod == "webrtc/requestFrame" ||
+            normalizedMethod == "webrtc/keepAlive" ||
             normalizedMethod == "webrtc/ice" ||
             normalizedMethod.startsWith("triggers/")
     }
