@@ -7,6 +7,7 @@ import android.net.NetworkCapabilities
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import android.widget.Toast
 import com.droidrun.portal.service.ReverseConnectionService
@@ -31,6 +32,7 @@ class WebRtcManager private constructor(private val context: Context) {
         private const val STATS_INTERVAL_MS = 5000L
         private const val IDLE_TIMEOUT_MS = 10 * 60 * 1000L
         private const val KEEP_ALIVE_TIMEOUT_MS = 30_000L
+        private const val KEEP_ALIVE_HEALTHY_GRACE_MS = 5 * 60 * 1000L
         private const val MAX_OUTGOING_ICE_CANDIDATES = 50
         private const val MAX_ICE_RESTARTS = 1
         private const val MAX_CONCURRENT_SESSIONS = 3
@@ -53,6 +55,59 @@ class WebRtcManager private constructor(private val context: Context) {
                 instance = null
             }
         }
+
+        internal fun maybeSnapshotPendingPrimarySignalingForReset(
+            sessionId: String?,
+            pendingSessionId: String?,
+            offer: SessionDescription?,
+            ice: List<IceCandidate>,
+            hasLiveNegotiatedPeer: Boolean,
+        ): PendingPrimarySignalingSnapshot? {
+            val normalizedSessionId = sessionId?.trim().orEmpty()
+            if (normalizedSessionId.isEmpty()) return null
+            if (pendingSessionId != normalizedSessionId) return null
+            if (hasLiveNegotiatedPeer) return null
+            if (offer == null && ice.isEmpty()) return null
+            return PendingPrimarySignalingSnapshot(
+                sessionId = normalizedSessionId,
+                offer = offer,
+                ice = ice.toList(),
+            )
+        }
+
+        internal fun hasQueuedPrimaryOfferForSession(
+            sessionId: String,
+            pendingSessionId: String?,
+            offer: SessionDescription?,
+        ): Boolean = pendingSessionId == sessionId && offer != null
+
+        internal fun isPeerHealthyForLiveness(
+            iceState: PeerConnection.IceConnectionState?,
+            controlState: DataChannel.State?,
+        ): Boolean {
+            return iceState == PeerConnection.IceConnectionState.CONNECTED ||
+                iceState == PeerConnection.IceConnectionState.COMPLETED ||
+                controlState == DataChannel.State.OPEN
+        }
+
+        internal fun evaluateSessionLivenessTimeout(
+            peerHealthy: Boolean,
+            nowMs: Long,
+            firstSilentAtMs: Long?,
+            healthyGraceMs: Long,
+        ): SessionLivenessTimeoutDecision {
+            if (!peerHealthy) {
+                return SessionLivenessTimeoutDecision(
+                    shouldStop = true,
+                    firstSilentAtMs = firstSilentAtMs,
+                )
+            }
+            val effectiveFirstSilentAtMs = firstSilentAtMs ?: nowMs
+            return SessionLivenessTimeoutDecision(
+                shouldStop = firstSilentAtMs != null && nowMs - firstSilentAtMs >= healthyGraceMs,
+                firstSilentAtMs = effectiveFirstSilentAtMs,
+            )
+        }
     }
 
     private data class PeerResources(
@@ -72,6 +127,25 @@ class WebRtcManager private constructor(private val context: Context) {
     private data class PendingStreamStop(
         val reason: String?,
         val sessionId: Any?,
+    )
+
+    internal data class SessionLivenessTimeoutDecision(
+        val shouldStop: Boolean,
+        val firstSilentAtMs: Long?,
+    )
+
+    private data class SessionLivenessState(
+        var lastLivenessAtMs: Long,
+        var firstSilentAtMs: Long? = null,
+        var iceState: PeerConnection.IceConnectionState? = null,
+        var controlState: DataChannel.State? = null,
+        var runnable: Runnable? = null,
+    )
+
+    internal data class PendingPrimarySignalingSnapshot(
+        val sessionId: String,
+        val offer: SessionDescription?,
+        val ice: List<IceCandidate>,
     )
 
     private data class SecondarySession(
@@ -149,7 +223,7 @@ class WebRtcManager private constructor(private val context: Context) {
 
     @Volatile
     private var pendingStreamStop: PendingStreamStop? = null
-    private val keepAliveRunnables = mutableMapOf<String, Runnable>()
+    private val sessionLivenessStates = mutableMapOf<String, SessionLivenessState>()
 
     init {
         initializePeerConnectionFactory()
@@ -284,14 +358,27 @@ class WebRtcManager private constructor(private val context: Context) {
             return
         }
         val streamId = streamGeneration.incrementAndGet()
-        val staleResources = synchronized(streamLock) { detachStreamResourcesLocked() }
+        val staleResources =
+            synchronized(streamLock) {
+                val pendingPrimarySignaling =
+                    snapshotPendingPrimarySignalingForResetLocked(
+                        sessionId = sessionId,
+                        reason = "start_stream",
+                    )
+                detachStreamResourcesLocked().also {
+                    restorePendingPrimarySignalingAfterResetLocked(
+                        snapshot = pendingPrimarySignaling,
+                        reason = "start_stream",
+                    )
+                }
+            }
         cleanupStreamResources(staleResources)
         synchronized(streamLock) {
             primarySessionId = sessionId
             streamRequestId = sessionId
             waitingForOffer = waitForOffer
             iceRestartAttempts = 0
-            createPeerConnection(effectiveIceServers, streamId)
+            createPeerConnection(effectiveIceServers, streamId, sessionId)
             createVideoTrack(permissionResultData, width, height, fps, streamId)
 
             videoTrack?.let { track ->
@@ -301,7 +388,16 @@ class WebRtcManager private constructor(private val context: Context) {
 
             startStatsLogging(streamId)
             if (!waitForOffer) createOffer(streamId)
-            else sendStreamReady(sessionId)
+            else {
+                if (!hasQueuedPrimaryOfferLocked(sessionId)) {
+                    sendStreamReady(sessionId)
+                } else {
+                    Log.i(
+                        TAG,
+                        "Skipping stream/ready because a primary offer is already queued (sessionId=$sessionId)",
+                    )
+                }
+            }
         }
         flushPendingPrimarySignaling(sessionId)
     }
@@ -347,7 +443,20 @@ class WebRtcManager private constructor(private val context: Context) {
             return
         }
         val streamId = streamGeneration.incrementAndGet()
-        val stalePeer = synchronized(streamLock) { detachPeerResourcesLocked() }
+        val stalePeer =
+            synchronized(streamLock) {
+                val pendingPrimarySignaling =
+                    snapshotPendingPrimarySignalingForResetLocked(
+                        sessionId = sessionId,
+                        reason = "reuse_capture",
+                    )
+                detachPeerResourcesLocked().also {
+                    restorePendingPrimarySignalingAfterResetLocked(
+                        snapshot = pendingPrimarySignaling,
+                        reason = "reuse_capture",
+                    )
+                }
+            }
         cleanupPeerResources(stalePeer)
         updateCaptureFormat(width, height, fps)
         synchronized(streamLock) {
@@ -358,14 +467,21 @@ class WebRtcManager private constructor(private val context: Context) {
             if (videoTrack == null) {
                 throw IllegalStateException("No active capture to reuse")
             }
-            createPeerConnection(effectiveIceServers, streamId)
+            createPeerConnection(effectiveIceServers, streamId, sessionId)
             val sender = peerConnection?.addTrack(videoTrack, listOf(VIDEO_TRACK_ID))
             configureVideoSender(sender, width, height, fps)
             startStatsLogging(streamId)
             if (!waitForOffer) {
                 createOffer(streamId)
             } else {
-                sendStreamReady(sessionId)
+                if (!hasQueuedPrimaryOfferLocked(sessionId)) {
+                    sendStreamReady(sessionId)
+                } else {
+                    Log.i(
+                        TAG,
+                        "Skipping stream/ready because a primary offer is already queued (sessionId=$sessionId)",
+                    )
+                }
             }
         }
         flushPendingPrimarySignaling(sessionId)
@@ -478,6 +594,7 @@ class WebRtcManager private constructor(private val context: Context) {
                         synchronized(streamLock) {
                             val session = secondarySessions[sessionId]
                             if (session == null || session.streamId != streamId) return
+                            updateSessionIceStateLocked(sessionId, state)
                             when (state) {
                                 PeerConnection.IceConnectionState.CONNECTED,
                                 PeerConnection.IceConnectionState.COMPLETED -> {
@@ -496,6 +613,7 @@ class WebRtcManager private constructor(private val context: Context) {
                                         restartWaitForOffer = session.waitingForOffer
                                         activeConnection = session.peerConnection
                                     } else {
+                                        clearSessionLivenessStateLocked(sessionId)
                                         secondarySessions.remove(sessionId)
                                         activeConnection = session.peerConnection
                                     }
@@ -503,6 +621,7 @@ class WebRtcManager private constructor(private val context: Context) {
 
                                 PeerConnection.IceConnectionState.DISCONNECTED,
                                 PeerConnection.IceConnectionState.CLOSED -> {
+                                    clearSessionLivenessStateLocked(sessionId)
                                     secondarySessions.remove(sessionId)
                                     activeConnection = session.peerConnection
                                 }
@@ -541,7 +660,18 @@ class WebRtcManager private constructor(private val context: Context) {
             }
         val dataChannel = connection.createDataChannel("control", dcInit)
         val controlHandler = ScrcpyControlChannel()
-        dataChannel.registerObserver(controlHandler)
+        dataChannel.registerObserver(
+            LoggingDataChannelObserver(
+                channel = dataChannel,
+                label = "secondary:$sessionId:$streamId",
+                delegate = controlHandler,
+                onStateChanged = { state ->
+                    synchronized(streamLock) {
+                        updateSessionControlStateLocked(sessionId, state)
+                    }
+                },
+            ),
+        )
 
         return SecondarySession(
             sessionId = sessionId,
@@ -705,6 +835,10 @@ class WebRtcManager private constructor(private val context: Context) {
     }
 
     fun stopStream(sessionId: String) {
+        stopStream(sessionId, "session_stop")
+    }
+
+    private fun stopStream(sessionId: String, reason: String) {
         require(sessionId.isNotBlank()) { "Missing required param: 'sessionId'" }
         cancelIdleStop()
         cancelKeepAlive(sessionId)
@@ -725,11 +859,18 @@ class WebRtcManager private constructor(private val context: Context) {
                     secondaryResources = secondarySessions.remove(sessionId)
                 }
                 peerConnection != null || secondarySessions.isNotEmpty()
-            }
+        }
         primaryResources?.let { cleanupPeerResources(it) }
         secondaryResources?.let { cleanupSecondarySession(it) }
+        if (reason == "keep_alive_timeout") {
+            notifyStreamStoppedAsync(reason, sessionId)
+        }
         if (!hasRemaining) {
-            scheduleIdleStop("session_stop")
+            if (reason == "keep_alive_timeout" && isCaptureActive()) {
+                ScreenCaptureService.requestStop(reason)
+            } else {
+                scheduleIdleStop("session_stop")
+            }
         }
     }
 
@@ -825,6 +966,40 @@ class WebRtcManager private constructor(private val context: Context) {
         return capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
     }
 
+    private fun isTrackedSessionLocked(sessionId: String): Boolean {
+        if (sessionId.isBlank()) return false
+        return primarySessionId == sessionId ||
+            streamRequestId == sessionId ||
+            secondarySessions.containsKey(sessionId)
+    }
+
+    private fun ensureSessionLivenessStateLocked(sessionId: String): SessionLivenessState {
+        return sessionLivenessStates.getOrPut(sessionId) {
+            SessionLivenessState(lastLivenessAtMs = 0L)
+        }
+    }
+
+    private fun clearSessionLivenessStateLocked(sessionId: String?) {
+        if (sessionId.isNullOrBlank()) return
+        sessionLivenessStates.remove(sessionId)?.runnable?.let { stopHandler.removeCallbacks(it) }
+    }
+
+    private fun updateSessionIceStateLocked(
+        sessionId: String?,
+        state: PeerConnection.IceConnectionState?,
+    ) {
+        if (sessionId.isNullOrBlank() || !isTrackedSessionLocked(sessionId)) return
+        ensureSessionLivenessStateLocked(sessionId).iceState = state
+    }
+
+    private fun updateSessionControlStateLocked(
+        sessionId: String?,
+        state: DataChannel.State?,
+    ) {
+        if (sessionId.isNullOrBlank() || !isTrackedSessionLocked(sessionId)) return
+        ensureSessionLivenessStateLocked(sessionId).controlState = state
+    }
+
     private fun detachStreamResourcesLocked(): StreamResources {
         val peerResources = detachPeerResourcesLocked()
         val resources =
@@ -846,8 +1021,55 @@ class WebRtcManager private constructor(private val context: Context) {
         return resources
     }
 
+    private fun snapshotPendingPrimarySignalingForResetLocked(
+        sessionId: String?,
+        reason: String,
+    ): PendingPrimarySignalingSnapshot? {
+        val snapshot =
+            maybeSnapshotPendingPrimarySignalingForReset(
+                sessionId = sessionId,
+                pendingSessionId = pendingPrimaryOfferSessionId,
+                offer = pendingPrimaryOffer,
+                ice = pendingPrimaryIceBeforePeer,
+                hasLiveNegotiatedPeer = peerConnection != null && isRemoteDescriptionSet,
+            )
+        if (snapshot != null) {
+            Log.i(
+                TAG,
+                "Preserving queued primary signaling across reset: reason=$reason session=${snapshot.sessionId} offer=${snapshot.offer != null} ice=${snapshot.ice.size}",
+            )
+        }
+        return snapshot
+    }
+
+    private fun restorePendingPrimarySignalingAfterResetLocked(
+        snapshot: PendingPrimarySignalingSnapshot?,
+        reason: String,
+    ) {
+        if (snapshot == null) return
+        pendingPrimaryOfferSessionId = snapshot.sessionId
+        pendingPrimaryOffer = snapshot.offer
+        pendingPrimaryIceBeforePeer.clear()
+        pendingPrimaryIceBeforePeer.addAll(snapshot.ice)
+        Log.i(
+            TAG,
+            "Restored queued primary signaling after reset: reason=$reason session=${snapshot.sessionId} offer=${snapshot.offer != null} ice=${snapshot.ice.size}",
+        )
+    }
+
+    private fun hasQueuedPrimaryOfferLocked(sessionId: String): Boolean =
+        hasQueuedPrimaryOfferForSession(
+            sessionId = sessionId,
+            pendingSessionId = pendingPrimaryOfferSessionId,
+            offer = pendingPrimaryOffer,
+        )
+
     private fun detachPeerResourcesLocked(): PeerResources {
         val resources = PeerResources(peerConnection, controlChannel)
+        clearSessionLivenessStateLocked(primarySessionId)
+        if (streamRequestId != primarySessionId) {
+            clearSessionLivenessStateLocked(streamRequestId)
+        }
         peerConnection = null
         controlChannel = null
         scrcpyControlHandler = null
@@ -1453,7 +1675,8 @@ class WebRtcManager private constructor(private val context: Context) {
 
     private fun createPeerConnection(
         customIceServers: List<PeerConnection.IceServer>?,
-        streamId: Int
+        streamId: Int,
+        sessionId: String,
     ) {
         val iceServers = ArrayList<PeerConnection.IceServer>()
         if (customIceServers != null && customIceServers.isNotEmpty()) {
@@ -1513,9 +1736,12 @@ class WebRtcManager private constructor(private val context: Context) {
                         p0: PeerConnection.IceConnectionState?
                     ) {
                         if (!isCurrentStream(streamId)) return
+                        synchronized(streamLock) {
+                            updateSessionIceStateLocked(sessionId, p0)
+                        }
                         Log.i(
                             TAG,
-                            "Primary ICE state changed: session=$primarySessionId state=$p0 streamId=$streamId",
+                            "Primary ICE state changed: session=$sessionId state=$p0 streamId=$streamId",
                         )
                         when (p0) {
                             PeerConnection.IceConnectionState.CONNECTED,
@@ -1589,7 +1815,16 @@ class WebRtcManager private constructor(private val context: Context) {
         controlChannel?.let { dc ->
             scrcpyControlHandler = ScrcpyControlChannel()
             dc.registerObserver(
-                LoggingDataChannelObserver(dc, "primary:$streamId", scrcpyControlHandler),
+                LoggingDataChannelObserver(
+                    channel = dc,
+                    label = "primary:$streamId",
+                    delegate = scrcpyControlHandler,
+                    onStateChanged = { state ->
+                        synchronized(streamLock) {
+                            updateSessionControlStateLocked(sessionId, state)
+                        }
+                    },
+                ),
             )
         }
     }
@@ -2098,19 +2333,16 @@ class WebRtcManager private constructor(private val context: Context) {
 
     fun handleKeepAlive(sessionId: String) {
         if (sessionId.isBlank()) return
-        val runnable = Runnable {
-            val shouldStop = isCurrentSession(sessionId)
-            synchronized(streamLock) {
-                keepAliveRunnables.remove(sessionId)
-            }
-            if (shouldStop) {
-                Log.w(TAG, "KeepAlive timeout for sessionId=$sessionId - stopping stream")
-                stopStream(sessionId)
-            }
+        synchronized(streamLock) {
+            if (!isTrackedSessionLocked(sessionId)) return
+            val state = ensureSessionLivenessStateLocked(sessionId)
+            state.lastLivenessAtMs = SystemClock.elapsedRealtime()
+            state.firstSilentAtMs = null
+            state.runnable?.let { stopHandler.removeCallbacks(it) }
+            val runnable = Runnable { handleSessionLivenessTimeout(sessionId) }
+            state.runnable = runnable
+            stopHandler.postDelayed(runnable, KEEP_ALIVE_TIMEOUT_MS)
         }
-        val previous = synchronized(streamLock) { keepAliveRunnables.put(sessionId, runnable) }
-        previous?.let { stopHandler.removeCallbacks(it) }
-        stopHandler.postDelayed(runnable, KEEP_ALIVE_TIMEOUT_MS)
     }
 
     fun handleRequestFrame(sessionId: String) {
@@ -2130,19 +2362,77 @@ class WebRtcManager private constructor(private val context: Context) {
         requestKeyFrame()
     }
 
+    private fun handleSessionLivenessTimeout(sessionId: String) {
+        val nowMs = SystemClock.elapsedRealtime()
+        var shouldStop = false
+        var reschedule: Runnable? = null
+        var peerHealthy = false
+        var iceState: PeerConnection.IceConnectionState? = null
+        var controlState: DataChannel.State? = null
+        var firstSilentAtMs: Long? = null
+        synchronized(streamLock) {
+            val state = sessionLivenessStates[sessionId] ?: return
+            state.runnable = null
+            if (!isTrackedSessionLocked(sessionId)) {
+                sessionLivenessStates.remove(sessionId)
+                return
+            }
+            peerHealthy = isPeerHealthyForLiveness(state.iceState, state.controlState)
+            iceState = state.iceState
+            controlState = state.controlState
+            val decision =
+                evaluateSessionLivenessTimeout(
+                    peerHealthy = peerHealthy,
+                    nowMs = nowMs,
+                    firstSilentAtMs = state.firstSilentAtMs,
+                    healthyGraceMs = KEEP_ALIVE_HEALTHY_GRACE_MS,
+                )
+            if (decision.shouldStop) {
+                sessionLivenessStates.remove(sessionId)
+                shouldStop = true
+            } else {
+                state.firstSilentAtMs = decision.firstSilentAtMs
+                firstSilentAtMs = decision.firstSilentAtMs
+                val runnable = Runnable { handleSessionLivenessTimeout(sessionId) }
+                state.runnable = runnable
+                reschedule = runnable
+            }
+        }
+        if (shouldStop) {
+            Log.w(
+                TAG,
+                "KeepAlive timeout for sessionId=$sessionId - stopping stream (peerHealthy=$peerHealthy iceState=$iceState controlState=$controlState)",
+            )
+            stopStream(sessionId, "keep_alive_timeout")
+            return
+        }
+        val silentForMs = firstSilentAtMs?.let { nowMs - it } ?: 0L
+        if (silentForMs == 0L) {
+            Log.i(
+                TAG,
+                "KeepAlive timeout detected for sessionId=$sessionId but peer is healthy; starting grace period (iceState=$iceState controlState=$controlState graceMs=$KEEP_ALIVE_HEALTHY_GRACE_MS)",
+            )
+        } else {
+            Log.i(
+                TAG,
+                "KeepAlive timeout deferred for sessionId=$sessionId because peer is healthy (iceState=$iceState controlState=$controlState silentForMs=$silentForMs graceMs=$KEEP_ALIVE_HEALTHY_GRACE_MS)",
+            )
+        }
+        reschedule?.let { stopHandler.postDelayed(it, KEEP_ALIVE_TIMEOUT_MS) }
+    }
+
     private fun cancelKeepAlive(sessionId: String) {
-        val runnable = synchronized(streamLock) { keepAliveRunnables.remove(sessionId) }
-        runnable?.let { stopHandler.removeCallbacks(it) }
+        synchronized(streamLock) {
+            clearSessionLivenessStateLocked(sessionId)
+        }
     }
 
     private fun cancelAllKeepAlives() {
-        val runnables =
-            synchronized(streamLock) {
-                val values = keepAliveRunnables.values.toList()
-                keepAliveRunnables.clear()
-                values
+        synchronized(streamLock) {
+            sessionLivenessStates.keys.toList().forEach { sessionId ->
+                clearSessionLivenessStateLocked(sessionId)
             }
-        runnables.forEach { stopHandler.removeCallbacks(it) }
+        }
     }
 
     private fun sendStreamError(error: String, message: String) {
@@ -2309,13 +2599,16 @@ class WebRtcManager private constructor(private val context: Context) {
         private val channel: DataChannel,
         private val label: String,
         private val delegate: DataChannel.Observer?,
+        private val onStateChanged: ((DataChannel.State?) -> Unit)? = null,
     ) : DataChannel.Observer {
         override fun onBufferedAmountChange(previousAmount: Long) {
             delegate?.onBufferedAmountChange(previousAmount)
         }
 
         override fun onStateChange() {
-            Log.i(TAG, "Control data channel state changed: $label state=${channel.state()}")
+            val state = channel.state()
+            Log.i(TAG, "Control data channel state changed: $label state=$state")
+            onStateChanged?.invoke(state)
             delegate?.onStateChange()
         }
 
