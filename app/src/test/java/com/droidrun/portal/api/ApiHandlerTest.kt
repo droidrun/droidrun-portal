@@ -7,11 +7,16 @@ import com.droidrun.portal.core.StateRepository
 import com.droidrun.portal.input.DroidrunKeyboardIME
 import com.droidrun.portal.model.PhoneState
 import com.droidrun.portal.service.DroidrunAccessibilityService
+import com.droidrun.portal.streaming.WebRtcManager
+import io.mockk.Runs
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
+import io.mockk.just
 import io.mockk.unmockkAll
 import io.mockk.verify
+import org.json.JSONArray
+import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -126,6 +131,140 @@ class ApiHandlerTest {
             handler.keyboardKey(KeyEvent.KEYCODE_ENTER),
         )
         verify(exactly = 1) { stateRepo.inputText("\n", false) }
+    }
+
+    @Test
+    fun handleWebRtcOffer_acceptsPendingSessionWithoutStreamActiveGate() {
+        val stateRepo = mockk<StateRepository>(relaxed = true)
+        val context = mockk<Context>(relaxed = true)
+        every { context.applicationContext } returns context
+        val handler = createHandler(stateRepo = stateRepo, ime = null, context = context)
+        val manager = mockk<WebRtcManager>(relaxed = true)
+
+        mockkObject(WebRtcManager.Companion)
+        every { WebRtcManager.getInstance(context) } returns manager
+        every { manager.isCurrentSession("session-1") } returns true
+        every { manager.handleOffer("offer-sdp", "session-1") } just Runs
+
+        assertEquals(
+            ApiResponse.Success("SDP Offer processed, answer will be sent"),
+            handler.handleWebRtcOffer("offer-sdp", "session-1"),
+        )
+        verify(exactly = 1) { manager.isCurrentSession("session-1") }
+        verify(exactly = 0) { manager.isStreamActive() }
+        verify(exactly = 1) { manager.handleOffer("offer-sdp", "session-1") }
+    }
+
+    @Test
+    fun handleWebRtcIce_acceptsPendingSessionWithoutStreamActiveGate() {
+        val stateRepo = mockk<StateRepository>(relaxed = true)
+        val context = mockk<Context>(relaxed = true)
+        every { context.applicationContext } returns context
+        val handler = createHandler(stateRepo = stateRepo, ime = null, context = context)
+        val manager = mockk<WebRtcManager>(relaxed = true)
+
+        mockkObject(WebRtcManager.Companion)
+        every { WebRtcManager.getInstance(context) } returns manager
+        every { manager.isCurrentSession("session-1") } returns true
+        every {
+            manager.handleIceCandidate(any(), "session-1")
+        } just Runs
+
+        assertEquals(
+            ApiResponse.Success("ICE Candidate processed"),
+            handler.handleWebRtcIce("candidate", "0", 0, "session-1"),
+        )
+        verify(exactly = 1) { manager.isCurrentSession("session-1") }
+        verify(exactly = 0) { manager.isStreamActive() }
+        verify(exactly = 1) { manager.handleIceCandidate(any(), "session-1") }
+    }
+
+    @Test
+    fun connectWebRtc_reusesActiveCapture() {
+        val stateRepo = mockk<StateRepository>(relaxed = true)
+        val context = mockk<Context>(relaxed = true)
+        every { context.applicationContext } returns context
+        val handler = createHandler(stateRepo = stateRepo, ime = null, context = context)
+        val manager = mockk<WebRtcManager>(relaxed = true)
+
+        mockkObject(WebRtcManager.Companion)
+        every { WebRtcManager.getInstance(context) } returns manager
+        every { manager.isCaptureActive() } returns true
+        every {
+            manager.startStreamWithExistingCapture(720, 1280, 30, "session-1", true)
+        } just Runs
+
+        val response =
+            handler.connectWebRtc(
+                JSONObject().apply {
+                    put("sessionId", "session-1")
+                    put("iceServers", JSONArray())
+                },
+            )
+
+        assertEquals(ApiResponse.Success("reusing_capture"), response)
+        verify(exactly = 1) { manager.setStreamRequestId("session-1") }
+        verify(exactly = 1) { manager.setPendingIceServers(any()) }
+        verify(exactly = 1) {
+            manager.startStreamWithExistingCapture(720, 1280, 30, "session-1", true)
+        }
+    }
+
+    @Test
+    fun handleWebRtcRtcConfiguration_returnsRtcConfigurationAndStartsSession() {
+        val stateRepo = mockk<StateRepository>(relaxed = true)
+        val context = mockk<Context>(relaxed = true)
+        every { context.applicationContext } returns context
+        val handler = createHandler(stateRepo = stateRepo, ime = null, context = context)
+        val manager = mockk<WebRtcManager>(relaxed = true)
+
+        mockkObject(WebRtcManager.Companion)
+        every { WebRtcManager.getInstance(context) } returns manager
+        every { manager.isCaptureActive() } returns true
+        every {
+            manager.startStreamWithExistingCapture(720, 1280, 30, "session-1", true)
+        } just Runs
+
+        val response =
+            handler.handleWebRtcRtcConfiguration(
+                JSONObject().apply {
+                    put("sessionId", "session-1")
+                    put("iceServers", JSONArray())
+                },
+            )
+
+        val success = response as ApiResponse.Success
+        val result = success.data as JSONObject
+        assertEquals(0, result.getJSONObject("rtcConfiguration").getJSONArray("iceServers").length())
+        verify(exactly = 1) { manager.setStreamRequestId("session-1") }
+        verify(exactly = 1) {
+            manager.startStreamWithExistingCapture(720, 1280, 30, "session-1", true)
+        }
+    }
+
+    @Test
+    fun handleWebRtcRequestFrame_andKeepAlive_routeToManager() {
+        val stateRepo = mockk<StateRepository>(relaxed = true)
+        val context = mockk<Context>(relaxed = true)
+        every { context.applicationContext } returns context
+        val handler = createHandler(stateRepo = stateRepo, ime = null, context = context)
+        val manager = mockk<WebRtcManager>(relaxed = true)
+
+        mockkObject(WebRtcManager.Companion)
+        every { WebRtcManager.getInstance(context) } returns manager
+        every { manager.handleRequestFrame("session-1") } just Runs
+        every { manager.handleKeepAlive("session-1") } just Runs
+
+        assertEquals(
+            ApiResponse.Success("request_frame_ack"),
+            handler.handleWebRtcRequestFrame("session-1"),
+        )
+        assertEquals(
+            ApiResponse.Success("keep_alive_ack"),
+            handler.handleWebRtcKeepAlive("session-1"),
+        )
+        verify(exactly = 1) { manager.handleRequestFrame("session-1") }
+        verify(exactly = 1) { manager.handleKeepAlive("session-1") }
     }
 
     private fun createHandler(
