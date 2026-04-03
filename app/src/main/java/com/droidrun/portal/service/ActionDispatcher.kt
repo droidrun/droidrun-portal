@@ -15,10 +15,12 @@ import org.json.JSONObject
 class ActionDispatcher(
     private val apiHandler: ApiHandler,
     private val triggerApi: TriggerApi? = null,
+    private val maxBase64UploadBytes: Long = MAX_BASE64_UPLOAD_BYTES,
 ) {
 
     companion object {
         private const val DEFAULT_SWIPE_DURATION_MS = 300
+        private const val MAX_BASE64_UPLOAD_BYTES = 16L * 1024L * 1024L
     }
 
     enum class Origin {
@@ -29,6 +31,18 @@ class ActionDispatcher(
 
     private val resolvedTriggerApi: TriggerApi by lazy {
         triggerApi ?: TriggerApi(apiHandler.applicationContext)
+    }
+
+    private fun estimateDecodedBase64Size(base64: String): Long {
+        val normalized = base64.filterNot(Char::isWhitespace)
+        if (normalized.isEmpty()) return 0L
+        val padding =
+            when {
+                normalized.endsWith("==") -> 2
+                normalized.endsWith("=") -> 1
+                else -> 0
+            }
+        return ((normalized.length.toLong() + 3L) / 4L) * 3L - padding
     }
 
     /**
@@ -172,6 +186,10 @@ class ActionDispatcher(
                     ApiResponse.Error("Missing required param: 'path'")
                 } else if (dataBase64.isEmpty()) {
                     ApiResponse.Error("Missing required param: 'data'")
+                } else if (estimateDecodedBase64Size(dataBase64) > maxBase64UploadBytes) {
+                    ApiResponse.Error(
+                        "Data too large for files/upload (max ${maxBase64UploadBytes / 1024 / 1024}MB decoded); use files/fetch for larger files",
+                    )
                 } else {
                     try {
                         val data = android.util.Base64.decode(dataBase64, android.util.Base64.DEFAULT)

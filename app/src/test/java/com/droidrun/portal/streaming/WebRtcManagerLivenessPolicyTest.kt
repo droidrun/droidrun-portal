@@ -106,7 +106,7 @@ class WebRtcManagerLivenessPolicyTest {
     }
 
     @Test
-    fun resolveIncomingSessionRoute_takesOverWhenRequestFrameIsStale() {
+    fun resolveIncomingSessionRoute_takesOverWhenLivenessIsStale() {
         assertEquals(
             WebRtcManager.IncomingSessionRoute.TAKEOVER_STALE_PRIMARY,
             WebRtcManager.resolveIncomingSessionRoute(
@@ -114,9 +114,9 @@ class WebRtcManagerLivenessPolicyTest {
                 incomingSessionId = "replacement",
                 primaryHasPeerResources = true,
                 primaryFirstSilentAtMs = null,
-                primaryLastRequestFrameAtMs = 0L,
+                primaryLastLivenessAtMs = 1_000L,
                 nowMs = 301_000L,
-                requestFrameStaleAfterMs = 300_000L,
+                livenessStaleAfterMs = 300_000L,
             ),
         )
     }
@@ -130,15 +130,15 @@ class WebRtcManagerLivenessPolicyTest {
                 incomingSessionId = "replacement",
                 primaryHasPeerResources = true,
                 primaryFirstSilentAtMs = 123L,
-                primaryLastRequestFrameAtMs = 200_000L,
+                primaryLastLivenessAtMs = 200_000L,
                 nowMs = 250_000L,
-                requestFrameStaleAfterMs = 300_000L,
+                livenessStaleAfterMs = 300_000L,
             ),
         )
     }
 
     @Test
-    fun resolveIncomingSessionRoute_keepsHealthyPrimaryAsSecondary() {
+    fun resolveIncomingSessionRoute_keepsHealthyPrimaryAsSecondaryWithRecentKeepalive() {
         assertEquals(
             WebRtcManager.IncomingSessionRoute.SECONDARY,
             WebRtcManager.resolveIncomingSessionRoute(
@@ -146,9 +146,9 @@ class WebRtcManagerLivenessPolicyTest {
                 incomingSessionId = "secondary",
                 primaryHasPeerResources = true,
                 primaryFirstSilentAtMs = null,
-                primaryLastRequestFrameAtMs = 290_000L,
+                primaryLastLivenessAtMs = 290_000L,
                 nowMs = 300_000L,
-                requestFrameStaleAfterMs = 300_000L,
+                livenessStaleAfterMs = 300_000L,
             ),
         )
     }
@@ -162,9 +162,9 @@ class WebRtcManagerLivenessPolicyTest {
                 incomingSessionId = "replacement",
                 primaryHasPeerResources = false,
                 primaryFirstSilentAtMs = null,
-                primaryLastRequestFrameAtMs = 290_000L,
+                primaryLastLivenessAtMs = 290_000L,
                 nowMs = 300_000L,
-                requestFrameStaleAfterMs = 300_000L,
+                livenessStaleAfterMs = 300_000L,
             ),
         )
     }

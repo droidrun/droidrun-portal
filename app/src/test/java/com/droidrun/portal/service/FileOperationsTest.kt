@@ -79,6 +79,49 @@ class FileOperationsTest {
     }
 
     @Test
+    fun listFiles_returnsFailureWhenLsExitsNonZero() {
+        val relativePath = "downloads/restricted"
+        File(externalStorageDir, relativePath).mkdirs()
+        val fileOperations =
+            FileOperations(
+                listFilesCommandRunner = {
+                    ListFilesCommandResult(
+                        exitCode = 2,
+                        stdout = "",
+                        stderr = "Permission denied",
+                    )
+                },
+            )
+
+        val result = fileOperations.listFiles(relativePath)
+
+        assertTrue(result.isFailure)
+        assertEquals("Failed to list files: Permission denied", result.exceptionOrNull()?.message)
+    }
+
+    @Test
+    fun listFiles_returnsEmptySuccessForEmptyDirectoryWhenLsSucceeds() {
+        val relativePath = "downloads/empty"
+        File(externalStorageDir, relativePath).mkdirs()
+        val fileOperations =
+            FileOperations(
+                listFilesCommandRunner = {
+                    ListFilesCommandResult(
+                        exitCode = 0,
+                        stdout = "total 0\n",
+                        stderr = "",
+                    )
+                },
+            )
+
+        val result = fileOperations.listFiles(relativePath)
+
+        assertTrue(result.isSuccess)
+        assertEquals(0, result.getOrThrow().total)
+        assertTrue(result.getOrThrow().files.isEmpty())
+    }
+
+    @Test
     fun fetchFile_rejectsOversizedResponseWithoutContentLength() {
         val relativePath = "downloads/missing-content-length.bin"
         val url = registerResponse(

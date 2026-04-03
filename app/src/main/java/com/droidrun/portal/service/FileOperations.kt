@@ -17,17 +17,33 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
+data class ListFilesCommandResult(
+    val exitCode: Int,
+    val stdout: String,
+    val stderr: String,
+)
+
 /**
  * File operations for reading, writing, listing, and deleting files.
  * All operations are restricted to /sdcard (external storage).
  *
  * Port of: devices-api/internal/device/tools/adb.go file operations
  */
-class FileOperations {
+class FileOperations(
+    private val listFilesCommandRunner: (String) -> ListFilesCommandResult = ::defaultListFilesCommandRunner,
+) {
 
     companion object {
         private const val TAG = "FileOperations"
         private const val MAX_FILE_SIZE = 100 * 1024 * 1024L // 100MB limit
+
+        private fun defaultListFilesCommandRunner(resolvedPath: String): ListFilesCommandResult {
+            val process = Runtime.getRuntime().exec(arrayOf("ls", "-la", resolvedPath))
+            val stdout = process.inputStream.bufferedReader().use { it.readText() }
+            val stderr = process.errorStream.bufferedReader().use { it.readText() }
+            val exitCode = process.waitFor()
+            return ListFilesCommandResult(exitCode = exitCode, stdout = stdout, stderr = stderr)
+        }
 
         private fun checkWritePermission(): SecurityException? {
             if (!Environment.isExternalStorageManager()) {
@@ -82,11 +98,10 @@ class FileOperations {
                 return Result.failure(IllegalArgumentException("Path is not a directory"))
             }
 
-            val process = Runtime.getRuntime().exec(arrayOf("ls", "-la", resolvedPath))
-            val reader = BufferedReader(InputStreamReader(process.inputStream))
+            val commandResult = listFilesCommandRunner(resolvedPath)
             val files = mutableListOf<FileInfo>()
 
-            reader.useLines { lines ->
+            BufferedReader(InputStreamReader(commandResult.stdout.byteInputStream())).useLines { lines ->
                 lines.forEach { line ->
                     val trimmed = line.trim()
                     if (trimmed.isNotEmpty() && !trimmed.startsWith("total ")) {
@@ -95,7 +110,19 @@ class FileOperations {
                 }
             }
 
-            process.waitFor()
+            if (commandResult.exitCode != 0) {
+                val errorMessage = commandResult.stderr.trim()
+                return Result.failure(
+                    java.io.IOException(
+                        if (errorMessage.isNotEmpty()) {
+                            "Failed to list files: $errorMessage"
+                        } else {
+                            "Failed to list files: ls exited with code ${commandResult.exitCode}"
+                        }
+                    )
+                )
+            }
+
             Result.success(FileListResponse(relativePath, files.size, files))
         } catch (e: SecurityException) {
             Result.failure(e)

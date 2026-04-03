@@ -126,9 +126,9 @@ class WebRtcManager private constructor(private val context: Context) {
             incomingSessionId: String,
             primaryHasPeerResources: Boolean,
             primaryFirstSilentAtMs: Long?,
-            primaryLastRequestFrameAtMs: Long?,
+            primaryLastLivenessAtMs: Long?,
             nowMs: Long,
-            requestFrameStaleAfterMs: Long,
+            livenessStaleAfterMs: Long,
         ): IncomingSessionRoute {
             if (currentPrimarySessionId == null || currentPrimarySessionId == incomingSessionId) {
                 return IncomingSessionRoute.PRIMARY
@@ -140,8 +140,8 @@ class WebRtcManager private constructor(private val context: Context) {
                 return IncomingSessionRoute.TAKEOVER_STALE_PRIMARY
             }
             if (
-                primaryLastRequestFrameAtMs == null ||
-                nowMs - primaryLastRequestFrameAtMs >= requestFrameStaleAfterMs
+                primaryLastLivenessAtMs == null ||
+                nowMs - primaryLastLivenessAtMs >= livenessStaleAfterMs
             ) {
                 return IncomingSessionRoute.TAKEOVER_STALE_PRIMARY
             }
@@ -175,7 +175,6 @@ class WebRtcManager private constructor(private val context: Context) {
 
     private data class SessionLivenessState(
         var lastLivenessAtMs: Long,
-        var lastRequestFrameAtMs: Long? = null,
         var firstSilentAtMs: Long? = null,
         var iceState: PeerConnection.IceConnectionState? = null,
         var controlState: DataChannel.State? = null,
@@ -1057,7 +1056,6 @@ class WebRtcManager private constructor(private val context: Context) {
     private fun primePrimarySessionLivenessLocked(sessionId: String, nowMs: Long) {
         val state = ensureSessionLivenessStateLocked(sessionId)
         state.lastLivenessAtMs = nowMs
-        state.lastRequestFrameAtMs = nowMs
         state.firstSilentAtMs = null
     }
 
@@ -1069,9 +1067,9 @@ class WebRtcManager private constructor(private val context: Context) {
             incomingSessionId = sessionId,
             primaryHasPeerResources = peerConnection != null || controlChannel != null,
             primaryFirstSilentAtMs = primaryState?.firstSilentAtMs,
-            primaryLastRequestFrameAtMs = primaryState?.lastRequestFrameAtMs,
+            primaryLastLivenessAtMs = primaryState?.lastLivenessAtMs?.takeIf { it > 0L },
             nowMs = SystemClock.elapsedRealtime(),
-            requestFrameStaleAfterMs = KEEP_ALIVE_TIMEOUT_MS,
+            livenessStaleAfterMs = KEEP_ALIVE_TIMEOUT_MS,
         )
     }
 
@@ -2450,10 +2448,6 @@ class WebRtcManager private constructor(private val context: Context) {
         if (sessionId.isBlank()) return
         val shouldLogFirst =
             synchronized(streamLock) {
-                if (isTrackedSessionLocked(sessionId)) {
-                    ensureSessionLivenessStateLocked(sessionId).lastRequestFrameAtMs =
-                        SystemClock.elapsedRealtime()
-                }
                 requestFrameLoggedSessions.add(sessionId)
             }
         if (shouldLogFirst) {
