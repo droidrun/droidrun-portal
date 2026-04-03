@@ -32,7 +32,7 @@ class WebRtcManager private constructor(private val context: Context) {
         private const val STATS_INTERVAL_MS = 5000L
         private const val IDLE_TIMEOUT_MS = 10 * 60 * 1000L
         private const val KEEP_ALIVE_TIMEOUT_MS = 30_000L
-        private const val KEEP_ALIVE_HEALTHY_GRACE_MS = 5 * 60 * 1000L
+        private const val KEEP_ALIVE_HEALTHY_GRACE_MS = 30 * 60 * 1000L
         private const val MAX_OUTGOING_ICE_CANDIDATES = 50
         private const val MAX_ICE_RESTARTS = 1
         private const val MAX_CONCURRENT_SESSIONS = 3
@@ -108,6 +108,45 @@ class WebRtcManager private constructor(private val context: Context) {
                 firstSilentAtMs = effectiveFirstSilentAtMs,
             )
         }
+
+        internal fun lastSessionCaptureAction(
+            reason: String,
+            captureActive: Boolean,
+        ): LastSessionCaptureAction {
+            if (!captureActive) return LastSessionCaptureAction.NONE
+            return when (reason) {
+                // Keep capture alive until idle timeout so a later cloud signal can reuse it.
+                "keep_alive_timeout" -> LastSessionCaptureAction.SCHEDULE_IDLE_STOP
+                else -> LastSessionCaptureAction.SCHEDULE_IDLE_STOP
+            }
+        }
+
+        internal fun resolveIncomingSessionRoute(
+            currentPrimarySessionId: String?,
+            incomingSessionId: String,
+            primaryHasPeerResources: Boolean,
+            primaryFirstSilentAtMs: Long?,
+            primaryLastRequestFrameAtMs: Long?,
+            nowMs: Long,
+            requestFrameStaleAfterMs: Long,
+        ): IncomingSessionRoute {
+            if (currentPrimarySessionId == null || currentPrimarySessionId == incomingSessionId) {
+                return IncomingSessionRoute.PRIMARY
+            }
+            if (!primaryHasPeerResources) {
+                return IncomingSessionRoute.TAKEOVER_STALE_PRIMARY
+            }
+            if (primaryFirstSilentAtMs != null) {
+                return IncomingSessionRoute.TAKEOVER_STALE_PRIMARY
+            }
+            if (
+                primaryLastRequestFrameAtMs == null ||
+                nowMs - primaryLastRequestFrameAtMs >= requestFrameStaleAfterMs
+            ) {
+                return IncomingSessionRoute.TAKEOVER_STALE_PRIMARY
+            }
+            return IncomingSessionRoute.SECONDARY
+        }
     }
 
     private data class PeerResources(
@@ -136,6 +175,7 @@ class WebRtcManager private constructor(private val context: Context) {
 
     private data class SessionLivenessState(
         var lastLivenessAtMs: Long,
+        var lastRequestFrameAtMs: Long? = null,
         var firstSilentAtMs: Long? = null,
         var iceState: PeerConnection.IceConnectionState? = null,
         var controlState: DataChannel.State? = null,
@@ -147,6 +187,17 @@ class WebRtcManager private constructor(private val context: Context) {
         val offer: SessionDescription?,
         val ice: List<IceCandidate>,
     )
+
+    internal enum class LastSessionCaptureAction {
+        NONE,
+        SCHEDULE_IDLE_STOP,
+    }
+
+    internal enum class IncomingSessionRoute {
+        PRIMARY,
+        SECONDARY,
+        TAKEOVER_STALE_PRIMARY,
+    }
 
     private data class SecondarySession(
         val sessionId: String,
@@ -338,15 +389,19 @@ class WebRtcManager private constructor(private val context: Context) {
             "Starting WebRTC Stream: session=$sessionId ${width}x${height} @ $fps fps, waitForOffer=$waitForOffer"
         )
         val effectiveIceServers = iceServers ?: consumePendingIceServers()
-        val useSecondaryPath =
+        var takeoverPrimarySessionId: String? = null
+        val route =
             synchronized(streamLock) {
-                if (primarySessionId == null) {
-                    false
-                } else {
-                    primarySessionId != sessionId
+                val resolvedRoute = resolveIncomingSessionRouteLocked(sessionId)
+                when (resolvedRoute) {
+                    IncomingSessionRoute.TAKEOVER_STALE_PRIMARY -> {
+                        takeoverPrimarySessionId = clearPrimarySessionForTakeoverLocked()
+                        IncomingSessionRoute.PRIMARY
+                    }
+                    else -> resolvedRoute
                 }
             }
-        if (useSecondaryPath) {
+        if (route == IncomingSessionRoute.SECONDARY) {
             startSecondaryStreamWithExistingCapture(
                 sessionId = sessionId,
                 width = width,
@@ -378,6 +433,7 @@ class WebRtcManager private constructor(private val context: Context) {
             streamRequestId = sessionId
             waitingForOffer = waitForOffer
             iceRestartAttempts = 0
+            primePrimarySessionLivenessLocked(sessionId, SystemClock.elapsedRealtime())
             createPeerConnection(effectiveIceServers, streamId, sessionId)
             createVideoTrack(permissionResultData, width, height, fps, streamId)
 
@@ -399,6 +455,7 @@ class WebRtcManager private constructor(private val context: Context) {
                 }
             }
         }
+        takeoverPrimarySessionId?.let { notifyStreamStoppedAsync(sessionId = it) }
         flushPendingPrimarySignaling(sessionId)
     }
 
@@ -430,8 +487,19 @@ class WebRtcManager private constructor(private val context: Context) {
         require(sessionId.isNotBlank()) { "Missing required param: 'sessionId'" }
         cancelIdleStop()
         val effectiveIceServers = consumePendingIceServers()
-        val currentPrimarySession = synchronized(streamLock) { primarySessionId }
-        if (currentPrimarySession != null && currentPrimarySession != sessionId) {
+        var takeoverPrimarySessionId: String? = null
+        val route =
+            synchronized(streamLock) {
+                val resolvedRoute = resolveIncomingSessionRouteLocked(sessionId)
+                when (resolvedRoute) {
+                    IncomingSessionRoute.TAKEOVER_STALE_PRIMARY -> {
+                        takeoverPrimarySessionId = clearPrimarySessionForTakeoverLocked()
+                        IncomingSessionRoute.PRIMARY
+                    }
+                    else -> resolvedRoute
+                }
+            }
+        if (route == IncomingSessionRoute.SECONDARY) {
             startSecondaryStreamWithExistingCapture(
                 sessionId = sessionId,
                 width = width,
@@ -464,6 +532,7 @@ class WebRtcManager private constructor(private val context: Context) {
             streamRequestId = sessionId
             waitingForOffer = waitForOffer
             iceRestartAttempts = 0
+            primePrimarySessionLivenessLocked(sessionId, SystemClock.elapsedRealtime())
             if (videoTrack == null) {
                 throw IllegalStateException("No active capture to reuse")
             }
@@ -484,6 +553,7 @@ class WebRtcManager private constructor(private val context: Context) {
                 }
             }
         }
+        takeoverPrimarySessionId?.let { notifyStreamStoppedAsync(sessionId = it) }
         flushPendingPrimarySignaling(sessionId)
     }
 
@@ -866,10 +936,9 @@ class WebRtcManager private constructor(private val context: Context) {
             notifyStreamStoppedAsync(reason, sessionId)
         }
         if (!hasRemaining) {
-            if (reason == "keep_alive_timeout" && isCaptureActive()) {
-                ScreenCaptureService.requestStop(reason)
-            } else {
-                scheduleIdleStop("session_stop")
+            when (lastSessionCaptureAction(reason, isCaptureActive())) {
+                LastSessionCaptureAction.NONE -> Unit
+                LastSessionCaptureAction.SCHEDULE_IDLE_STOP -> scheduleIdleStop("session_stop")
             }
         }
     }
@@ -981,7 +1050,39 @@ class WebRtcManager private constructor(private val context: Context) {
 
     private fun clearSessionLivenessStateLocked(sessionId: String?) {
         if (sessionId.isNullOrBlank()) return
+        requestFrameLoggedSessions.remove(sessionId)
         sessionLivenessStates.remove(sessionId)?.runnable?.let { stopHandler.removeCallbacks(it) }
+    }
+
+    private fun primePrimarySessionLivenessLocked(sessionId: String, nowMs: Long) {
+        val state = ensureSessionLivenessStateLocked(sessionId)
+        state.lastLivenessAtMs = nowMs
+        state.lastRequestFrameAtMs = nowMs
+        state.firstSilentAtMs = null
+    }
+
+    private fun resolveIncomingSessionRouteLocked(sessionId: String): IncomingSessionRoute {
+        val currentPrimarySessionId = primarySessionId
+        val primaryState = currentPrimarySessionId?.let { sessionLivenessStates[it] }
+        return resolveIncomingSessionRoute(
+            currentPrimarySessionId = currentPrimarySessionId,
+            incomingSessionId = sessionId,
+            primaryHasPeerResources = peerConnection != null || controlChannel != null,
+            primaryFirstSilentAtMs = primaryState?.firstSilentAtMs,
+            primaryLastRequestFrameAtMs = primaryState?.lastRequestFrameAtMs,
+            nowMs = SystemClock.elapsedRealtime(),
+            requestFrameStaleAfterMs = KEEP_ALIVE_TIMEOUT_MS,
+        )
+    }
+
+    private fun clearPrimarySessionForTakeoverLocked(): String? {
+        val currentPrimarySessionId = primarySessionId ?: return null
+        clearSessionLivenessStateLocked(currentPrimarySessionId)
+        if (streamRequestId == currentPrimarySessionId) {
+            streamRequestId = null
+        }
+        primarySessionId = null
+        return currentPrimarySessionId
     }
 
     private fun updateSessionIceStateLocked(
@@ -2349,6 +2450,10 @@ class WebRtcManager private constructor(private val context: Context) {
         if (sessionId.isBlank()) return
         val shouldLogFirst =
             synchronized(streamLock) {
+                if (isTrackedSessionLocked(sessionId)) {
+                    ensureSessionLivenessStateLocked(sessionId).lastRequestFrameAtMs =
+                        SystemClock.elapsedRealtime()
+                }
                 requestFrameLoggedSessions.add(sessionId)
             }
         if (shouldLogFirst) {

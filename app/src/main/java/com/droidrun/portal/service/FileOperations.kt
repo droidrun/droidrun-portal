@@ -210,6 +210,10 @@ class FileOperations {
                         copyToWithLimit(input, output)
                     }
                 }
+                if (destFile.exists() && !destFile.isFile) {
+                    tempFile.delete()
+                    return Result.failure(java.io.IOException("Destination path is not a file"))
+                }
                 if (destFile.exists() && !destFile.delete()) {
                     tempFile.delete()
                     return Result.failure(java.io.IOException("Failed to replace existing file"))

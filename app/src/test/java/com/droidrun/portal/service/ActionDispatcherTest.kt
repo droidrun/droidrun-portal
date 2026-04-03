@@ -83,6 +83,19 @@ class ActionDispatcherTest {
     }
 
     @Test
+    fun dispatch_overlayVisible_routesSlashAliases() {
+        val apiHandler = mockk<ApiHandler>()
+        val response = ApiResponse.RawObject(JSONObject().put("visible", true))
+        every { apiHandler.isOverlayVisible() } returns response
+
+        val dispatcher = ActionDispatcher(apiHandler)
+
+        assertEquals(response, dispatcher.dispatch("overlay/visible", JSONObject()))
+        assertEquals(response, dispatcher.dispatch("overlay/is-visible", JSONObject()))
+        verify(exactly = 2) { apiHandler.isOverlayVisible() }
+    }
+
+    @Test
     fun dispatch_unknownMethod_returnsError() {
         val apiHandler = mockk<ApiHandler>(relaxed = true)
         val dispatcher = ActionDispatcher(apiHandler)

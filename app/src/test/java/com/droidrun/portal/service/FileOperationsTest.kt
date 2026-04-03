@@ -135,6 +135,24 @@ class FileOperationsTest {
         assertFalse(File(externalStorageDir, "$relativePath.download.tmp").exists())
     }
 
+    @Test
+    fun fetchFile_rejectsExistingDirectoryDestinationWithoutReplacingIt() {
+        val relativePath = "downloads/existing-dir"
+        val destination = File(externalStorageDir, relativePath).apply { mkdirs() }
+        val url = registerResponse(
+            contentLength = 16L,
+            totalBytes = 16L,
+        )
+
+        val result = fileOperations.fetchFile(url, relativePath)
+
+        assertTrue(result.isFailure)
+        assertEquals("Destination path is not a file", result.exceptionOrNull()?.message)
+        assertTrue(destination.exists())
+        assertTrue(destination.isDirectory)
+        assertFalse(File(externalStorageDir, "$relativePath.download.tmp").exists())
+    }
+
     private fun registerResponse(
         contentLength: Long,
         totalBytes: Long,

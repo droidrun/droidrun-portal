@@ -113,9 +113,18 @@ class ActionDispatcher(
                 apiHandler.keyboardKey(keyCode)
             }
 
-            "overlay_offset" -> {
+            "overlay_offset", "overlay/offset" -> {
                 val offset = params.optInt("offset", 0)
                 apiHandler.setOverlayOffset(offset)
+            }
+
+            "overlay/set-visible" -> {
+                val visible = params.optBoolean("visible", false)
+                apiHandler.setOverlayVisible(visible)
+            }
+
+            "overlay/visible", "overlay/is-visible" -> {
+                apiHandler.isOverlayVisible()
             }
 
             "socket_port" -> {

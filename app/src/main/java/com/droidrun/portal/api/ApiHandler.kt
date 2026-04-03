@@ -407,6 +407,12 @@ class ApiHandler(
         }
     }
 
+    fun isOverlayVisible(): ApiResponse {
+        return ApiResponse.RawObject(JSONObject().apply {
+            put("visible", stateRepo.isOverlayVisible())
+        })
+    }
+
     fun setSocketPort(port: Int): ApiResponse {
         return if (stateRepo.updateSocketServerPort(port)) {
             ApiResponse.Success("Socket server port updated to $port")
