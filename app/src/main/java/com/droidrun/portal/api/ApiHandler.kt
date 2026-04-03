@@ -40,6 +40,7 @@ import com.droidrun.portal.streaming.WebRtcManager
 import org.webrtc.IceCandidate
 import org.webrtc.PeerConnection
 import com.droidrun.portal.service.AutoAcceptGate
+import com.droidrun.portal.service.FileOperations
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import androidx.core.app.NotificationCompat
@@ -72,6 +73,7 @@ class ApiHandler(
     }
 
     private val installLock = Any()
+    private val fileOperations: FileOperations by lazy { FileOperations() }
     val applicationContext: Context
         get() = context.applicationContext
 
@@ -1994,6 +1996,129 @@ class ApiHandler(
         }
         WebRtcManager.getInstance(context).handleKeepAlive(sessionId)
         return ApiResponse.Success("keep_alive_ack")
+    }
+
+    fun listFiles(path: String): ApiResponse {
+        return fileOperations.listFiles(path).fold(
+            onSuccess = { response ->
+                ApiResponse.RawObject(response.toJson())
+            },
+            onFailure = { error ->
+                when (error) {
+                    is SecurityException -> ApiResponse.Error("Security error: ${error.message}")
+                    is java.nio.file.NoSuchFileException -> ApiResponse.Error("Path not found: $path")
+                    is NoSuchFileException -> ApiResponse.Error("Path not found: $path")
+                    is IllegalArgumentException -> ApiResponse.Error(error.message ?: "Invalid argument")
+                    else -> ApiResponse.Error("Failed to list files: ${error.message}")
+                }
+            }
+        )
+    }
+
+    fun downloadFile(path: String): ApiResponse {
+        if (path.isEmpty()) {
+            return ApiResponse.Error("Missing required param: 'path'")
+        }
+
+        return fileOperations.readFile(path).fold(
+            onSuccess = { data ->
+                ApiResponse.Binary(data)
+            },
+            onFailure = { error ->
+                when (error) {
+                    is SecurityException -> ApiResponse.Error("Security error: ${error.message}")
+                    is java.nio.file.NoSuchFileException -> ApiResponse.Error("File not found: $path")
+                    is NoSuchFileException -> ApiResponse.Error("File not found: $path")
+                    is IllegalArgumentException -> ApiResponse.Error(error.message ?: "Invalid argument")
+                    else -> ApiResponse.Error("Failed to read file: ${error.message}")
+                }
+            }
+        )
+    }
+
+    fun uploadFile(path: String, data: ByteArray): ApiResponse {
+        if (path.isEmpty()) {
+            return ApiResponse.Error("Missing required param: 'path'")
+        }
+
+        return fileOperations.writeFile(path, data).fold(
+            onSuccess = {
+                ApiResponse.Success("File written successfully")
+            },
+            onFailure = { error ->
+                when (error) {
+                    is SecurityException -> ApiResponse.Error("Security error: ${error.message}")
+                    is IllegalArgumentException -> ApiResponse.Error(error.message ?: "Invalid argument")
+                    else -> ApiResponse.Error("Failed to write file: ${error.message}")
+                }
+            }
+        )
+    }
+
+    fun deleteFile(path: String): ApiResponse {
+        if (path.isEmpty()) {
+            return ApiResponse.Error("Missing required param: 'path'")
+        }
+
+        return fileOperations.deleteFile(path).fold(
+            onSuccess = {
+                ApiResponse.Success("File deleted successfully")
+            },
+            onFailure = { error ->
+                when (error) {
+                    is SecurityException -> ApiResponse.Error("Security error: ${error.message}")
+                    is java.nio.file.NoSuchFileException -> ApiResponse.Error("File not found: $path")
+                    is NoSuchFileException -> ApiResponse.Error("File not found: $path")
+                    else -> ApiResponse.Error("Failed to delete file: ${error.message}")
+                }
+            }
+        )
+    }
+
+    fun fetchFile(url: String, path: String): ApiResponse {
+        if (url.isEmpty()) {
+            return ApiResponse.Error("Missing required param: 'url'")
+        }
+        if (path.isEmpty()) {
+            return ApiResponse.Error("Missing required param: 'path'")
+        }
+
+        return fileOperations.fetchFile(url, path).fold(
+            onSuccess = {
+                ApiResponse.Success("ok")
+            },
+            onFailure = { error ->
+                when (error) {
+                    is SecurityException -> ApiResponse.Error("Security error: ${error.message}")
+                    is IllegalArgumentException -> ApiResponse.Error(error.message ?: "Invalid argument")
+                    else -> ApiResponse.Error("Failed to fetch file: ${error.message}")
+                }
+            }
+        )
+    }
+
+    fun pushFile(url: String, path: String): ApiResponse {
+        if (url.isEmpty()) {
+            return ApiResponse.Error("Missing required param: 'url'")
+        }
+        if (path.isEmpty()) {
+            return ApiResponse.Error("Missing required param: 'path'")
+        }
+
+        return fileOperations.pushFile(url, path).fold(
+            onSuccess = {
+                ApiResponse.Success("ok")
+            },
+            onFailure = { error ->
+                when (error) {
+                    is SecurityException -> ApiResponse.Error("Security error: ${error.message}")
+                    is java.nio.file.NoSuchFileException -> ApiResponse.Error("File not found: $path")
+                    is NoSuchFileException -> ApiResponse.Error("File not found: $path")
+                    is IllegalArgumentException -> ApiResponse.Error(error.message ?: "Invalid argument")
+                    else -> ApiResponse.Error("Failed to push file: ${error.message}")
+                }
+            }
+        )
     }
 
     private fun parseIceServers(json: JSONArray): List<PeerConnection.IceServer> {

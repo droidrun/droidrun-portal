@@ -146,6 +146,50 @@ class ActionDispatcher(
                 apiHandler.getTime()
             }
 
+            "files/list" -> {
+                val path = params.optString("path", "")
+                apiHandler.listFiles(path)
+            }
+
+            "files/download" -> {
+                val path = params.optString("path", "")
+                apiHandler.downloadFile(path)
+            }
+
+            "files/upload" -> {
+                val path = params.optString("path", "")
+                val dataBase64 = params.optString("data", "")
+                if (path.isEmpty()) {
+                    ApiResponse.Error("Missing required param: 'path'")
+                } else if (dataBase64.isEmpty()) {
+                    ApiResponse.Error("Missing required param: 'data'")
+                } else {
+                    try {
+                        val data = android.util.Base64.decode(dataBase64, android.util.Base64.DEFAULT)
+                        apiHandler.uploadFile(path, data)
+                    } catch (e: Exception) {
+                        ApiResponse.Error("Invalid base64 data: ${e.message}")
+                    }
+                }
+            }
+
+            "files/delete" -> {
+                val path = params.optString("path", "")
+                apiHandler.deleteFile(path)
+            }
+
+            "files/fetch" -> {
+                val url = params.optString("url", "")
+                val path = params.optString("path", "")
+                apiHandler.fetchFile(url, path)
+            }
+
+            "files/push" -> {
+                val url = params.optString("url", "")
+                val path = params.optString("path", "")
+                apiHandler.pushFile(url, path)
+            }
+
             "triggers/catalog" -> {
                 ApiResponse.RawObject(resolvedTriggerApi.catalog())
             }
