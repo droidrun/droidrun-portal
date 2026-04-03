@@ -12,6 +12,7 @@ import io.mockk.Runs
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkObject
+import io.mockk.spyk
 import io.mockk.just
 import io.mockk.unmockkAll
 import io.mockk.verify
@@ -134,6 +135,17 @@ class ApiHandlerTest {
     }
 
     @Test
+    fun isOverlayVisible_returnsVisibleFlag() {
+        val stateRepo = mockk<StateRepository>(relaxed = true)
+        every { stateRepo.isOverlayVisible() } returns true
+        val handler = createHandler(stateRepo = stateRepo, ime = null)
+
+        val response = handler.isOverlayVisible() as ApiResponse.RawObject
+
+        assertEquals(true, response.json.getBoolean("visible"))
+    }
+
+    @Test
     fun handleWebRtcOffer_acceptsPendingSessionWithoutStreamActiveGate() {
         val stateRepo = mockk<StateRepository>(relaxed = true)
         val context = mockk<Context>(relaxed = true)
@@ -207,6 +219,34 @@ class ApiHandlerTest {
         verify(exactly = 1) { manager.setPendingIceServers(any()) }
         verify(exactly = 1) {
             manager.startStreamWithExistingCapture(720, 1280, 30, "session-1", true)
+        }
+    }
+
+    @Test
+    fun connectWebRtc_withoutActiveCapture_fallsBackToStartStream() {
+        val stateRepo = mockk<StateRepository>(relaxed = true)
+        val context = mockk<Context>(relaxed = true)
+        every { context.applicationContext } returns context
+        val handler = spyk(createHandler(stateRepo = stateRepo, ime = null, context = context))
+        val manager = mockk<WebRtcManager>(relaxed = true)
+
+        mockkObject(WebRtcManager.Companion)
+        every { WebRtcManager.getInstance(context) } returns manager
+        every { manager.isCaptureActive() } returns false
+        every { handler.startStream(any()) } returns ApiResponse.Success("prompting_user")
+
+        val response =
+            handler.connectWebRtc(
+                JSONObject().apply {
+                    put("sessionId", "session-1")
+                    put("iceServers", JSONArray())
+                },
+            )
+
+        assertEquals(ApiResponse.Success("prompting_user"), response)
+        verify(exactly = 1) { handler.startStream(any()) }
+        verify(exactly = 0) {
+            manager.startStreamWithExistingCapture(any(), any(), any(), any(), any())
         }
     }
 

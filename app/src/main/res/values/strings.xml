@@ -250,6 +250,9 @@
     <string name="select_keyboard">Select</string>
     <string name="switch_keyboard">Switch</string>
 
+    <!-- File Access Warning -->
+    <string name="file_access_not_granted">All Files Access not granted. File upload/download will not work.</string>
+
     <!-- Credits -->
     <string name="credits_section_header">Credits</string>
     <string name="credits_card_title">Credits</string>
