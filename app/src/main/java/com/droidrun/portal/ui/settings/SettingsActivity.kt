@@ -361,6 +361,7 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
             Thread {
                 val info = UpdateChecker.checkForUpdate(this)
                 runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
                     binding.btnCheckUpdates.isEnabled = true
                     binding.btnCheckUpdates.text = getString(R.string.update_check_for_updates)
 
@@ -387,7 +388,6 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
             .setTitle(getString(R.string.update_requires_reinstall))
             .setMessage(getString(R.string.update_signature_mismatch_message))
             .setPositiveButton(getString(R.string.update_uninstall)) { _, _ ->
-                Toast.makeText(this, "Opening App Settings…", Toast.LENGTH_SHORT).show()
                 try {
                     val intent = android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                         data = Uri.fromParts("package", packageName, null)
@@ -395,7 +395,7 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
                     }
                     startActivity(intent)
                 } catch (e: Exception) {
-                    Toast.makeText(this, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, "Could not open App Settings", Toast.LENGTH_SHORT).show()
                 }
             }
             .setNegativeButton(android.R.string.cancel, null)
@@ -429,16 +429,17 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
                 downloadUrl = info.downloadUrl,
                 onProgress = { percent ->
                     runOnUiThread {
+                        if (isFinishing || isDestroyed) return@runOnUiThread
                         binding.btnCheckUpdates.text =
                             getString(R.string.update_downloading_percent, percent)
                     }
                 },
                 onError = { msg ->
                     runOnUiThread {
+                        if (isFinishing || isDestroyed) return@runOnUiThread
                         binding.btnCheckUpdates.isEnabled = true
                         binding.btnCheckUpdates.text = getString(R.string.update_check_for_updates)
                         Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
-                        Log.e("SettingsActivity", "Update error: $msg")
                     }
                 },
             )

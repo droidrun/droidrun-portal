@@ -77,6 +77,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
 
     private var isProgrammaticUpdate = false
     private var pendingUpdateInfo: UpdateInfo? = null
+    private var updateCheckDoneThisSession = false
     private var isInstallReceiverRegistered = false
     private lateinit var taskPromptCardController: TaskPromptCardController
     private val portalCloudClient = PortalCloudClient()
@@ -2063,9 +2064,14 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
     }
 
     private fun checkForUpdates() {
+        // Only check once per app session to avoid repeated GitHub API hits on every resume
+        if (updateCheckDoneThisSession) return
+        updateCheckDoneThisSession = true
+
         Thread {
             val info = UpdateChecker.checkForUpdate(this)
             runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
                 pendingUpdateInfo = info
                 if (info != null) {
                     binding.updateBannerText.text =
@@ -2089,12 +2095,14 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
                 downloadUrl = info.downloadUrl,
                 onProgress = { percent ->
                     runOnUiThread {
+                        if (isFinishing || isDestroyed) return@runOnUiThread
                         binding.btnUpdate.text =
                             getString(R.string.update_downloading_percent, percent)
                     }
                 },
                 onError = { msg ->
                     runOnUiThread {
+                        if (isFinishing || isDestroyed) return@runOnUiThread
                         binding.btnUpdate.isEnabled = true
                         binding.btnUpdate.text = getString(R.string.update_now)
                         Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
@@ -2112,19 +2120,14 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             .setTitle(getString(R.string.update_requires_reinstall))
             .setMessage(getString(R.string.update_signature_mismatch_message))
             .setPositiveButton(getString(R.string.update_uninstall)) { _, _ ->
-                Toast.makeText(this, "Launching uninstall for $packageName…", Toast.LENGTH_SHORT).show()
-                Log.d(TAG, "Uninstall button clicked, package=$packageName")
                 try {
-                    // Try the package-manager settings page as a reliable fallback path
                     val settingsIntent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                         data = Uri.fromParts("package", packageName, null)
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     }
                     startActivity(settingsIntent)
-                    Log.d(TAG, "Opened app settings for uninstall")
                 } catch (e: Exception) {
-                    Log.e(TAG, "App settings failed: ${e.message}", e)
-                    Toast.makeText(this, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, "Could not open App Settings", Toast.LENGTH_SHORT).show()
                 }
             }
             .setNegativeButton(android.R.string.cancel, null)

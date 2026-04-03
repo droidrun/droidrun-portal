@@ -785,8 +785,7 @@
                     android:layout_weight="1"
                     android:textColor="@color/text_gray"
                     android:textSize="13sp"
-                    tools:text="Version 0.6.1"
-                    xmlns:tools="http://schemas.android.com/tools" />
+                    tools:text="Version 0.6.1" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btn_check_updates"
