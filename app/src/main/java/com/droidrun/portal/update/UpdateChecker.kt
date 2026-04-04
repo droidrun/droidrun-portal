@@ -188,16 +188,16 @@ object UpdateChecker {
         val session = packageInstaller.openSession(sessionId)
 
         session.use { s ->
-            val out = s.openWrite("update.apk", 0, apkFile.length())
-            apkFile.inputStream().use { input ->
-                val buffer = ByteArray(65536)
-                var c: Int
-                while (input.read(buffer).also { c = it } != -1) {
-                    out.write(buffer, 0, c)
+            s.openWrite("update.apk", 0, apkFile.length()).use { out ->
+                apkFile.inputStream().use { input ->
+                    val buffer = ByteArray(65536)
+                    var c: Int
+                    while (input.read(buffer).also { c = it } != -1) {
+                        out.write(buffer, 0, c)
+                    }
                 }
+                s.fsync(out)
             }
-            s.fsync(out)
-            out.close()
 
             val intent = Intent(context, UpdateInstallReceiver::class.java).apply {
                 action = UpdateInstallReceiver.ACTION_INSTALL_STATUS
