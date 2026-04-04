@@ -2064,7 +2064,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
     }
 
     private fun checkForUpdates() {
-        // Only check once per app session to avoid repeated GitHub API hits on every resume
+        // Only check once per MainActivity instance to avoid repeated GitHub API hits on every resume
         if (updateCheckDoneThisSession) return
         updateCheckDoneThisSession = true
 
