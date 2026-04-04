@@ -54,9 +54,15 @@ jobs:
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
         run: |
+          set -euo pipefail
+
           FILE="${{ inputs.file-prefix }}-${{ inputs.tag }}-${{ matrix.variant }}.apk"
+          SOURCE_FILE="$(find . -maxdepth 1 -name "${{ inputs.file-prefix }}-${{ inputs.tag }}-${{ matrix.variant }}*.apk" | head -n1)"
           BUCKET="${{ secrets.R2_BUCKET }}"
           DEST="${{ matrix.environment }}/${{ inputs.r2-destination-prefix }}/${FILE}"
 
-          aws s3 cp "${FILE}" "s3://${BUCKET}/${DEST}" --endpoint-url "${R2_ENDPOINT}"
-          echo "Uploaded ${FILE} to ${BUCKET}/${DEST}"
+          [[ -n "${SOURCE_FILE}" ]]
+          SOURCE_FILE="${SOURCE_FILE#./}"
+
+          aws s3 cp "${SOURCE_FILE}" "s3://${BUCKET}/${DEST}" --endpoint-url "${R2_ENDPOINT}"
+          echo "Uploaded ${SOURCE_FILE} to ${BUCKET}/${DEST}"

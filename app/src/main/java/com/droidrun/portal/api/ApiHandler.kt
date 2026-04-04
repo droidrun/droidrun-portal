@@ -40,6 +40,7 @@ import com.droidrun.portal.streaming.WebRtcManager
 import org.webrtc.IceCandidate
 import org.webrtc.PeerConnection
 import com.droidrun.portal.service.AutoAcceptGate
+import com.droidrun.portal.service.FileOperations
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import androidx.core.app.NotificationCompat
@@ -72,6 +73,7 @@ class ApiHandler(
     }
 
     private val installLock = Any()
+    private val fileOperations: FileOperations by lazy { FileOperations() }
     val applicationContext: Context
         get() = context.applicationContext
 
@@ -403,6 +405,12 @@ class ApiHandler(
         } else {
             ApiResponse.Error("Failed to set overlay visibility")
         }
+    }
+
+    fun isOverlayVisible(): ApiResponse {
+        return ApiResponse.RawObject(JSONObject().apply {
+            put("visible", stateRepo.isOverlayVisible())
+        })
     }
 
     fun setSocketPort(port: Int): ApiResponse {
@@ -1863,13 +1871,59 @@ class ApiHandler(
         return ApiResponse.Success("Stop stream requested")
     }
 
+    fun connectWebRtc(params: JSONObject): ApiResponse {
+        val sessionId = params.optString("sessionId").trim()
+        if (sessionId.isEmpty()) {
+            return ApiResponse.Error("Missing required param: 'sessionId'")
+        }
+        val width = params.optInt("width", 720).coerceIn(144, 1920)
+        val height = params.optInt("height", 1280).coerceIn(256, 3840)
+        val fps = params.optInt("fps", 30).coerceIn(1, 60)
+
+        val manager = WebRtcManager.getInstance(context)
+        manager.setStreamRequestId(sessionId)
+        params.optJSONArray("iceServers")?.let { iceArray ->
+            try {
+                manager.setPendingIceServers(parseIceServers(iceArray))
+            } catch (e: Exception) {
+                Log.e(TAG, "invalid iceServers in webrtc/connect", e)
+                return ApiResponse.Error("invalid_ice_servers: ${e.message}")
+            }
+        }
+
+        return try {
+            if (manager.isCaptureActive()) {
+                manager.startStreamWithExistingCapture(
+                    width = width,
+                    height = height,
+                    fps = fps,
+                    sessionId = sessionId,
+                    waitForOffer = true,
+                )
+                ApiResponse.Success("reusing_capture")
+            } else {
+                val startParams = JSONObject(params.toString()).apply {
+                    put("waitForOffer", true)
+                }
+                startStream(startParams)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "webrtc/connect failed", e)
+            ApiResponse.Error("webrtc_connect_failed: ${e.message}")
+        }
+    }
+
+    fun requestKeyFrame(): ApiResponse {
+        val manager = WebRtcManager.getInstance(context)
+        manager.requestKeyFrame()
+        return ApiResponse.Success("Keyframe requested")
+    }
+
     fun handleWebRtcAnswer(sdp: String, sessionId: String): ApiResponse {
         if (sessionId.isBlank()) {
             return ApiResponse.Error("Missing required param: 'sessionId'")
         }
         val manager = WebRtcManager.getInstance(context)
-        if (!manager.isStreamActive())
-            return ApiResponse.Error("No active stream")
         if (!manager.isCurrentSession(sessionId)) {
             return ApiResponse.Error("No active stream for sessionId=$sessionId")
         }
@@ -1888,8 +1942,6 @@ class ApiHandler(
             return ApiResponse.Error("Missing required param: 'sessionId'")
         }
         val manager = WebRtcManager.getInstance(context)
-        if (!manager.isStreamActive())
-            return ApiResponse.Error("No active stream")
         if (!manager.isCurrentSession(sessionId)) {
             return ApiResponse.Error("No active stream for sessionId=$sessionId")
         }
@@ -1906,14 +1958,173 @@ class ApiHandler(
             return ApiResponse.Error("Missing required param: 'sessionId'")
         }
         val manager = WebRtcManager.getInstance(context)
-        if (!manager.isStreamActive())
-            return ApiResponse.Error("No active stream - call stream/start first")
         if (!manager.isCurrentSession(sessionId)) {
             return ApiResponse.Error("No active stream for sessionId=$sessionId")
         }
 
         manager.handleOffer(sdp, sessionId)
         return ApiResponse.Success("SDP Offer processed, answer will be sent")
+    }
+
+    fun handleWebRtcRtcConfiguration(params: JSONObject): ApiResponse {
+        val sessionId = params.optString("sessionId").trim()
+        if (sessionId.isEmpty()) {
+            return ApiResponse.Error("Missing required param: 'sessionId'")
+        }
+
+        val connectResult = connectWebRtc(params)
+        if (connectResult is ApiResponse.Error) {
+            return connectResult
+        }
+
+        val iceServersJson = params.optJSONArray("iceServers") ?: JSONArray()
+        return ApiResponse.Success(
+            JSONObject().apply {
+                put(
+                    "rtcConfiguration",
+                    JSONObject().apply { put("iceServers", iceServersJson) },
+                )
+            },
+        )
+    }
+
+    fun handleWebRtcRequestFrame(sessionId: String): ApiResponse {
+        if (sessionId.isBlank()) {
+            return ApiResponse.Error("Missing required param: 'sessionId'")
+        }
+        WebRtcManager.getInstance(context).handleRequestFrame(sessionId)
+        return ApiResponse.Success("request_frame_ack")
+    }
+
+    fun handleWebRtcKeepAlive(sessionId: String): ApiResponse {
+        if (sessionId.isBlank()) {
+            return ApiResponse.Error("Missing required param: 'sessionId'")
+        }
+        WebRtcManager.getInstance(context).handleKeepAlive(sessionId)
+        return ApiResponse.Success("keep_alive_ack")
+    }
+
+    fun listFiles(path: String): ApiResponse {
+        return fileOperations.listFiles(path).fold(
+            onSuccess = { response ->
+                ApiResponse.RawObject(response.toJson())
+            },
+            onFailure = { error ->
+                when (error) {
+                    is SecurityException -> ApiResponse.Error("Security error: ${error.message}")
+                    is java.nio.file.NoSuchFileException -> ApiResponse.Error("Path not found: $path")
+                    is NoSuchFileException -> ApiResponse.Error("Path not found: $path")
+                    is IllegalArgumentException -> ApiResponse.Error(error.message ?: "Invalid argument")
+                    else -> ApiResponse.Error("Failed to list files: ${error.message}")
+                }
+            }
+        )
+    }
+
+    fun downloadFile(path: String): ApiResponse {
+        if (path.isEmpty()) {
+            return ApiResponse.Error("Missing required param: 'path'")
+        }
+
+        return fileOperations.readFile(path).fold(
+            onSuccess = { data ->
+                ApiResponse.Binary(data)
+            },
+            onFailure = { error ->
+                when (error) {
+                    is SecurityException -> ApiResponse.Error("Security error: ${error.message}")
+                    is java.nio.file.NoSuchFileException -> ApiResponse.Error("File not found: $path")
+                    is NoSuchFileException -> ApiResponse.Error("File not found: $path")
+                    is IllegalArgumentException -> ApiResponse.Error(error.message ?: "Invalid argument")
+                    else -> ApiResponse.Error("Failed to read file: ${error.message}")
+                }
+            }
+        )
+    }
+
+    fun uploadFile(path: String, data: ByteArray): ApiResponse {
+        if (path.isEmpty()) {
+            return ApiResponse.Error("Missing required param: 'path'")
+        }
+
+        return fileOperations.writeFile(path, data).fold(
+            onSuccess = {
+                ApiResponse.Success("File written successfully")
+            },
+            onFailure = { error ->
+                when (error) {
+                    is SecurityException -> ApiResponse.Error("Security error: ${error.message}")
+                    is IllegalArgumentException -> ApiResponse.Error(error.message ?: "Invalid argument")
+                    else -> ApiResponse.Error("Failed to write file: ${error.message}")
+                }
+            }
+        )
+    }
+
+    fun deleteFile(path: String): ApiResponse {
+        if (path.isEmpty()) {
+            return ApiResponse.Error("Missing required param: 'path'")
+        }
+
+        return fileOperations.deleteFile(path).fold(
+            onSuccess = {
+                ApiResponse.Success("File deleted successfully")
+            },
+            onFailure = { error ->
+                when (error) {
+                    is SecurityException -> ApiResponse.Error("Security error: ${error.message}")
+                    is java.nio.file.NoSuchFileException -> ApiResponse.Error("File not found: $path")
+                    is NoSuchFileException -> ApiResponse.Error("File not found: $path")
+                    else -> ApiResponse.Error("Failed to delete file: ${error.message}")
+                }
+            }
+        )
+    }
+
+    fun fetchFile(url: String, path: String): ApiResponse {
+        if (url.isEmpty()) {
+            return ApiResponse.Error("Missing required param: 'url'")
+        }
+        if (path.isEmpty()) {
+            return ApiResponse.Error("Missing required param: 'path'")
+        }
+
+        return fileOperations.fetchFile(url, path).fold(
+            onSuccess = {
+                ApiResponse.Success("ok")
+            },
+            onFailure = { error ->
+                when (error) {
+                    is SecurityException -> ApiResponse.Error("Security error: ${error.message}")
+                    is IllegalArgumentException -> ApiResponse.Error(error.message ?: "Invalid argument")
+                    else -> ApiResponse.Error("Failed to fetch file: ${error.message}")
+                }
+            }
+        )
+    }
+
+    fun pushFile(url: String, path: String): ApiResponse {
+        if (url.isEmpty()) {
+            return ApiResponse.Error("Missing required param: 'url'")
+        }
+        if (path.isEmpty()) {
+            return ApiResponse.Error("Missing required param: 'path'")
+        }
+
+        return fileOperations.pushFile(url, path).fold(
+            onSuccess = {
+                ApiResponse.Success("ok")
+            },
+            onFailure = { error ->
+                when (error) {
+                    is SecurityException -> ApiResponse.Error("Security error: ${error.message}")
+                    is java.nio.file.NoSuchFileException -> ApiResponse.Error("File not found: $path")
+                    is NoSuchFileException -> ApiResponse.Error("File not found: $path")
+                    is IllegalArgumentException -> ApiResponse.Error(error.message ?: "Invalid argument")
+                    else -> ApiResponse.Error("Failed to push file: ${error.message}")
+                }
+            }
+        )
     }
 
     private fun parseIceServers(json: JSONArray): List<PeerConnection.IceServer> {

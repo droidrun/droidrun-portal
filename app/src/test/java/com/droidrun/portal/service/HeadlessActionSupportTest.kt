@@ -17,7 +17,11 @@ class HeadlessActionSupportTest {
         assertTrue(HeadlessActionSupport.isAllowed("stream/start"))
         assertTrue(HeadlessActionSupport.isAllowed("stream/stop"))
         assertTrue(HeadlessActionSupport.isAllowed("global"))
+        assertTrue(HeadlessActionSupport.isAllowed("webrtc/connect"))
         assertTrue(HeadlessActionSupport.isAllowed("webrtc/offer"))
+        assertTrue(HeadlessActionSupport.isAllowed("webrtc/rtcConfiguration"))
+        assertTrue(HeadlessActionSupport.isAllowed("webrtc/requestFrame"))
+        assertTrue(HeadlessActionSupport.isAllowed("webrtc/keepAlive"))
         assertTrue(HeadlessActionSupport.isAllowed("triggers/status"))
     }
 

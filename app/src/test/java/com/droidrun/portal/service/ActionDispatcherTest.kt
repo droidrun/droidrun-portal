@@ -1,15 +1,20 @@
 package com.droidrun.portal.service
 
+import android.util.Base64
 import com.droidrun.portal.api.ApiHandler
 import com.droidrun.portal.api.ApiResponse
 import com.droidrun.portal.triggers.TriggerApi
 import com.droidrun.portal.triggers.TriggerApiResult
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkStatic
+import io.mockk.slot
+import io.mockk.unmockkStatic
 import io.mockk.verify
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ActionDispatcherTest {
@@ -80,6 +85,62 @@ class ActionDispatcherTest {
         assertEquals(ApiResponse.Success("ok"), dispatcher.dispatch("input", params))
         assertEquals(ApiResponse.Success("ok"), dispatcher.dispatch("keyboard/input", params))
         verify(exactly = 2) { apiHandler.keyboardInput("SGVsbG8=", true) }
+    }
+
+    @Test
+    fun dispatch_overlayVisible_routesSlashAliases() {
+        val apiHandler = mockk<ApiHandler>()
+        val response = ApiResponse.RawObject(JSONObject().put("visible", true))
+        every { apiHandler.isOverlayVisible() } returns response
+
+        val dispatcher = ActionDispatcher(apiHandler)
+
+        assertEquals(response, dispatcher.dispatch("overlay/visible", JSONObject()))
+        assertEquals(response, dispatcher.dispatch("overlay/is-visible", JSONObject()))
+        verify(exactly = 2) { apiHandler.isOverlayVisible() }
+    }
+
+    @Test
+    fun dispatch_filesUpload_rejectsOversizedBase64BeforeDecode() {
+        val apiHandler = mockk<ApiHandler>(relaxed = true)
+        val dispatcher = ActionDispatcher(apiHandler, maxBase64UploadBytes = 4L)
+        val params =
+            JSONObject().apply {
+                put("path", "downloads/file.bin")
+                put("data", "QUJDREU=")
+            }
+
+        assertEquals(
+            ApiResponse.Error(
+                "Data too large for files/upload (max 0MB decoded); use files/fetch for larger files",
+            ),
+            dispatcher.dispatch("files/upload", params),
+        )
+        verify(exactly = 0) { apiHandler.uploadFile(any(), any()) }
+    }
+
+    @Test
+    fun dispatch_filesUpload_decodesAndUploadsSmallPayload() {
+        val apiHandler = mockk<ApiHandler>()
+        val uploaded = slot<ByteArray>()
+        every { apiHandler.uploadFile("downloads/file.bin", capture(uploaded)) } returns ApiResponse.Success("ok")
+        mockkStatic(Base64::class)
+        every { Base64.decode("QUJDRA==", Base64.DEFAULT) } returns "ABCD".toByteArray()
+
+        try {
+            val dispatcher = ActionDispatcher(apiHandler, maxBase64UploadBytes = 4L)
+            val params =
+                JSONObject().apply {
+                    put("path", "downloads/file.bin")
+                    put("data", "QUJDRA==")
+                }
+
+            assertEquals(ApiResponse.Success("ok"), dispatcher.dispatch("files/upload", params))
+            assertTrue(uploaded.captured.contentEquals("ABCD".toByteArray()))
+            verify(exactly = 1) { apiHandler.uploadFile("downloads/file.bin", any()) }
+        } finally {
+            unmockkStatic(Base64::class)
+        }
     }
 
     @Test
@@ -233,6 +294,122 @@ class ActionDispatcherTest {
             ApiResponse.Error("Missing required param: 'sessionId'"),
             dispatcher.dispatch("webrtc/ice", params, ActionDispatcher.Origin.WEBSOCKET_REVERSE),
         )
+    }
+
+    @Test
+    fun dispatch_webrtcRtcConfiguration_passesParams() {
+        val apiHandler = mockk<ApiHandler>()
+        every { apiHandler.handleWebRtcRtcConfiguration(any()) } returns ApiResponse.Success("ok")
+        val dispatcher = ActionDispatcher(apiHandler)
+        val params = JSONObject().apply {
+            put("sessionId", "session-1")
+            put("iceServers", JSONArray())
+        }
+
+        assertEquals(
+            ApiResponse.Success("ok"),
+            dispatcher.dispatch(
+                "webrtc/rtcConfiguration",
+                params,
+                ActionDispatcher.Origin.WEBSOCKET_REVERSE,
+            ),
+        )
+        verify(exactly = 1) { apiHandler.handleWebRtcRtcConfiguration(params) }
+    }
+
+    @Test
+    fun dispatch_webrtcConnect_requiresSessionId() {
+        val apiHandler = mockk<ApiHandler>(relaxed = true)
+        val dispatcher = ActionDispatcher(apiHandler)
+
+        assertEquals(
+            ApiResponse.Error("Missing required param: 'sessionId'"),
+            dispatcher.dispatch(
+                "webrtc/connect",
+                JSONObject(),
+                ActionDispatcher.Origin.WEBSOCKET_REVERSE,
+            ),
+        )
+    }
+
+    @Test
+    fun dispatch_webrtcConnect_passesParams() {
+        val apiHandler = mockk<ApiHandler>()
+        every { apiHandler.connectWebRtc(any()) } returns ApiResponse.Success("ok")
+        val dispatcher = ActionDispatcher(apiHandler)
+        val params = JSONObject().apply { put("sessionId", "session-1") }
+
+        assertEquals(
+            ApiResponse.Success("ok"),
+            dispatcher.dispatch("webrtc/connect", params, ActionDispatcher.Origin.WEBSOCKET_REVERSE),
+        )
+        verify(exactly = 1) { apiHandler.connectWebRtc(params) }
+    }
+
+    @Test
+    fun dispatch_webrtcRequestFrame_requiresSessionId() {
+        val apiHandler = mockk<ApiHandler>(relaxed = true)
+        val dispatcher = ActionDispatcher(apiHandler)
+
+        assertEquals(
+            ApiResponse.Error("Missing required param: 'sessionId'"),
+            dispatcher.dispatch(
+                "webrtc/requestFrame",
+                JSONObject(),
+                ActionDispatcher.Origin.WEBSOCKET_REVERSE,
+            ),
+        )
+    }
+
+    @Test
+    fun dispatch_webrtcRequestFrame_passesSessionId() {
+        val apiHandler = mockk<ApiHandler>()
+        every { apiHandler.handleWebRtcRequestFrame("session-1") } returns ApiResponse.Success("ok")
+        val dispatcher = ActionDispatcher(apiHandler)
+        val params = JSONObject().apply { put("sessionId", "session-1") }
+
+        assertEquals(
+            ApiResponse.Success("ok"),
+            dispatcher.dispatch(
+                "webrtc/requestFrame",
+                params,
+                ActionDispatcher.Origin.WEBSOCKET_REVERSE,
+            ),
+        )
+        verify(exactly = 1) { apiHandler.handleWebRtcRequestFrame("session-1") }
+    }
+
+    @Test
+    fun dispatch_webrtcKeepAlive_requiresSessionId() {
+        val apiHandler = mockk<ApiHandler>(relaxed = true)
+        val dispatcher = ActionDispatcher(apiHandler)
+
+        assertEquals(
+            ApiResponse.Error("Missing required param: 'sessionId'"),
+            dispatcher.dispatch(
+                "webrtc/keepAlive",
+                JSONObject(),
+                ActionDispatcher.Origin.WEBSOCKET_REVERSE,
+            ),
+        )
+    }
+
+    @Test
+    fun dispatch_webrtcKeepAlive_passesSessionId() {
+        val apiHandler = mockk<ApiHandler>()
+        every { apiHandler.handleWebRtcKeepAlive("session-1") } returns ApiResponse.Success("ok")
+        val dispatcher = ActionDispatcher(apiHandler)
+        val params = JSONObject().apply { put("sessionId", "session-1") }
+
+        assertEquals(
+            ApiResponse.Success("ok"),
+            dispatcher.dispatch(
+                "webrtc/keepAlive",
+                params,
+                ActionDispatcher.Origin.WEBSOCKET_REVERSE,
+            ),
+        )
+        verify(exactly = 1) { apiHandler.handleWebRtcKeepAlive("session-1") }
     }
 
     @Test

@@ -92,9 +92,16 @@ jobs:
       - name: Copy APKs to workspace root
         if: startsWith(github.ref, 'refs/tags/')
         run: |
-          VERSION_NAME="${{ steps.version.outputs.VERSION_NAME }}"
-          cp "app/build/outputs/apk/debug/com.droidrun.portal-${VERSION_NAME}-debug.apk" .
-          cp "app/build/outputs/apk/release/com.droidrun.portal-${VERSION_NAME}-release.apk" .
+          set -euo pipefail
+
+          DEBUG_APK="$(find app/build/outputs/apk/debug -maxdepth 1 -name '*.apk' | head -n1)"
+          RELEASE_APK="$(find app/build/outputs/apk/release -maxdepth 1 -name '*-release*.apk' | head -n1)"
+
+          [[ -n "${DEBUG_APK}" ]]
+          [[ -n "${RELEASE_APK}" ]]
+
+          cp "${DEBUG_APK}" .
+          cp "${RELEASE_APK}" .
 
       - name: Upload APKs
         if: startsWith(github.ref, 'refs/tags/')

@@ -65,6 +65,7 @@ import com.droidrun.portal.update.UpdateInstallReceiver
 import com.google.android.material.snackbar.Snackbar
 import com.google.android.material.textfield.TextInputEditText
 import java.text.NumberFormat
+import androidx.core.net.toUri
 
 class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
 
@@ -282,6 +283,10 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         // Setup enable keyboard button
         binding.enableKeyboardButton.setOnClickListener {
             openKeyboardSettings()
+        }
+
+        binding.enableFileAccessButton.setOnClickListener {
+            openFileAccessSettings()
         }
 
         // Setup logs link to show dialog
@@ -1571,6 +1576,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
     private fun updateStatusIndicators() {
         updateAccessibilityStatusIndicator()
         updateKeyboardWarningBanner()
+        updateFileAccessBanner()
     }
 
     private fun syncUIWithAccessibilityService() {
@@ -1891,6 +1897,28 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             binding.keyboardWarningBanner.visibility = View.VISIBLE
         } else {
             binding.keyboardWarningBanner.visibility = View.GONE
+        }
+    }
+
+    private fun updateFileAccessBanner() {
+        val needsPermission = !android.os.Environment.isExternalStorageManager()
+        binding.fileAccessBanner.visibility = if (needsPermission) View.VISIBLE else View.GONE
+    }
+
+    private fun openFileAccessSettings() {
+        try {
+            val intent = Intent(
+                Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                "package:$packageName".toUri()
+            )
+            startActivity(intent)
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Error opening file access settings: ${e.message}")
+            try {
+                startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+            } catch (_: Exception) {
+                Toast.makeText(this, "Could not open file access settings", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
