@@ -223,12 +223,15 @@ object UpdateChecker {
             return null
         }
         return try {
+            val resolver = context.contentResolver
+
+            // Mark as pending so the file isn't visible to users/other apps until fully written
             val values = ContentValues().apply {
                 put(MediaStore.Downloads.DISPLAY_NAME, "DroidrunPortal-update.apk")
                 put(MediaStore.Downloads.MIME_TYPE, "application/vnd.android.package-archive")
                 put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
             }
-            val resolver = context.contentResolver
             val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return null
 
             val written = resolver.openOutputStream(uri)?.use { out ->
@@ -237,11 +240,14 @@ object UpdateChecker {
             } ?: false
 
             if (!written) {
-                // Output stream couldn't be opened — clean up the dangling row
                 resolver.delete(uri, null, null)
                 Log.e(TAG, "openOutputStream returned null; deleted dangling MediaStore row")
                 return null
             }
+
+            // Clear pending flag — file is now fully written and visible in Downloads
+            val publish = ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }
+            resolver.update(uri, publish, null, null)
 
             Log.i(TAG, "APK saved to Downloads: $uri")
             uri
