@@ -16,7 +16,6 @@ import androidx.appcompat.app.AppCompatActivity
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.IntentFilter
-import android.util.Log
 import android.widget.Toast
 import androidx.core.content.ContextCompat
 import com.droidrun.portal.R
