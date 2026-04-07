@@ -51,6 +51,7 @@ class DroidrunContentProvider : ContentProvider() {
         private const val TRIGGERS_RUNS_DELETE = 27
         private const val TRIGGERS_RUNS_CLEAR = 28
         private const val GETCLIPBOARD = 29
+        private const val SETCLIPBOARD = 30
 
         private val uriMatcher = UriMatcher(UriMatcher.NO_MATCH).apply {
             addURI(AUTHORITY, "a11y_tree", A11Y_TREE)
@@ -82,6 +83,7 @@ class DroidrunContentProvider : ContentProvider() {
             addURI(AUTHORITY, "triggers/runs/delete", TRIGGERS_RUNS_DELETE)
             addURI(AUTHORITY, "triggers/runs/clear", TRIGGERS_RUNS_CLEAR)
             addURI(AUTHORITY, "getclipboard", GETCLIPBOARD)
+            addURI(AUTHORITY, "setclipboard", SETCLIPBOARD)
         }
     }
 
@@ -342,6 +344,12 @@ class DroidrunContentProvider : ContentProvider() {
                     context!!.sendBroadcast(intent)
 
                     ApiResponse.Success("Production mode set to $enabled")
+                }
+
+                SETCLIPBOARD -> {
+                    val text = getStringValue(values, "text")
+                        ?: return "content://$AUTHORITY/result?status=error&message=${Uri.encode("Missing required parameter: text or text_base64")}".toUri()
+                    handler.setClipboard(text)
                 }
 
                 else -> ApiResponse.Error("Unsupported insert endpoint")

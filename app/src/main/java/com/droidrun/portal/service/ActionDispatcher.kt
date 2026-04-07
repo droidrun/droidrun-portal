@@ -131,6 +131,14 @@ class ActionDispatcher(
                 apiHandler.getClipboard()
             }
 
+            "clipboard/set" -> {
+                if (!params.has("text")) {
+                    return ApiResponse.Error("Missing required parameter: text")
+                }
+                val text = params.getString("text")
+                apiHandler.setClipboard(text)
+            }
+
             "overlay_offset", "overlay/offset" -> {
                 val offset = params.optInt("offset", 0)
                 apiHandler.setOverlayOffset(offset)

@@ -401,6 +401,18 @@ class ApiHandler(
         return ApiResponse.Success(text)
     }
 
+    fun setClipboard(text: String): ApiResponse {
+        return try {
+            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            val clip = android.content.ClipData.newPlainText("text", text)
+            cm.setPrimaryClip(clip)
+            ApiResponse.Success("Clipboard set")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to set clipboard", e)
+            ApiResponse.Error("Failed to set clipboard: ${e.message}")
+        }
+    }
+
     // Overlay
     fun setOverlayOffset(offset: Int): ApiResponse {
         return if (stateRepo.setOverlayOffset(offset)) {

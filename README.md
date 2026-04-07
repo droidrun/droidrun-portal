@@ -107,6 +107,9 @@ adb shell content query --uri content://com.droidrun.portal/packages
 
 # Get local auth token for HTTP/WS access
 adb shell content query --uri content://com.droidrun.portal/auth_token
+
+# Get clipboard text (requires DroidrunKeyboardIME to be active)
+adb shell content query --uri content://com.droidrun.portal/getclipboard
 ```
 
 #### Insert Commands (Actions & Configuration)
@@ -143,6 +146,12 @@ adb shell content insert --uri content://com.droidrun.portal/configure_reverse_c
 
 # Toggle production mode UI
 adb shell content insert --uri content://com.droidrun.portal/toggle_production_mode --bind enabled:b:true
+
+# Set clipboard text (plain text)
+adb shell content insert --uri content://com.droidrun.portal/setclipboard --bind text:s:"Hello World"
+
+# Set clipboard text (Base64 encoded — useful for special characters or spaces)
+adb shell content insert --uri content://com.droidrun.portal/setclipboard --bind text_base64:s:"SGVsbG8gV29ybGQ="
 ```
 
 #### Common Key Codes
