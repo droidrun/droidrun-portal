@@ -6,6 +6,7 @@ import android.content.UriMatcher
 import android.database.Cursor
 import android.database.MatrixCursor
 import android.net.Uri
+import android.os.Binder
 import android.util.Log
 import androidx.core.net.toUri
 import com.droidrun.portal.api.ApiHandler
@@ -130,6 +131,17 @@ class DroidrunContentProvider : ContentProvider() {
         return TriggerApi(appContext)
     }
 
+    private fun enforceAuthorizedCaller() {
+        val appContext = context?.applicationContext
+            ?: throw SecurityException("Provider context unavailable")
+        val callingUid = Binder.getCallingUid()
+        val appUid = appContext.applicationInfo.uid
+        if (!ContentProviderAccessPolicy.isUidAllowed(callingUid, appUid)) {
+            Log.w(TAG, "Rejected content provider call from uid=$callingUid")
+            throw SecurityException("Caller uid $callingUid is not allowed")
+        }
+    }
+
     override fun query(
         uri: Uri,
         projection: Array<String>?,
@@ -137,6 +149,7 @@ class DroidrunContentProvider : ContentProvider() {
         selectionArgs: Array<String>?,
         sortOrder: String?
     ): Cursor {
+        enforceAuthorizedCaller()
         val cursor = MatrixCursor(arrayOf("result"))
 
         try {
@@ -226,6 +239,7 @@ class DroidrunContentProvider : ContentProvider() {
     }
 
     override fun insert(uri: Uri, values: ContentValues?): Uri? {
+        enforceAuthorizedCaller()
         val triggerResult = handleTriggerInsert(uri, values)
         if (triggerResult != null) {
             return mutationResultUri(triggerResult)
@@ -433,13 +447,20 @@ class DroidrunContentProvider : ContentProvider() {
         }
     }
 
-    override fun delete(uri: Uri, selection: String?, selectionArgs: Array<String>?): Int = 0
+    override fun delete(uri: Uri, selection: String?, selectionArgs: Array<String>?): Int {
+        enforceAuthorizedCaller()
+        return 0
+    }
+
     override fun update(
         uri: Uri,
         values: ContentValues?,
         selection: String?,
         selectionArgs: Array<String>?
-    ): Int = 0
+    ): Int {
+        enforceAuthorizedCaller()
+        return 0
+    }
 
     override fun getType(uri: Uri): String? = null
 }
