@@ -132,7 +132,10 @@ class ActionDispatcher(
             }
 
             "clipboard/set" -> {
-                val text = params.optString("text", "")
+                if (!params.has("text")) {
+                    return ApiResponse.Error("Missing required parameter: text")
+                }
+                val text = params.getString("text")
                 apiHandler.setClipboard(text)
             }
 
