@@ -156,6 +156,19 @@ class DroidrunKeyboardIME : InputMethodService() {
         }
     }
 
+    /**
+     * Request the IME to show itself (best-effort). This can help satisfy
+     * Android's foreground-IME requirement for clipboard access on API 29+.
+     */
+    fun requestKeyboardShow() {
+        try {
+            requestShowSelf(0)
+            Log.d(TAG, "requestShowSelf called")
+        } catch (e: Exception) {
+            Log.w(TAG, "requestShowSelf failed: ${e.message}")
+        }
+    }
+
     override fun onCreateInputView(): View {
         Log.d(TAG, "onCreateInputView called")
 
