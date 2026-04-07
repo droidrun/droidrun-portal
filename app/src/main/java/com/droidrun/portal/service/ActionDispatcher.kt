@@ -131,6 +131,11 @@ class ActionDispatcher(
                 apiHandler.getClipboard()
             }
 
+            "clipboard/set" -> {
+                val text = params.optString("text", "")
+                apiHandler.setClipboard(text)
+            }
+
             "overlay_offset", "overlay/offset" -> {
                 val offset = params.optInt("offset", 0)
                 apiHandler.setOverlayOffset(offset)
