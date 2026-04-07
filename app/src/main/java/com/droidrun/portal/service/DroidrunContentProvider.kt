@@ -50,6 +50,7 @@ class DroidrunContentProvider : ContentProvider() {
         private const val TRIGGERS_RULES_TEST = 26
         private const val TRIGGERS_RUNS_DELETE = 27
         private const val TRIGGERS_RUNS_CLEAR = 28
+        private const val GETCLIPBOARD = 29
 
         private val uriMatcher = UriMatcher(UriMatcher.NO_MATCH).apply {
             addURI(AUTHORITY, "a11y_tree", A11Y_TREE)
@@ -80,6 +81,7 @@ class DroidrunContentProvider : ContentProvider() {
             addURI(AUTHORITY, "triggers/runs", TRIGGERS_RUNS)
             addURI(AUTHORITY, "triggers/runs/delete", TRIGGERS_RUNS_DELETE)
             addURI(AUTHORITY, "triggers/runs/clear", TRIGGERS_RUNS_CLEAR)
+            addURI(AUTHORITY, "getclipboard", GETCLIPBOARD)
         }
     }
 
@@ -175,6 +177,7 @@ class DroidrunContentProvider : ContentProvider() {
                             )
 
                             PACKAGES -> handler.getPackages()
+                            GETCLIPBOARD -> handler.getClipboard()
                             else -> ApiResponse.Error("Unknown endpoint: ${uri.path}")
                         }
                     }

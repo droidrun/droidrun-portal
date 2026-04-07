@@ -127,6 +127,10 @@ class ActionDispatcher(
                 apiHandler.keyboardKey(keyCode)
             }
 
+            "clipboard/get" -> {
+                apiHandler.getClipboard()
+            }
+
             "overlay_offset", "overlay/offset" -> {
                 val offset = params.optInt("offset", 0)
                 apiHandler.setOverlayOffset(offset)

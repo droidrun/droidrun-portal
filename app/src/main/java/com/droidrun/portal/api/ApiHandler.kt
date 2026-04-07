@@ -390,6 +390,17 @@ class ApiHandler(
         return ApiResponse.Error("Unsupported key code: $keyCode (no unicode mapping and IME not available)")
     }
 
+    fun getClipboard(): ApiResponse {
+        val ime = getKeyboardIME()
+            ?: return ApiResponse.Error("clipboard/get requires DroidrunKeyboardIME to be active")
+        // Best-effort: request keyboard to show so Android treats this IME as active,
+        // which is required for clipboard access on Android 10+.
+        ime.requestKeyboardShow()
+        val text = ime.getClipboardText()
+            ?: return ApiResponse.Error("Clipboard is empty or access was denied")
+        return ApiResponse.Success(text)
+    }
+
     // Overlay
     fun setOverlayOffset(offset: Int): ApiResponse {
         return if (stateRepo.setOverlayOffset(offset)) {

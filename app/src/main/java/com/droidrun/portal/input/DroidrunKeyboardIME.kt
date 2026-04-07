@@ -2,6 +2,7 @@ package com.droidrun.portal.input
 
 import com.droidrun.portal.R
 
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.inputmethodservice.InputMethodService
@@ -138,6 +139,34 @@ class DroidrunKeyboardIME : InputMethodService() {
      */
     fun hasInputConnection(): Boolean {
         return currentInputConnection != null
+    }
+
+    /**
+     * Read the primary clipboard text. Requires the IME to be active (keyboard visible)
+     * so that Android permits clipboard access on API 29+.
+     * Returns null if the clipboard is empty or access is denied.
+     */
+    fun getClipboardText(): String? {
+        return try {
+            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+            cm?.primaryClip?.getItemAt(0)?.coerceToText(this)?.toString()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to read clipboard", e)
+            null
+        }
+    }
+
+    /**
+     * Request the IME to show itself (best-effort). This can help satisfy
+     * Android's foreground-IME requirement for clipboard access on API 29+.
+     */
+    fun requestKeyboardShow() {
+        try {
+            requestShowSelf(0)
+            Log.d(TAG, "requestShowSelf called")
+        } catch (e: Exception) {
+            Log.w(TAG, "requestShowSelf failed: ${e.message}")
+        }
     }
 
     override fun onCreateInputView(): View {
