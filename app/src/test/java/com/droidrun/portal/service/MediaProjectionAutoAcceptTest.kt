@@ -21,7 +21,10 @@ class MediaProjectionAutoAcceptTest {
         )
 
         assertEquals(MediaProjectionAutoAccept.DialogMode.INLINE_OPTIONS, decision.mode)
-        assertEquals(MediaProjectionAutoAccept.InlineSelection.ENTIRE_SCREEN_SELECTED, decision.selection)
+        assertEquals(
+            MediaProjectionAutoAccept.InlineSelection.ENTIRE_SCREEN_SELECTED,
+            decision.selection
+        )
         assertEquals(MediaProjectionAutoAccept.PlannedAction.CLICK_POSITIVE_BUTTON, decision.action)
         assertEquals(MediaProjectionAutoAccept.OptionTarget.NONE, decision.optionTarget)
     }
@@ -42,9 +45,18 @@ class MediaProjectionAutoAcceptTest {
         )
 
         assertEquals(MediaProjectionAutoAccept.DialogMode.INLINE_OPTIONS, decision.mode)
-        assertEquals(MediaProjectionAutoAccept.InlineSelection.SINGLE_APP_SELECTED, decision.selection)
-        assertEquals(MediaProjectionAutoAccept.PlannedAction.SELECT_INLINE_ENTIRE_SCREEN, decision.action)
-        assertEquals(MediaProjectionAutoAccept.OptionTarget.EXACT_ENTIRE_SCREEN, decision.optionTarget)
+        assertEquals(
+            MediaProjectionAutoAccept.InlineSelection.SINGLE_APP_SELECTED,
+            decision.selection
+        )
+        assertEquals(
+            MediaProjectionAutoAccept.PlannedAction.SELECT_INLINE_ENTIRE_SCREEN,
+            decision.action
+        )
+        assertEquals(
+            MediaProjectionAutoAccept.OptionTarget.EXACT_ENTIRE_SCREEN,
+            decision.optionTarget
+        )
     }
 
     @Test
@@ -64,8 +76,14 @@ class MediaProjectionAutoAcceptTest {
 
         assertEquals(MediaProjectionAutoAccept.DialogMode.INLINE_OPTIONS, decision.mode)
         assertEquals(MediaProjectionAutoAccept.InlineSelection.UNKNOWN, decision.selection)
-        assertEquals(MediaProjectionAutoAccept.PlannedAction.SELECT_INLINE_ENTIRE_SCREEN, decision.action)
-        assertEquals(MediaProjectionAutoAccept.OptionTarget.EXACT_ENTIRE_SCREEN, decision.optionTarget)
+        assertEquals(
+            MediaProjectionAutoAccept.PlannedAction.SELECT_INLINE_ENTIRE_SCREEN,
+            decision.action
+        )
+        assertEquals(
+            MediaProjectionAutoAccept.OptionTarget.EXACT_ENTIRE_SCREEN,
+            decision.optionTarget
+        )
     }
 
     @Test
@@ -82,9 +100,18 @@ class MediaProjectionAutoAcceptTest {
         )
 
         assertEquals(MediaProjectionAutoAccept.DialogMode.DROPDOWN, decision.mode)
-        assertEquals(MediaProjectionAutoAccept.InlineSelection.SINGLE_APP_SELECTED, decision.selection)
-        assertEquals(MediaProjectionAutoAccept.PlannedAction.SELECT_DROPDOWN_OPTION, decision.action)
-        assertEquals(MediaProjectionAutoAccept.OptionTarget.EXACT_ENTIRE_SCREEN, decision.optionTarget)
+        assertEquals(
+            MediaProjectionAutoAccept.InlineSelection.SINGLE_APP_SELECTED,
+            decision.selection
+        )
+        assertEquals(
+            MediaProjectionAutoAccept.PlannedAction.SELECT_DROPDOWN_OPTION,
+            decision.action
+        )
+        assertEquals(
+            MediaProjectionAutoAccept.OptionTarget.EXACT_ENTIRE_SCREEN,
+            decision.optionTarget
+        )
     }
 
     @Test
@@ -125,7 +152,10 @@ class MediaProjectionAutoAcceptTest {
 
         assertEquals(MediaProjectionAutoAccept.DialogMode.INLINE_OPTIONS, decision.mode)
         assertEquals(MediaProjectionAutoAccept.InlineSelection.UNKNOWN, decision.selection)
-        assertEquals(MediaProjectionAutoAccept.PlannedAction.SELECT_INLINE_ENTIRE_SCREEN, decision.action)
+        assertEquals(
+            MediaProjectionAutoAccept.PlannedAction.SELECT_INLINE_ENTIRE_SCREEN,
+            decision.action
+        )
         assertEquals(MediaProjectionAutoAccept.OptionTarget.SECOND_OPTION, decision.optionTarget)
     }
 
@@ -165,8 +195,14 @@ class MediaProjectionAutoAcceptTest {
 
         assertEquals(MediaProjectionAutoAccept.DialogMode.DROPDOWN, decision.mode)
         assertEquals(MediaProjectionAutoAccept.InlineSelection.UNKNOWN, decision.selection)
-        assertEquals(MediaProjectionAutoAccept.PlannedAction.SELECT_DROPDOWN_OPTION, decision.action)
-        assertEquals(MediaProjectionAutoAccept.OptionTarget.NON_SELECTED_OPTION, decision.optionTarget)
+        assertEquals(
+            MediaProjectionAutoAccept.PlannedAction.SELECT_DROPDOWN_OPTION,
+            decision.action
+        )
+        assertEquals(
+            MediaProjectionAutoAccept.OptionTarget.NON_SELECTED_OPTION,
+            decision.optionTarget
+        )
     }
 
     @Test
