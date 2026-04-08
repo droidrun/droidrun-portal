@@ -324,6 +324,36 @@ class MediaProjectionAutoAcceptTest {
     }
 
     @Test
+    fun allowsContinuationListFallback_withoutPendingContinuation_rejectsListOnlyFallback() {
+        val result = MediaProjectionAutoAccept.allowsContinuationListFallbackForTest(
+            hasPendingSpinnerTransaction = false,
+            hasPendingDropdownSettle = false,
+        )
+
+        assertEquals(false, result)
+    }
+
+    @Test
+    fun allowsContinuationListFallback_withPendingSpinner_allowsListOnlyFallback() {
+        val result = MediaProjectionAutoAccept.allowsContinuationListFallbackForTest(
+            hasPendingSpinnerTransaction = true,
+            hasPendingDropdownSettle = false,
+        )
+
+        assertEquals(true, result)
+    }
+
+    @Test
+    fun allowsContinuationListFallback_withPendingDropdownSettle_allowsListOnlyFallback() {
+        val result = MediaProjectionAutoAccept.allowsContinuationListFallbackForTest(
+            hasPendingSpinnerTransaction = false,
+            hasPendingDropdownSettle = true,
+        )
+
+        assertEquals(true, result)
+    }
+
+    @Test
     fun decideAction_pixelEnglishSpinnerAlreadyEntireScreenClicksPositive() {
         val decision = MediaProjectionAutoAccept.decideAction(
             decisionInput(

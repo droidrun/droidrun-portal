@@ -257,8 +257,11 @@ object MediaProjectionAutoAccept {
             now = now,
         )
         if (pendingInlineResult != null) {
-            positiveButton?.recycle()
-            recycleInlineOptionNodes(inlineOptionNodes)
+            recyclePendingBranchNodes(
+                positiveButton = positiveButton,
+                spinner = spinner,
+                inlineOptionNodes = inlineOptionNodes,
+            )
             return pendingInlineResult
         }
 
@@ -267,9 +270,11 @@ object MediaProjectionAutoAccept {
             now = now,
         )
         if (pendingSpinnerResult != null) {
-            positiveButton?.recycle()
-            recycleInlineOptionNodes(inlineOptionNodes)
-            spinner?.recycle()
+            recyclePendingBranchNodes(
+                positiveButton = positiveButton,
+                spinner = spinner,
+                inlineOptionNodes = inlineOptionNodes,
+            )
             return pendingSpinnerResult
         }
 
@@ -278,9 +283,11 @@ object MediaProjectionAutoAccept {
             now = now,
         )
         if (pendingDropdownSettleResult != null) {
-            positiveButton?.recycle()
-            recycleInlineOptionNodes(inlineOptionNodes)
-            spinner?.recycle()
+            recyclePendingBranchNodes(
+                positiveButton = positiveButton,
+                spinner = spinner,
+                inlineOptionNodes = inlineOptionNodes,
+            )
             return pendingDropdownSettleResult
         }
 
@@ -722,6 +729,18 @@ object MediaProjectionAutoAccept {
         node: AccessibilityNodeInfo,
         eventClassName: String?,
     ): Boolean {
+        val directSignal = hasDirectMediaProjectionSignal(node, eventClassName)
+        if (directSignal) {
+            return true
+        }
+
+        return isContinuationMediaProjectionOptionList(node)
+    }
+
+    private fun hasDirectMediaProjectionSignal(
+        node: AccessibilityNodeInfo,
+        eventClassName: String?,
+    ): Boolean {
         if (!eventClassName.isNullOrEmpty() &&
             eventClassName.contains(MEDIA_PROJECTION_ACTIVITY)
         ) {
@@ -737,10 +756,6 @@ object MediaProjectionAutoAccept {
         val shareModeNodes = node.findAccessibilityNodeInfosByViewId(SHARE_MODE_OPTIONS_VIEW_ID)
         if (shareModeNodes.isNotEmpty()) {
             shareModeNodes.forEach { it.recycle() }
-            return true
-        }
-
-        if (looksLikeMediaProjectionOptionList(node)) {
             return true
         }
 
@@ -771,6 +786,16 @@ object MediaProjectionAutoAccept {
         }
 
         return false
+    }
+
+    private fun isContinuationMediaProjectionOptionList(rootNode: AccessibilityNodeInfo): Boolean {
+        if (rootNode.packageName?.toString() != SYSTEM_UI_PACKAGE) {
+            return false
+        }
+        if (!allowsContinuationListFallback()) {
+            return false
+        }
+        return looksLikeMediaProjectionOptionList(rootNode)
     }
 
     private fun buildDialogSignals(rootNode: AccessibilityNodeInfo): DialogSignals {
@@ -970,6 +995,30 @@ object MediaProjectionAutoAccept {
         }
     }
 
+    internal fun allowsContinuationListFallbackForTest(
+        hasPendingSpinnerTransaction: Boolean,
+        hasPendingDropdownSettle: Boolean,
+    ): Boolean {
+        return allowsContinuationListFallback(
+            hasPendingSpinnerTransaction = hasPendingSpinnerTransaction,
+            hasPendingDropdownSettle = hasPendingDropdownSettle,
+        )
+    }
+
+    private fun allowsContinuationListFallback(): Boolean {
+        return allowsContinuationListFallback(
+            hasPendingSpinnerTransaction = hasPendingSpinnerTransaction(),
+            hasPendingDropdownSettle = hasPendingDropdownSettle(),
+        )
+    }
+
+    private fun allowsContinuationListFallback(
+        hasPendingSpinnerTransaction: Boolean,
+        hasPendingDropdownSettle: Boolean,
+    ): Boolean {
+        return hasPendingSpinnerTransaction || hasPendingDropdownSettle
+    }
+
     internal fun resolveOptionTargetForTest(
         optionSnapshots: List<InlineOptionSnapshot>,
         pendingStrategy: PendingSpinnerStrategy = PendingSpinnerStrategy.GENERIC,
@@ -1066,6 +1115,16 @@ object MediaProjectionAutoAccept {
         if (pendingInlineSelectionWindowId != null && pendingInlineSelectionWindowId != windowId) {
             clearPendingInlineSelection()
         }
+    }
+
+    private fun recyclePendingBranchNodes(
+        positiveButton: AccessibilityNodeInfo?,
+        spinner: AccessibilityNodeInfo?,
+        inlineOptionNodes: List<InlineOptionNode>,
+    ) {
+        positiveButton?.recycle()
+        spinner?.recycle()
+        recycleInlineOptionNodes(inlineOptionNodes)
     }
 
     private fun clearTransientState() {
