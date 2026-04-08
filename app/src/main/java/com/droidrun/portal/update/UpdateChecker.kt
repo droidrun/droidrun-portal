@@ -8,7 +8,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageInstaller
 import android.net.Uri
-import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import android.util.Log
@@ -33,6 +32,7 @@ object UpdateChecker {
     const val CACHED_APK_FILENAME = "portal-update.apk"
     private const val NOTIFICATION_CHANNEL_ID = "update_channel"
     private const val NOTIFICATION_ID = 5001
+    private const val INVALID_VERSION = "0.0.0"
     private const val USER_AGENT = "droidrun-portal"
 
     private val client by lazy {
@@ -100,9 +100,10 @@ object UpdateChecker {
 
     fun getCurrentVersion(context: Context): String {
         return try {
-            context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "0.0.0"
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName
+                ?: INVALID_VERSION
         } catch (e: Exception) {
-            "0.0.0"
+            INVALID_VERSION
         }
     }
 
@@ -267,14 +268,12 @@ object UpdateChecker {
 
             val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val channel = NotificationChannel(
-                    NOTIFICATION_CHANNEL_ID,
-                    "App Updates",
-                    NotificationManager.IMPORTANCE_DEFAULT,
-                )
-                nm.createNotificationChannel(channel)
-            }
+            val channel = NotificationChannel(
+                NOTIFICATION_CHANNEL_ID,
+                "App Updates",
+                NotificationManager.IMPORTANCE_DEFAULT,
+            )
+            nm.createNotificationChannel(channel)
 
             val intent = Intent(context, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP

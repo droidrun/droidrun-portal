@@ -36,12 +36,15 @@ import com.droidrun.portal.update.UpdateChecker
 import com.droidrun.portal.update.UpdateInfo
 import com.droidrun.portal.update.UpdateInstallReceiver
 import java.text.NumberFormat
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
 
     private lateinit var configManager: ConfigManager
     private lateinit var binding: ActivitySettingsBinding
     private val portalCloudClient = PortalCloudClient()
+    private val executor: ExecutorService = Executors.newSingleThreadExecutor()
     private var suppressSocketServerSwitchCallback = false
     private var suppressWebSocketSwitchCallback = false
 
@@ -58,10 +61,10 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
     ) { isGranted ->
         binding.switchPostNotifications.isChecked = isGranted
         if (isGranted) {
-            android.widget.Toast.makeText(
+            Toast.makeText(
                 this,
                 "Notification permission granted",
-                android.widget.Toast.LENGTH_SHORT
+                Toast.LENGTH_SHORT
             ).show()
         }
     }
@@ -131,6 +134,11 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
             try { unregisterReceiver(signatureConflictReceiver) } catch (_: Exception) {}
             isSignatureConflictReceiverRegistered = false
         }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        executor.shutdownNow()
     }
 
     private fun setupDevMode() {
@@ -269,16 +277,16 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
             try {
                 val intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
                 startActivity(intent)
-                android.widget.Toast.makeText(
+                Toast.makeText(
                     this,
                     "Please grant Notification Access to Droidrun Portal",
-                    android.widget.Toast.LENGTH_LONG
+                    Toast.LENGTH_LONG
                 ).show()
             } catch (e: Exception) {
-                android.widget.Toast.makeText(
+                Toast.makeText(
                     this,
                     "Error opening settings",
-                    android.widget.Toast.LENGTH_SHORT
+                    Toast.LENGTH_SHORT
                 ).show()
             }
             // Revert visual state until onResume confirms change
@@ -357,7 +365,7 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
             binding.btnCheckUpdates.isEnabled = false
             binding.btnCheckUpdates.text = getString(R.string.update_checking)
 
-            Thread {
+            executor.execute {
                 val info = UpdateChecker.checkForUpdate(this)
                 runOnUiThread {
                     if (isFinishing || isDestroyed) return@runOnUiThread
@@ -375,7 +383,7 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
                         showUpdateAvailableDialog(info)
                     }
                 }
-            }.start()
+            }
         }
     }
 
@@ -388,9 +396,9 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
             .setMessage(getString(R.string.update_signature_mismatch_message))
             .setPositiveButton(getString(R.string.update_uninstall)) { _, _ ->
                 try {
-                    val intent = android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                         data = Uri.fromParts("package", packageName, null)
-                        addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     }
                     startActivity(intent)
                 } catch (e: Exception) {
@@ -422,7 +430,7 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         binding.btnCheckUpdates.isEnabled = false
         binding.btnCheckUpdates.text = getString(R.string.update_downloading)
 
-        Thread {
+        executor.execute {
             UpdateChecker.downloadAndInstall(
                 context = this,
                 downloadUrl = info.downloadUrl,
@@ -442,7 +450,7 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
                     }
                 },
             )
-        }.start()
+        }
     }
 
     private fun setupResetButton() {
@@ -460,10 +468,10 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
                     TriggerRepository.getInstance(this).clearAll()
                     ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
 
-                    android.widget.Toast.makeText(
+                    Toast.makeText(
                         this,
                         "Settings reset to defaults",
-                        android.widget.Toast.LENGTH_SHORT,
+                        Toast.LENGTH_SHORT,
                     ).show()
 
                     val intent = Intent(this, SettingsActivity::class.java)
@@ -547,13 +555,13 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         val info = if (cloudBaseUrl != null) creditsState.info else null
         val balanceLine = info?.let {
             getString(
-                com.droidrun.portal.R.string.credits_balance_line,
+                R.string.credits_balance_line,
                 formatCreditsCount(info.balance),
             )
         }?.takeIf { it.isNotBlank() }
         val usageLine = info?.let {
             getString(
-                com.droidrun.portal.R.string.credits_usage_line,
+                R.string.credits_usage_line,
                 formatCreditsCount(info.usage),
             )
         }?.takeIf { it.isNotBlank() }
@@ -564,9 +572,9 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         binding.cardCreditsMetricsSettings.visibility = if (hasMetrics) View.VISIBLE else View.GONE
 
         val message = when {
-            cloudBaseUrl == null -> getString(com.droidrun.portal.R.string.credits_unsupported_host)
-            creditsState.isLoading && hasMetrics -> getString(com.droidrun.portal.R.string.credits_refreshing)
-            creditsState.isLoading -> getString(com.droidrun.portal.R.string.credits_loading)
+            cloudBaseUrl == null -> getString(R.string.credits_unsupported_host)
+            creditsState.isLoading && hasMetrics -> getString(R.string.credits_refreshing)
+            creditsState.isLoading -> getString(R.string.credits_loading)
             !creditsState.message.isNullOrBlank() -> creditsState.message
             else -> null
         }

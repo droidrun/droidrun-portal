@@ -56,7 +56,6 @@ import androidx.core.content.ContextCompat
 
 import android.content.BroadcastReceiver
 import android.content.IntentFilter
-import com.droidrun.portal.BuildConfig
 import com.droidrun.portal.R
 import com.droidrun.portal.api.ApiHandler
 import com.droidrun.portal.update.UpdateChecker
@@ -65,6 +64,8 @@ import com.droidrun.portal.update.UpdateInstallReceiver
 import com.google.android.material.snackbar.Snackbar
 import com.google.android.material.textfield.TextInputEditText
 import java.text.NumberFormat
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 import androidx.core.net.toUri
 
 class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
@@ -79,6 +80,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
     private var isProgrammaticUpdate = false
     private var pendingUpdateInfo: UpdateInfo? = null
     private var updateCheckDoneThisSession = false
+    private val updateExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private var isInstallReceiverRegistered = false
     private lateinit var taskPromptCardController: TaskPromptCardController
     private val portalCloudClient = PortalCloudClient()
@@ -307,6 +309,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
     override fun onDestroy() {
         stopTaskPromptPolling()
         unregisterTaskPromptStateReceiver()
+        updateExecutor.shutdownNow()
         super.onDestroy()
         ConfigManager.getInstance(this).removeListener(this)
     }
@@ -2074,21 +2077,6 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             binding.versionText.text = "Version: N/A"
         }
 
-        // Long-press version text to simulate an update (debug builds only)
-        if (BuildConfig.DEBUG) {
-            binding.versionText.setOnLongClickListener {
-                val simulatedInfo = UpdateInfo(
-                    latestVersion = "99.0.0",
-                    downloadUrl = "https://github.com/droidrun/droidrun-portal/releases/download/v0.6.1/com.droidrun.portal-0.6.1-debug.apk",
-                )
-                pendingUpdateInfo = simulatedInfo
-                binding.updateBannerText.text =
-                    getString(R.string.update_available_version, simulatedInfo.latestVersion)
-                binding.updateBanner.visibility = View.VISIBLE
-                Toast.makeText(this, "Simulating update banner", Toast.LENGTH_SHORT).show()
-                true
-            }
-        }
     }
 
     private fun checkForUpdates() {
@@ -2096,7 +2084,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         if (updateCheckDoneThisSession) return
         updateCheckDoneThisSession = true
 
-        Thread {
+        updateExecutor.execute {
             val info = UpdateChecker.checkForUpdate(this)
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
@@ -2110,14 +2098,14 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
                     binding.updateBanner.visibility = View.GONE
                 }
             }
-        }.start()
+        }
     }
 
     private fun triggerUpdate(info: UpdateInfo) {
         binding.btnUpdate.isEnabled = false
         binding.btnUpdate.text = getString(R.string.update_downloading)
 
-        Thread {
+        updateExecutor.execute {
             UpdateChecker.downloadAndInstall(
                 context = this,
                 downloadUrl = info.downloadUrl,
@@ -2137,7 +2125,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
                     }
                 },
             )
-        }.start()
+        }
     }
 
     private fun showSignatureConflictDialog() {
@@ -2149,7 +2137,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             .setMessage(getString(R.string.update_signature_mismatch_message))
             .setPositiveButton(getString(R.string.update_uninstall)) { _, _ ->
                 try {
-                    val settingsIntent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    val settingsIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
                         data = Uri.fromParts("package", packageName, null)
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     }

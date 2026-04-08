@@ -22,7 +22,7 @@ class UpdateCheckerTest {
     }
 
     @Test
-    fun sameVersion_returnsFalse() {
+    fun sameVersion_isNotNewer() {
         assertFalse(UpdateChecker.isNewerVersion("0.6.1", "0.6.1"))
     }
 
@@ -43,8 +43,8 @@ class UpdateCheckerTest {
     }
 
     @Test
-    fun currentHasMoreSegments_handledCorrectly() {
-        // "1.0.0" is NOT newer than "1.0.0.1"
+    fun shorterLatest_isNotNewerThanLongerCurrent() {
+        // "1.0.0" is NOT newer than "1.0.0.1" — the extra segment makes current newer
         assertFalse(UpdateChecker.isNewerVersion("1.0.0", "1.0.0.1"))
     }
 
@@ -60,7 +60,15 @@ class UpdateCheckerTest {
     }
 
     @Test
-    fun emptyCurrent_treatedAsZeroAndLatestNewer() {
+    fun emptyCurrent_treatedAsZeroSoAnyVersionIsNewer() {
+        // Empty string splits to [""], toIntOrNull returns null → treated as [0]
+        // So "1.0.0" > "0" → true (any valid version is newer than unknown)
         assertTrue(UpdateChecker.isNewerVersion("1.0.0", ""))
+    }
+
+    @Test
+    fun emptyBoth_neitherIsNewer() {
+        // Both empty → both treated as [0] → equal → not newer
+        assertFalse(UpdateChecker.isNewerVersion("", ""))
     }
 }
