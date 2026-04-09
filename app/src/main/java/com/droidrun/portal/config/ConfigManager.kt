@@ -21,6 +21,7 @@ class ConfigManager private constructor(private val context: Context) {
     companion object {
         private const val PREFS_NAME = "droidrun_config"
         private const val DEVICE_PREFS_NAME = "droidrun_device"
+        private const val SECRET_PREFS_NAME = "droidrun_secrets"
         private const val KEY_OVERLAY_VISIBLE = "overlay_visible"
         private const val KEY_OVERLAY_OFFSET = "overlay_offset"
         private const val KEY_AUTO_OFFSET_ENABLED = "auto_offset_enabled"
@@ -62,6 +63,7 @@ class ConfigManager private constructor(private val context: Context) {
         private const val PREFIX_EVENT_ENABLED = "event_enabled_"
         private const val KEY_AUTH_TOKEN = "auth_token"
         private const val KEY_DEVICE_ID = "device_id"
+        private const val KEY_BROWSER_AUTH_PENDING_UNTIL_MS = "browser_auth_pending_until_ms"
         private const val DEVICE_ID_PLACEHOLDER = "{deviceId}"
 
         private const val DEFAULT_OFFSET = 0
@@ -87,7 +89,11 @@ class ConfigManager private constructor(private val context: Context) {
     private val devicePrefs: SharedPreferences =
         context.getSharedPreferences(DEVICE_PREFS_NAME, Context.MODE_PRIVATE)
 
+    private val secretsPrefs: SharedPreferences =
+        context.getSharedPreferences(SECRET_PREFS_NAME, Context.MODE_PRIVATE)
+
     init {
+        migrateSecretPrefsIfNeeded()
         if (sharedPrefs.contains(KEY_REVERSE_CONNECTION_ENABLED)) {
             sharedPrefs.edit { putBoolean(KEY_REVERSE_CONNECTION_ENABLED, false) }
         }
@@ -98,10 +104,10 @@ class ConfigManager private constructor(private val context: Context) {
     // TODO add external injection from some config file
     val authToken: String
         get() {
-            var token = sharedPrefs.getString(KEY_AUTH_TOKEN, null)
+            var token = secretsPrefs.getString(KEY_AUTH_TOKEN, null)
             if (token == null) {
                 token = java.util.UUID.randomUUID().toString()
-                sharedPrefs.edit { putString(KEY_AUTH_TOKEN, token) }
+                secretsPrefs.edit { putString(KEY_AUTH_TOKEN, token) }
             }
             return token
         }
@@ -204,16 +210,16 @@ class ConfigManager private constructor(private val context: Context) {
 
     // Reverse Connection Token (Optional, for authenticating with Host/Cloud)
     var reverseConnectionToken: String
-        get() = sharedPrefs.getString(KEY_REVERSE_CONNECTION_TOKEN, "") ?: ""
+        get() = secretsPrefs.getString(KEY_REVERSE_CONNECTION_TOKEN, "") ?: ""
         set(value) {
-            sharedPrefs.edit { putString(KEY_REVERSE_CONNECTION_TOKEN, value) }
+            secretsPrefs.edit { putString(KEY_REVERSE_CONNECTION_TOKEN, value) }
         }
 
     // Reverse Connection Service Key (Header: X-Remote-Device-Key)
     var reverseConnectionServiceKey: String
-        get() = sharedPrefs.getString(KEY_REVERSE_CONNECTION_SERVICE_KEY, "") ?: ""
+        get() = secretsPrefs.getString(KEY_REVERSE_CONNECTION_SERVICE_KEY, "") ?: ""
         set(value) {
-            sharedPrefs.edit { putString(KEY_REVERSE_CONNECTION_SERVICE_KEY, value) }
+            secretsPrefs.edit { putString(KEY_REVERSE_CONNECTION_SERVICE_KEY, value) }
         }
 
     var productionMode: Boolean
@@ -285,6 +291,23 @@ class ConfigManager private constructor(private val context: Context) {
             sharedPrefs.edit { putBoolean("screen_share_auto_accept_enabled", value) }
         }
 
+    fun markBrowserAuthPending(
+        nowMs: Long = System.currentTimeMillis(),
+        ttlMs: Long = 10 * 60 * 1000L,
+    ) {
+        sharedPrefs.edit {
+            putLong(KEY_BROWSER_AUTH_PENDING_UNTIL_MS, nowMs + ttlMs.coerceAtLeast(0L))
+        }
+    }
+
+    fun isBrowserAuthPending(nowMs: Long = System.currentTimeMillis()): Boolean {
+        return sharedPrefs.getLong(KEY_BROWSER_AUTH_PENDING_UNTIL_MS, 0L) > nowMs
+    }
+
+    fun clearBrowserAuthPending() {
+        sharedPrefs.edit { remove(KEY_BROWSER_AUTH_PENDING_UNTIL_MS) }
+    }
+
     var installAutoAcceptEnabled: Boolean
         get() = sharedPrefs.getBoolean(KEY_INSTALL_AUTO_ACCEPT_ENABLED, false)
         set(value) {
@@ -321,6 +344,21 @@ class ConfigManager private constructor(private val context: Context) {
         get() = taskPromptModel.takeIf { it.isNotBlank() }
             ?: taskPromptDefaultModel.takeIf { it.isNotBlank() }
             ?: PortalCloudClient.DEFAULT_MODEL_ID
+
+    private fun migrateSecretPrefsIfNeeded() {
+        migrateSecretKey(KEY_AUTH_TOKEN)
+        migrateSecretKey(KEY_REVERSE_CONNECTION_TOKEN)
+        migrateSecretKey(KEY_REVERSE_CONNECTION_SERVICE_KEY)
+    }
+
+    private fun migrateSecretKey(key: String) {
+        if (secretsPrefs.contains(key)) {
+            return
+        }
+        val legacyValue = sharedPrefs.getString(key, null) ?: return
+        secretsPrefs.edit { putString(key, legacyValue) }
+        sharedPrefs.edit { remove(key) }
+    }
 
     var taskPromptReasoning: Boolean
         get() = sharedPrefs.getBoolean(

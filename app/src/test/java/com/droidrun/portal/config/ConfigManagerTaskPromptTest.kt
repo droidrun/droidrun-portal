@@ -13,6 +13,7 @@ import io.mockk.mockk
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.lang.reflect.Modifier
@@ -22,13 +23,15 @@ class ConfigManagerTaskPromptTest {
     private lateinit var context: Context
     private lateinit var sharedStore: MutableMap<String, Any?>
     private lateinit var deviceStore: MutableMap<String, Any?>
+    private lateinit var secretsStore: MutableMap<String, Any?>
 
     @Before
     fun setUp() {
         clearSingleton()
         sharedStore = mutableMapOf()
         deviceStore = mutableMapOf()
-        context = mockContext(sharedStore, deviceStore)
+        secretsStore = mutableMapOf()
+        context = mockContext(sharedStore, deviceStore, secretsStore)
     }
 
     @After
@@ -150,13 +153,51 @@ class ConfigManagerTaskPromptTest {
         assertEquals(true, restored.terminalTransitionHandled)
     }
 
+    @Test
+    fun secretPrefs_migrateLegacyValuesOutOfMainConfigStore() {
+        sharedStore["auth_token"] = "legacy-auth"
+        sharedStore["reverse_connection_token"] = "legacy-reverse-token"
+        sharedStore["reverse_connection_service_key"] = "legacy-service-key"
+
+        val configManager = ConfigManager.getInstance(context)
+
+        assertEquals("legacy-auth", configManager.authToken)
+        assertEquals("legacy-reverse-token", configManager.reverseConnectionToken)
+        assertEquals("legacy-service-key", configManager.reverseConnectionServiceKey)
+        assertEquals("legacy-auth", secretsStore["auth_token"])
+        assertEquals("legacy-reverse-token", secretsStore["reverse_connection_token"])
+        assertEquals("legacy-service-key", secretsStore["reverse_connection_service_key"])
+        assertFalse(sharedStore.containsKey("auth_token"))
+        assertFalse(sharedStore.containsKey("reverse_connection_token"))
+        assertFalse(sharedStore.containsKey("reverse_connection_service_key"))
+    }
+
+    @Test
+    fun browserAuthPendingWindow_isTimeBoundAndClearable() {
+        val configManager = ConfigManager.getInstance(context)
+
+        assertFalse(configManager.isBrowserAuthPending(nowMs = 1_000L))
+
+        configManager.markBrowserAuthPending(nowMs = 1_000L, ttlMs = 600_000L)
+
+        assertTrue(configManager.isBrowserAuthPending(nowMs = 600_999L))
+        assertFalse(configManager.isBrowserAuthPending(nowMs = 601_000L))
+
+        configManager.markBrowserAuthPending(nowMs = 2_000L, ttlMs = 600_000L)
+        configManager.clearBrowserAuthPending()
+
+        assertFalse(configManager.isBrowserAuthPending(nowMs = 2_001L))
+    }
+
     private fun mockContext(
         sharedPrefsStore: MutableMap<String, Any?>,
         devicePrefsStore: MutableMap<String, Any?>,
+        secretsPrefsStore: MutableMap<String, Any?>,
     ): Context {
         val context = mockk<Context>(relaxed = true)
         val sharedPrefs = mockPreferences(sharedPrefsStore)
         val devicePrefs = mockPreferences(devicePrefsStore)
+        val secretsPrefs = mockPreferences(secretsPrefsStore)
 
         every { context.applicationContext } returns context
         every {
@@ -165,6 +206,9 @@ class ConfigManagerTaskPromptTest {
         every {
             context.getSharedPreferences("droidrun_device", Context.MODE_PRIVATE)
         } returns devicePrefs
+        every {
+            context.getSharedPreferences("droidrun_secrets", Context.MODE_PRIVATE)
+        } returns secretsPrefs
 
         return context
     }

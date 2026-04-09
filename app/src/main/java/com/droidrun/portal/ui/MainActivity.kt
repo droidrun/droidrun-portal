@@ -30,6 +30,7 @@ import androidx.appcompat.app.AlertDialog
 import android.content.ClipboardManager
 import com.droidrun.portal.databinding.ActivityMainBinding
 import com.droidrun.portal.taskprompt.PortalActiveTaskRecord
+import com.droidrun.portal.taskprompt.PortalAuthCallbackValidator
 import com.droidrun.portal.taskprompt.PortalBalanceCacheState
 import com.droidrun.portal.taskprompt.PortalCloudClient
 import com.droidrun.portal.taskprompt.PortalModelOption
@@ -2078,11 +2079,13 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         val deviceId = configManager.deviceID
         val forceLogin = if (configManager.forceLoginOnNextConnect) "&force_login=true" else ""
         configManager.forceLoginOnNextConnect = false
+        configManager.markBrowserAuthPending(ttlMs = PortalAuthCallbackValidator.PENDING_WINDOW_MS)
         val url = "https://cloud.mobilerun.ai/auth/device?deviceId=$deviceId$forceLogin"
         try {
             val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
             startActivity(intent)
         } catch (e: Exception) {
+            configManager.clearBrowserAuthPending()
             Toast.makeText(this, "Could not open browser", Toast.LENGTH_SHORT).show()
         }
     }
@@ -2091,21 +2094,27 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         try {
             val data: Uri? = intent?.data
             if (data != null && data.scheme == "droidrun" && data.host == "auth-callback") {
-                val token = data.getQueryParameter("token")
-                val url = data.getQueryParameter("url")
+                val configManager = ConfigManager.getInstance(this)
+                val validationResult = PortalAuthCallbackValidator.validate(
+                    token = data.getQueryParameter("token"),
+                    reverseConnectionUrl = data.getQueryParameter("url"),
+                    authPending = configManager.isBrowserAuthPending(),
+                    defaultReverseConnectionUrl = configManager.defaultReverseConnectionUrl,
+                )
+                configManager.clearBrowserAuthPending()
 
-                if (!token.isNullOrEmpty() && !url.isNullOrEmpty()) {
-                    val sanitizedToken = sanitizeToken(token)
-                    val configManager = ConfigManager.getInstance(this)
-                    configManager.reverseConnectionToken = sanitizedToken
-                    configManager.reverseConnectionUrl = url
+                if (validationResult is PortalAuthCallbackValidator.Result.Accepted) {
+                    configManager.reverseConnectionToken = validationResult.sanitizedToken
+                    configManager.reverseConnectionUrl = validationResult.reverseConnectionUrl
                     configManager.reverseConnectionEnabled = true
                     configManager.forceLoginOnNextConnect = false
                     restartReverseConnectionService()
                     refreshCreditsBalance(force = true)
                 } else {
-                    Toast.makeText(this, "Invalid connection data received", Toast.LENGTH_LONG)
-                        .show()
+                    val message =
+                        (validationResult as PortalAuthCallbackValidator.Result.Rejected).message
+                    Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+                    Log.w("DROIDRUN_MAIN", "Rejected auth callback: $message")
                 }
             }
         } catch (e: Exception) {
