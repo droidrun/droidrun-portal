@@ -142,6 +142,26 @@ class DroidrunKeyboardIME : InputMethodService() {
     }
 
     /**
+     * Set the primary clipboard text via the IME context.
+     * Using the IME context is more reliable on Android 10+ where background
+     * app contexts may face clipboard read/write restrictions.
+     * Returns true on success, false on failure.
+     */
+    fun setClipboardText(text: String): Boolean {
+        return try {
+            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                ?: return false
+            val clip = android.content.ClipData.newPlainText("text", text)
+            cm.setPrimaryClip(clip)
+            Log.d(TAG, "Clipboard set via IME context")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to set clipboard via IME", e)
+            false
+        }
+    }
+
+    /**
      * Read the primary clipboard text. Requires the IME to be active (keyboard visible)
      * so that Android permits clipboard access on API 29+.
      * Returns null if the clipboard is empty or access is denied.
