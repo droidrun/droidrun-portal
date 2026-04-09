@@ -127,6 +127,42 @@ class KeepAliveControllerTest {
     }
 
     @Test
+    fun reconcile_startsRuntimeWhenEnabled() {
+        keepScreenAwakeEnabled = true
+
+        KeepAliveController.reconcile(context)
+
+        verify(exactly = 1) { KeepAliveServiceRuntime.start(context) }
+        verify(exactly = 0) { KeepAliveServiceRuntime.stop(any()) }
+    }
+
+    @Test
+    fun reconcile_stopsRuntimeWhenDisabled() {
+        keepScreenAwakeEnabled = false
+
+        KeepAliveController.reconcile(context)
+
+        verify(exactly = 0) { KeepAliveServiceRuntime.start(any()) }
+        verify(exactly = 1) { KeepAliveServiceRuntime.stop(context) }
+    }
+
+    @Test
+    fun reconcileBestEffort_doesNotThrowOrMutateStateWhenStartupIsDeferred() {
+        keepScreenAwakeEnabled = true
+        every { KeepAliveServiceRuntime.start(any()) } throws
+            KeepAliveStartupException("foreground_service_start_not_allowed")
+
+        val result = KeepAliveController.reconcileBestEffort(context)
+
+        assertEquals("foreground_service_start_not_allowed", result.deferredReason)
+        assertTrue(keepScreenAwakeEnabled)
+        verify(exactly = 1) { KeepAliveServiceRuntime.start(context) }
+        verify(exactly = 0) { configManager.clearKeepAliveRuntimeState() }
+        verify(exactly = 0) { configManager.setKeepScreenAwakeEnabledWithNotification(false) }
+        verify(exactly = 0) { KeepAliveServiceRuntime.stop(any()) }
+    }
+
+    @Test
     fun setDegradedReason_updatesConfig() {
         KeepAliveController.setDegradedReason(context, "recovery_throttled")
 

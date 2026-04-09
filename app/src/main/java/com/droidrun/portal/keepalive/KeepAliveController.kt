@@ -7,6 +7,10 @@ import com.droidrun.portal.config.ConfigManager
 import org.json.JSONObject
 
 object KeepAliveController {
+    data class BestEffortReconcileResult(
+        val deferredReason: String? = null,
+    )
+
     fun setEnabled(context: Context, enabled: Boolean) {
         if (enabled) {
             enable(context)
@@ -47,6 +51,15 @@ object KeepAliveController {
             KeepAliveServiceRuntime.start(appContext)
         } else {
             KeepAliveServiceRuntime.stop(appContext)
+        }
+    }
+
+    fun reconcileBestEffort(context: Context): BestEffortReconcileResult {
+        return try {
+            reconcile(context)
+            BestEffortReconcileResult()
+        } catch (e: KeepAliveStartupException) {
+            BestEffortReconcileResult(deferredReason = e.reason)
         }
     }
 

@@ -235,7 +235,13 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
 
         startSocketServerIfEnabled()
         startWebSocketServerIfEnabled()
-        KeepAliveController.reconcile(this)
+        val keepAliveReconcileResult = KeepAliveController.reconcileBestEffort(this)
+        keepAliveReconcileResult.deferredReason?.let { reason ->
+            Log.w(
+                TAG,
+                "Deferred keep-awake reconcile during accessibility startup: $reason",
+            )
+        }
 
         Log.d(TAG, "Accessibility service connected and configured")
     }
