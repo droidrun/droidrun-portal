@@ -105,11 +105,13 @@ class ConfigManagerTaskPromptTest {
         configManager.keepAliveConsecutiveRecoveryFailures = 3
         configManager.keepAliveDegradedReason = "wake_lock_failed"
         configManager.keepAliveActiveRecoveryToken = 77L
+        configManager.keepAliveRecoveryOwnerSessionId = "session-a"
         configManager.keepAliveRecoveryActivityInFlight = true
         configManager.saveKeepAlivePendingRecoveryResult(
             token = 77L,
             success = false,
             reason = "dismiss_cancelled",
+            completedAtMs = 1300L,
         )
 
         configManager.clearKeepAliveRuntimeState()
@@ -119,10 +121,12 @@ class ConfigManagerTaskPromptTest {
         assertEquals(0, configManager.keepAliveConsecutiveRecoveryFailures)
         assertEquals(null, configManager.keepAliveDegradedReason)
         assertEquals(0L, configManager.keepAliveActiveRecoveryToken)
+        assertEquals(null, configManager.keepAliveRecoveryOwnerSessionId)
         assertFalse(configManager.keepAliveRecoveryActivityInFlight)
         assertEquals(0L, configManager.keepAlivePendingRecoveryResultToken)
         assertFalse(configManager.keepAlivePendingRecoveryResultSuccess)
         assertEquals(null, configManager.keepAlivePendingRecoveryResultReason)
+        assertEquals(0L, configManager.keepAlivePendingRecoveryResultAtMs)
     }
 
     @Test
@@ -142,21 +146,25 @@ class ConfigManagerTaskPromptTest {
     fun keepAliveRecoveryHandoffState_persistsAcrossProcessRestart() {
         val initial = ConfigManager.getInstance(context)
         initial.keepAliveActiveRecoveryToken = 81L
+        initial.keepAliveRecoveryOwnerSessionId = "session-a"
         initial.keepAliveRecoveryActivityInFlight = true
         initial.saveKeepAlivePendingRecoveryResult(
             token = 81L,
             success = true,
             reason = null,
+            completedAtMs = 999L,
         )
 
         clearSingleton()
 
         val restored = ConfigManager.getInstance(context)
         assertEquals(81L, restored.keepAliveActiveRecoveryToken)
+        assertEquals("session-a", restored.keepAliveRecoveryOwnerSessionId)
         assertTrue(restored.keepAliveRecoveryActivityInFlight)
         assertEquals(81L, restored.keepAlivePendingRecoveryResultToken)
         assertTrue(restored.keepAlivePendingRecoveryResultSuccess)
         assertEquals(null, restored.keepAlivePendingRecoveryResultReason)
+        assertEquals(999L, restored.keepAlivePendingRecoveryResultAtMs)
     }
 
     @Test

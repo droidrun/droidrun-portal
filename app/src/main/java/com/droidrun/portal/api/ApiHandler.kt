@@ -2009,7 +2009,7 @@ class ApiHandler(
     fun setScreenKeepAwakeEnabled(enabled: Boolean): ApiResponse {
         return try {
             KeepAliveController.setEnabled(context, enabled)
-            ApiResponse.RawObject(KeepAliveController.getStatusJson(context))
+            ApiResponse.RawObject(KeepAliveController.getMutationResultStatusJson(context, enabled))
         } catch (e: KeepAliveStartupException) {
             ApiResponse.Error(e.reason)
         }

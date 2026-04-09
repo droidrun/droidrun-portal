@@ -36,6 +36,8 @@ class KeepAliveRecoveryHandoffPolicyTest {
         val decision =
             KeepAliveRecoveryHandoffPolicy.handoffDecision(
                 activeRecoveryToken = 41L,
+                ownerSessionId = "old-session",
+                currentSessionId = "new-session",
                 recoveryActivityInFlight = true,
                 pendingRecoveryResultToken = 41L,
                 lastRecoveryAttemptAtMs = 1_000L,
@@ -52,6 +54,8 @@ class KeepAliveRecoveryHandoffPolicyTest {
         val decision =
             KeepAliveRecoveryHandoffPolicy.handoffDecision(
                 activeRecoveryToken = 55L,
+                ownerSessionId = "session-a",
+                currentSessionId = "session-a",
                 recoveryActivityInFlight = true,
                 pendingRecoveryResultToken = 0L,
                 lastRecoveryAttemptAtMs = 1_000L,
@@ -68,6 +72,8 @@ class KeepAliveRecoveryHandoffPolicyTest {
         val decision =
             KeepAliveRecoveryHandoffPolicy.handoffDecision(
                 activeRecoveryToken = 73L,
+                ownerSessionId = "session-a",
+                currentSessionId = "session-a",
                 recoveryActivityInFlight = true,
                 pendingRecoveryResultToken = 0L,
                 lastRecoveryAttemptAtMs = 1_000L,
@@ -84,8 +90,46 @@ class KeepAliveRecoveryHandoffPolicyTest {
         val decision =
             KeepAliveRecoveryHandoffPolicy.handoffDecision(
                 activeRecoveryToken = 0L,
+                ownerSessionId = "session-a",
+                currentSessionId = "session-a",
                 recoveryActivityInFlight = true,
                 pendingRecoveryResultToken = 88L,
+                lastRecoveryAttemptAtMs = 1_000L,
+                nowMs = 2_000L,
+            )
+
+        assertFalse(decision.shouldConsumePendingResult)
+        assertFalse(decision.shouldSuppressRecoveryEvaluation)
+        assertTrue(decision.shouldClearHandoffState)
+    }
+
+    @Test
+    fun handoffDecision_clearsImmediatelyWhenOwnerSessionDiffersWithoutPendingResult() {
+        val decision =
+            KeepAliveRecoveryHandoffPolicy.handoffDecision(
+                activeRecoveryToken = 91L,
+                ownerSessionId = "session-a",
+                currentSessionId = "session-b",
+                recoveryActivityInFlight = true,
+                pendingRecoveryResultToken = 0L,
+                lastRecoveryAttemptAtMs = 1_000L,
+                nowMs = 2_000L,
+            )
+
+        assertFalse(decision.shouldConsumePendingResult)
+        assertFalse(decision.shouldSuppressRecoveryEvaluation)
+        assertTrue(decision.shouldClearHandoffState)
+    }
+
+    @Test
+    fun handoffDecision_clearsImmediatelyWhenNoActivityIsInFlightAndNoPendingResultExists() {
+        val decision =
+            KeepAliveRecoveryHandoffPolicy.handoffDecision(
+                activeRecoveryToken = 92L,
+                ownerSessionId = "session-a",
+                currentSessionId = "session-a",
+                recoveryActivityInFlight = false,
+                pendingRecoveryResultToken = 0L,
                 lastRecoveryAttemptAtMs = 1_000L,
                 nowMs = 2_000L,
             )

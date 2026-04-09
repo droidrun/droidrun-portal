@@ -91,7 +91,21 @@ object KeepAliveController {
         )
     }
 
+    fun getMutationResultStatus(
+        context: Context,
+        requestedEnabled: Boolean,
+    ): KeepAliveStatus =
+        getStatus(context).withTargetState(
+            enabled = requestedEnabled,
+            serviceActive = requestedEnabled,
+        )
+
     fun getStatusJson(context: Context): JSONObject = getStatus(context).toJson()
+
+    fun getMutationResultStatusJson(
+        context: Context,
+        requestedEnabled: Boolean,
+    ): JSONObject = getMutationResultStatus(context, requestedEnabled).toJson()
 
     fun noteRecoveryAttempt(
         context: Context,

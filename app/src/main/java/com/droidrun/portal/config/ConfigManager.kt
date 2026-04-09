@@ -56,6 +56,10 @@ class ConfigManager private constructor(private val context: Context) {
             "keep_alive_pending_recovery_result_success"
         private const val KEY_KEEP_ALIVE_PENDING_RECOVERY_RESULT_REASON =
             "keep_alive_pending_recovery_result_reason"
+        private const val KEY_KEEP_ALIVE_PENDING_RECOVERY_RESULT_AT_MS =
+            "keep_alive_pending_recovery_result_at_ms"
+        private const val KEY_KEEP_ALIVE_RECOVERY_OWNER_SESSION_ID =
+            "keep_alive_recovery_owner_session_id"
         private const val KEY_TASK_PROMPT_MODEL = "task_prompt_model"
         private const val KEY_TASK_PROMPT_DEFAULT_MODEL = "task_prompt_default_model"
         private const val KEY_TASK_PROMPT_REASONING = "task_prompt_reasoning"
@@ -410,24 +414,46 @@ class ConfigManager private constructor(private val context: Context) {
             }
         }
 
+    var keepAlivePendingRecoveryResultAtMs: Long
+        get() = sharedPrefs.getLong(KEY_KEEP_ALIVE_PENDING_RECOVERY_RESULT_AT_MS, 0L)
+        set(value) {
+            sharedPrefs.edit { putLong(KEY_KEEP_ALIVE_PENDING_RECOVERY_RESULT_AT_MS, value) }
+        }
+
+    var keepAliveRecoveryOwnerSessionId: String?
+        get() = sharedPrefs.getString(KEY_KEEP_ALIVE_RECOVERY_OWNER_SESSION_ID, null)?.takeIf { it.isNotBlank() }
+        set(value) {
+            sharedPrefs.edit {
+                if (value.isNullOrBlank()) {
+                    remove(KEY_KEEP_ALIVE_RECOVERY_OWNER_SESSION_ID)
+                } else {
+                    putString(KEY_KEEP_ALIVE_RECOVERY_OWNER_SESSION_ID, value)
+                }
+            }
+        }
+
     fun saveKeepAlivePendingRecoveryResult(
         token: Long,
         success: Boolean,
         reason: String?,
+        completedAtMs: Long,
     ) {
         keepAlivePendingRecoveryResultToken = token
         keepAlivePendingRecoveryResultSuccess = success
         keepAlivePendingRecoveryResultReason = reason
+        keepAlivePendingRecoveryResultAtMs = completedAtMs
     }
 
     fun clearKeepAlivePendingRecoveryResult() {
         keepAlivePendingRecoveryResultToken = 0L
         keepAlivePendingRecoveryResultSuccess = false
         keepAlivePendingRecoveryResultReason = null
+        keepAlivePendingRecoveryResultAtMs = 0L
     }
 
     fun clearKeepAliveRecoveryHandoffState() {
         keepAliveActiveRecoveryToken = 0L
+        keepAliveRecoveryOwnerSessionId = null
         keepAliveRecoveryActivityInFlight = false
         clearKeepAlivePendingRecoveryResult()
     }

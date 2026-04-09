@@ -111,4 +111,66 @@ class KeepAliveRecoveryResultPolicyTest {
         assertFalse(decision.shouldMarkSuccess)
         assertEquals("device_still_locked", decision.failureReason)
     }
+
+    @Test
+    fun evaluatePersisted_marksSuccessWithoutInspectingCurrentScreenState() {
+        val decision =
+            KeepAliveRecoveryResultPolicy.evaluatePersisted(
+                enabled = true,
+                activeRecoveryToken = 14L,
+                reportedRecoveryToken = 14L,
+                callbackSuccess = true,
+                failureReason = null,
+            )
+
+        assertFalse(decision.shouldIgnore)
+        assertTrue(decision.shouldMarkSuccess)
+        assertEquals(null, decision.failureReason)
+    }
+
+    @Test
+    fun evaluatePersisted_preservesStoredFailureReason() {
+        val decision =
+            KeepAliveRecoveryResultPolicy.evaluatePersisted(
+                enabled = true,
+                activeRecoveryToken = 15L,
+                reportedRecoveryToken = 15L,
+                callbackSuccess = false,
+                failureReason = "dismiss_cancelled",
+            )
+
+        assertFalse(decision.shouldIgnore)
+        assertFalse(decision.shouldMarkSuccess)
+        assertEquals("dismiss_cancelled", decision.failureReason)
+    }
+
+    @Test
+    fun evaluatePersisted_ignoresDisabledFeature() {
+        val decision =
+            KeepAliveRecoveryResultPolicy.evaluatePersisted(
+                enabled = false,
+                activeRecoveryToken = 16L,
+                reportedRecoveryToken = 16L,
+                callbackSuccess = true,
+                failureReason = null,
+            )
+
+        assertTrue(decision.shouldIgnore)
+        assertFalse(decision.shouldMarkSuccess)
+    }
+
+    @Test
+    fun evaluatePersisted_ignoresStaleRecoveryToken() {
+        val decision =
+            KeepAliveRecoveryResultPolicy.evaluatePersisted(
+                enabled = true,
+                activeRecoveryToken = 17L,
+                reportedRecoveryToken = 18L,
+                callbackSuccess = false,
+                failureReason = "dismiss_failed",
+            )
+
+        assertTrue(decision.shouldIgnore)
+        assertFalse(decision.shouldMarkSuccess)
+    }
 }

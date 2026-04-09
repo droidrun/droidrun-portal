@@ -43,6 +43,8 @@ object KeepAliveRecoveryHandoffPolicy {
 
     fun handoffDecision(
         activeRecoveryToken: Long,
+        ownerSessionId: String?,
+        currentSessionId: String,
         recoveryActivityInFlight: Boolean,
         pendingRecoveryResultToken: Long,
         lastRecoveryAttemptAtMs: Long,
@@ -66,6 +68,14 @@ object KeepAliveRecoveryHandoffPolicy {
         }
 
         if (!hasActiveRecoveryToken) {
+            return KeepAliveRecoveryHandoffDecision(shouldClearHandoffState = true)
+        }
+
+        if (ownerSessionId.isNullOrBlank() || ownerSessionId != currentSessionId) {
+            return KeepAliveRecoveryHandoffDecision(shouldClearHandoffState = true)
+        }
+
+        if (!recoveryActivityInFlight) {
             return KeepAliveRecoveryHandoffDecision(shouldClearHandoffState = true)
         }
 

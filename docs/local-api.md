@@ -66,8 +66,8 @@ Response format:
 | `version` | - | App version |
 | `time` | - | Unix ms timestamp |
 | `install` | `urls`, `hideOverlay` | WebSocket only; supports split APKs |
-| `screen/keepAwake/set` | `enabled` | WebSocket only; local and reverse; toggles the screen-awake watchdog and returns status |
-| `screen/keepAwake/status` | - | WebSocket only; local and reverse; returns watchdog status |
+| `screen/keepAwake/set` | `enabled` | WebSocket only; local and reverse; toggles the screen-awake watchdog and returns the requested target status |
+| `screen/keepAwake/status` | - | WebSocket only; local and reverse; returns live watchdog status |
 
 Streaming methods (`stream/start`, `stream/stop`, `webrtc/*`) are only available over reverse connection.
 Screen-awake methods (`screen/keepAwake/*`) are available over local and reverse WebSocket. They are not available over HTTP.

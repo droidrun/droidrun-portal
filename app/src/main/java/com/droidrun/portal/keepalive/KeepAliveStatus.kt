@@ -11,6 +11,15 @@ data class KeepAliveStatus(
     val consecutiveRecoveryFailures: Int,
     val degradedReason: String?,
 ) {
+    fun withTargetState(
+        enabled: Boolean,
+        serviceActive: Boolean,
+    ): KeepAliveStatus =
+        copy(
+            enabled = enabled,
+            serviceActive = serviceActive,
+        )
+
     fun toJson(): JSONObject =
         JSONObject().apply {
             put("enabled", enabled)

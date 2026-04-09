@@ -63,4 +63,39 @@ object KeepAliveRecoveryResultPolicy {
             failureReason = resolvedFailureReason,
         )
     }
+
+    fun evaluatePersisted(
+        enabled: Boolean,
+        activeRecoveryToken: Long?,
+        reportedRecoveryToken: Long,
+        callbackSuccess: Boolean,
+        failureReason: String?,
+    ): KeepAliveRecoveryResultDecision {
+        if (!enabled) {
+            return KeepAliveRecoveryResultDecision(
+                shouldIgnore = true,
+                shouldMarkSuccess = false,
+            )
+        }
+
+        if (activeRecoveryToken == null || activeRecoveryToken != reportedRecoveryToken) {
+            return KeepAliveRecoveryResultDecision(
+                shouldIgnore = true,
+                shouldMarkSuccess = false,
+            )
+        }
+
+        return if (callbackSuccess) {
+            KeepAliveRecoveryResultDecision(
+                shouldIgnore = false,
+                shouldMarkSuccess = true,
+            )
+        } else {
+            KeepAliveRecoveryResultDecision(
+                shouldIgnore = false,
+                shouldMarkSuccess = false,
+                failureReason = failureReason ?: "dismiss_failed",
+            )
+        }
+    }
 }

@@ -58,7 +58,12 @@ class KeepAliveService : Service(), ConfigManager.ConfigChangeListener {
             if (!deliveryDecision.shouldPersistPendingResult) {
                 return
             }
-            configManager.saveKeepAlivePendingRecoveryResult(recoveryToken, success, reason)
+            configManager.saveKeepAlivePendingRecoveryResult(
+                token = recoveryToken,
+                success = success,
+                reason = reason,
+                completedAtMs = System.currentTimeMillis(),
+            )
             if (deliveryDecision.shouldStartServiceBestEffort) {
                 KeepAliveController.retryStartupIfEnabledAndInactive(appContext)
             }
@@ -297,6 +302,7 @@ class KeepAliveService : Service(), ConfigManager.ConfigChangeListener {
         activeRecoveryToken = configManager.nextKeepAliveRecoveryToken()
         recoveryInFlight = false
         configManager.keepAliveActiveRecoveryToken = activeRecoveryToken!!
+        configManager.keepAliveRecoveryOwnerSessionId = KeepAliveProcessSession.currentSessionId
         configManager.keepAliveRecoveryActivityInFlight = false
         configManager.clearKeepAlivePendingRecoveryResult()
         return activeRecoveryToken!!
@@ -346,6 +352,39 @@ class KeepAliveService : Service(), ConfigManager.ConfigChangeListener {
         clearRecoveryAttempt(recoveryToken)
     }
 
+    private fun finalizePersistedRecoveryAttempt(
+        recoveryToken: Long,
+        callbackSuccess: Boolean,
+        reason: String?,
+        completedAtMs: Long,
+    ) {
+        val status = KeepAliveController.getStatus(applicationContext)
+        val decision =
+            KeepAliveRecoveryResultPolicy.evaluatePersisted(
+                enabled = status.enabled,
+                activeRecoveryToken = activeRecoveryToken,
+                reportedRecoveryToken = recoveryToken,
+                callbackSuccess = callbackSuccess,
+                failureReason = reason,
+            )
+
+        if (decision.shouldIgnore) {
+            clearRecoveryAttempt(recoveryToken)
+            return
+        }
+
+        if (decision.shouldMarkSuccess) {
+            KeepAliveController.markRecoverySuccess(applicationContext, atMs = completedAtMs)
+        } else {
+            KeepAliveController.markRecoveryFailure(
+                applicationContext,
+                decision.failureReason ?: "dismiss_failed",
+                atMs = completedAtMs,
+            )
+        }
+        clearRecoveryAttempt(recoveryToken)
+    }
+
     private fun handlePersistedRecoveryHandoff(
         status: KeepAliveStatus,
         nowMs: Long,
@@ -354,6 +393,8 @@ class KeepAliveService : Service(), ConfigManager.ConfigChangeListener {
         val decision =
             KeepAliveRecoveryHandoffPolicy.handoffDecision(
                 activeRecoveryToken = configManager.keepAliveActiveRecoveryToken,
+                ownerSessionId = configManager.keepAliveRecoveryOwnerSessionId,
+                currentSessionId = KeepAliveProcessSession.currentSessionId,
                 recoveryActivityInFlight = configManager.keepAliveRecoveryActivityInFlight,
                 pendingRecoveryResultToken = configManager.keepAlivePendingRecoveryResultToken,
                 lastRecoveryAttemptAtMs = configManager.keepAliveLastRecoveryAttemptAtMs,
@@ -368,10 +409,11 @@ class KeepAliveService : Service(), ConfigManager.ConfigChangeListener {
 
         if (decision.shouldConsumePendingResult) {
             restorePersistedRecoveryHandoffState(configManager)
-            finalizeRecoveryAttempt(
-                configManager.keepAlivePendingRecoveryResultToken,
-                configManager.keepAlivePendingRecoveryResultSuccess,
-                configManager.keepAlivePendingRecoveryResultReason,
+            finalizePersistedRecoveryAttempt(
+                recoveryToken = configManager.keepAlivePendingRecoveryResultToken,
+                callbackSuccess = configManager.keepAlivePendingRecoveryResultSuccess,
+                reason = configManager.keepAlivePendingRecoveryResultReason,
+                completedAtMs = configManager.keepAlivePendingRecoveryResultAtMs,
             )
             return true
         }

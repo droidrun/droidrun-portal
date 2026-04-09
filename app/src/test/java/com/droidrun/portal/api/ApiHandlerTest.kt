@@ -328,14 +328,44 @@ class ApiHandlerTest {
 
         mockkObject(KeepAliveController)
         every { KeepAliveController.setEnabled(context, true) } just Runs
-        every { KeepAliveController.getStatusJson(context) } returns statusJson
+        every { KeepAliveController.getMutationResultStatusJson(context, true) } returns statusJson
 
         val response = handler.setScreenKeepAwakeEnabled(true) as ApiResponse.RawObject
 
         assertEquals(true, response.json.getBoolean("enabled"))
         assertEquals(true, response.json.getBoolean("serviceActive"))
         verify(exactly = 1) { KeepAliveController.setEnabled(context, true) }
-        verify(exactly = 1) { KeepAliveController.getStatusJson(context) }
+        verify(exactly = 1) { KeepAliveController.getMutationResultStatusJson(context, true) }
+    }
+
+    @Test
+    fun setScreenKeepAwakeEnabled_returnsDisabledTargetStateAfterSuccessfulDisable() {
+        val stateRepo = mockk<StateRepository>(relaxed = true)
+        val context = mockk<Context>(relaxed = true)
+        every { context.applicationContext } returns context
+        val handler = createHandler(stateRepo = stateRepo, ime = null, context = context)
+        val statusJson =
+            JSONObject().apply {
+                put("enabled", false)
+                put("serviceActive", false)
+                put("interactive", true)
+                put("deviceLocked", false)
+                put("lastRecoveryAtMs", 222L)
+                put("consecutiveRecoveryFailures", 1)
+                put("degradedReason", "recovery_throttled")
+            }
+
+        mockkObject(KeepAliveController)
+        every { KeepAliveController.setEnabled(context, false) } just Runs
+        every { KeepAliveController.getMutationResultStatusJson(context, false) } returns statusJson
+
+        val response = handler.setScreenKeepAwakeEnabled(false) as ApiResponse.RawObject
+
+        assertEquals(false, response.json.getBoolean("enabled"))
+        assertEquals(false, response.json.getBoolean("serviceActive"))
+        assertEquals("recovery_throttled", response.json.getString("degradedReason"))
+        verify(exactly = 1) { KeepAliveController.setEnabled(context, false) }
+        verify(exactly = 1) { KeepAliveController.getMutationResultStatusJson(context, false) }
     }
 
     @Test
@@ -385,6 +415,7 @@ class ApiHandlerTest {
         )
         verify(exactly = 1) { KeepAliveController.setEnabled(context, true) }
         verify(exactly = 0) { KeepAliveController.getStatusJson(any()) }
+        verify(exactly = 0) { KeepAliveController.getMutationResultStatusJson(any(), any()) }
     }
 
     private fun createHandler(

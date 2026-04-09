@@ -244,4 +244,25 @@ class KeepAliveControllerTest {
         assertEquals(2, status.consecutiveRecoveryFailures)
         assertEquals("keyguard_dismiss_failed", status.degradedReason)
     }
+
+    @Test
+    fun getMutationResultStatus_overridesTargetStateWhilePreservingLiveFields() {
+        keepScreenAwakeEnabled = false
+        every { KeepAliveService.isRunning() } returns false
+        every { powerManager.isInteractive } returns false
+        every { keyguardManager.isDeviceLocked } returns true
+        every { configManager.keepAliveLastRecoveryAtMs } returns 1234L
+        every { configManager.keepAliveConsecutiveRecoveryFailures } returns 5
+        every { configManager.keepAliveDegradedReason } returns "recovery_throttled"
+
+        val status = KeepAliveController.getMutationResultStatus(context, requestedEnabled = true)
+
+        assertTrue(status.enabled)
+        assertTrue(status.serviceActive)
+        assertFalse(status.interactive)
+        assertTrue(status.deviceLocked)
+        assertEquals(1234L, status.lastRecoveryAtMs)
+        assertEquals(5, status.consecutiveRecoveryFailures)
+        assertEquals("recovery_throttled", status.degradedReason)
+    }
 }
