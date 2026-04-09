@@ -81,6 +81,93 @@ class ConfigManagerTaskPromptTest {
     }
 
     @Test
+    fun keepScreenAwakeEnabled_defaultsToFalse() {
+        val configManager = ConfigManager.getInstance(context)
+
+        assertFalse(configManager.keepScreenAwakeEnabled)
+    }
+
+    @Test
+    fun keepScreenAwakeEnabled_persistsAcrossProcessRestart() {
+        val initial = ConfigManager.getInstance(context)
+        initial.keepScreenAwakeEnabled = true
+
+        clearSingleton()
+
+        assertTrue(ConfigManager.getInstance(context).keepScreenAwakeEnabled)
+    }
+
+    @Test
+    fun clearKeepAliveRuntimeState_clearsRecoveryMetadata() {
+        val configManager = ConfigManager.getInstance(context)
+        configManager.keepAliveLastRecoveryAtMs = 1234L
+        configManager.keepAliveLastRecoveryAttemptAtMs = 1200L
+        configManager.keepAliveConsecutiveRecoveryFailures = 3
+        configManager.keepAliveDegradedReason = "wake_lock_failed"
+        configManager.keepAliveActiveRecoveryToken = 77L
+        configManager.keepAliveRecoveryOwnerSessionId = "session-a"
+        configManager.keepAliveRecoveryActivityInFlight = true
+        configManager.saveKeepAlivePendingRecoveryResult(
+            token = 77L,
+            success = false,
+            reason = "dismiss_cancelled",
+            completedAtMs = 1300L,
+        )
+
+        configManager.clearKeepAliveRuntimeState()
+
+        assertEquals(0L, configManager.keepAliveLastRecoveryAtMs)
+        assertEquals(0L, configManager.keepAliveLastRecoveryAttemptAtMs)
+        assertEquals(0, configManager.keepAliveConsecutiveRecoveryFailures)
+        assertEquals(null, configManager.keepAliveDegradedReason)
+        assertEquals(0L, configManager.keepAliveActiveRecoveryToken)
+        assertEquals(null, configManager.keepAliveRecoveryOwnerSessionId)
+        assertFalse(configManager.keepAliveRecoveryActivityInFlight)
+        assertEquals(0L, configManager.keepAlivePendingRecoveryResultToken)
+        assertFalse(configManager.keepAlivePendingRecoveryResultSuccess)
+        assertEquals(null, configManager.keepAlivePendingRecoveryResultReason)
+        assertEquals(0L, configManager.keepAlivePendingRecoveryResultAtMs)
+    }
+
+    @Test
+    fun nextKeepAliveRecoveryToken_persistsAcrossProcessRestart() {
+        val initial = ConfigManager.getInstance(context)
+
+        assertEquals(1L, initial.nextKeepAliveRecoveryToken())
+        assertEquals(2L, initial.nextKeepAliveRecoveryToken())
+
+        clearSingleton()
+
+        val restored = ConfigManager.getInstance(context)
+        assertEquals(3L, restored.nextKeepAliveRecoveryToken())
+    }
+
+    @Test
+    fun keepAliveRecoveryHandoffState_persistsAcrossProcessRestart() {
+        val initial = ConfigManager.getInstance(context)
+        initial.keepAliveActiveRecoveryToken = 81L
+        initial.keepAliveRecoveryOwnerSessionId = "session-a"
+        initial.keepAliveRecoveryActivityInFlight = true
+        initial.saveKeepAlivePendingRecoveryResult(
+            token = 81L,
+            success = true,
+            reason = null,
+            completedAtMs = 999L,
+        )
+
+        clearSingleton()
+
+        val restored = ConfigManager.getInstance(context)
+        assertEquals(81L, restored.keepAliveActiveRecoveryToken)
+        assertEquals("session-a", restored.keepAliveRecoveryOwnerSessionId)
+        assertTrue(restored.keepAliveRecoveryActivityInFlight)
+        assertEquals(81L, restored.keepAlivePendingRecoveryResultToken)
+        assertTrue(restored.keepAlivePendingRecoveryResultSuccess)
+        assertEquals(null, restored.keepAlivePendingRecoveryResultReason)
+        assertEquals(999L, restored.keepAlivePendingRecoveryResultAtMs)
+    }
+
+    @Test
     fun taskPromptSettings_prefers_saved_default_model_when_no_explicit_model_exists() {
         val configManager = ConfigManager.getInstance(context)
 

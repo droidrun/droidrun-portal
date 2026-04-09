@@ -302,6 +302,25 @@ class ActionDispatcher(
                 }
             }
 
+            "screen/keepAwake/set" -> {
+                if (origin == Origin.HTTP) {
+                    ApiResponse.Error("Screen keep-awake commands require WebSocket connection")
+                } else {
+                    if (!params.has("enabled")) {
+                        return ApiResponse.Error("Missing required param: 'enabled'")
+                    }
+                    apiHandler.setScreenKeepAwakeEnabled(params.optBoolean("enabled"))
+                }
+            }
+
+            "screen/keepAwake/status" -> {
+                if (origin == Origin.HTTP) {
+                    ApiResponse.Error("Screen keep-awake commands require WebSocket connection")
+                } else {
+                    apiHandler.getScreenKeepAwakeStatus()
+                }
+            }
+
             "install" -> {
                 if (origin == Origin.HTTP)
                     return ApiResponse.Error("Install is only supported over WebSocket")

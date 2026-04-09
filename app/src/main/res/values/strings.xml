@@ -192,6 +192,11 @@
     <string name="media_projection_auto_accept_failed">Screen share auto-accept failed. Please accept manually.</string>
     <string name="install_auto_accept_label">Auto-accept App Installs</string>
     <string name="install_auto_accept_description">Automatically confirm install prompts</string>
+    <string name="keep_screen_awake_label">Keep Screen Awake</string>
+    <string name="keep_screen_awake_description">Hold the display awake and recover from OEM screen locks</string>
+    <string name="keep_screen_awake_notification_title">Keep Screen Awake</string>
+    <string name="keep_screen_awake_notification_text">Monitoring the device to prevent screen sleep</string>
+    <string name="keep_screen_awake_notification_stop">Stop</string>
 
     <!-- Permission Dialog -->
     <string name="permission_required_title">Permission Required</string>
