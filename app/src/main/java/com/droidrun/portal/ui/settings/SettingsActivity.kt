@@ -32,6 +32,8 @@ import com.droidrun.portal.taskprompt.PortalCloudClient
 import com.droidrun.portal.triggers.TriggerRepository
 import com.droidrun.portal.ui.addWhitespaceStrippingWatcher
 import com.droidrun.portal.ui.triggers.TriggerRulesActivity
+import com.droidrun.portal.api.ApiHandler
+import com.droidrun.portal.update.UpdateCheckResult
 import com.droidrun.portal.update.UpdateChecker
 import com.droidrun.portal.update.UpdateInfo
 import com.droidrun.portal.update.UpdateInstallReceiver
@@ -53,6 +55,23 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         override fun onReceive(context: Context?, intent: android.content.Intent?) {
             if (intent?.action != UpdateInstallReceiver.ACTION_SIGNATURE_CONFLICT) return
             runOnUiThread { showSignatureConflictDialog() }
+        }
+    }
+
+    private var isInstallResultReceiverRegistered = false
+    private val installResultReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != ApiHandler.ACTION_INSTALL_RESULT) return
+            val success = intent.getBooleanExtra(ApiHandler.EXTRA_INSTALL_SUCCESS, false)
+            val message = intent.getStringExtra(ApiHandler.EXTRA_INSTALL_MESSAGE) ?: ""
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                binding.btnCheckUpdates.isEnabled = true
+                binding.btnCheckUpdates.text = getString(R.string.update_check_for_updates)
+                if (message.isNotBlank()) {
+                    Toast.makeText(this@SettingsActivity, message, Toast.LENGTH_LONG).show()
+                }
+            }
         }
     }
 
@@ -123,6 +142,15 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
             )
             isSignatureConflictReceiverRegistered = true
         }
+        if (!isInstallResultReceiverRegistered) {
+            ContextCompat.registerReceiver(
+                this,
+                installResultReceiver,
+                IntentFilter(ApiHandler.ACTION_INSTALL_RESULT),
+                ContextCompat.RECEIVER_NOT_EXPORTED,
+            )
+            isInstallResultReceiverRegistered = true
+        }
     }
 
     override fun onStop() {
@@ -133,6 +161,10 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         if (isSignatureConflictReceiverRegistered) {
             try { unregisterReceiver(signatureConflictReceiver) } catch (_: Exception) {}
             isSignatureConflictReceiverRegistered = false
+        }
+        if (isInstallResultReceiverRegistered) {
+            try { unregisterReceiver(installResultReceiver) } catch (_: Exception) {}
+            isInstallResultReceiverRegistered = false
         }
     }
 
@@ -366,21 +398,25 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
             binding.btnCheckUpdates.text = getString(R.string.update_checking)
 
             executor.execute {
-                val info = UpdateChecker.checkForUpdate(this)
+                val result = UpdateChecker.checkForUpdate(this)
                 runOnUiThread {
                     if (isFinishing || isDestroyed) return@runOnUiThread
                     binding.btnCheckUpdates.isEnabled = true
                     binding.btnCheckUpdates.text = getString(R.string.update_check_for_updates)
 
-                    if (info == null) {
-                        val current = UpdateChecker.getCurrentVersion(this)
-                        Toast.makeText(
-                            this,
-                            getString(R.string.update_up_to_date, current),
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                    } else {
-                        showUpdateAvailableDialog(info)
+                    when (result) {
+                        is UpdateCheckResult.Available -> showUpdateAvailableDialog(result.info)
+                        is UpdateCheckResult.UpToDate -> {
+                            val current = UpdateChecker.getCurrentVersion(this)
+                            Toast.makeText(
+                                this,
+                                getString(R.string.update_up_to_date, current),
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        }
+                        is UpdateCheckResult.Failed -> {
+                            Toast.makeText(this, result.message, Toast.LENGTH_LONG).show()
+                        }
                     }
                 }
             }

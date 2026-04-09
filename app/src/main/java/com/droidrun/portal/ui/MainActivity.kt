@@ -58,6 +58,7 @@ import android.content.BroadcastReceiver
 import android.content.IntentFilter
 import com.droidrun.portal.R
 import com.droidrun.portal.api.ApiHandler
+import com.droidrun.portal.update.UpdateCheckResult
 import com.droidrun.portal.update.UpdateChecker
 import com.droidrun.portal.update.UpdateInfo
 import com.droidrun.portal.update.UpdateInstallReceiver
@@ -108,7 +109,10 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             val message =
                 intent.getStringExtra(ApiHandler.EXTRA_INSTALL_MESSAGE)
                     ?: "App installed successfully"
-            showInstallSnackbar(message, success)
+            runOnUiThread {
+                resetUpdateBannerButton()
+                showInstallSnackbar(message, success)
+            }
         }
     }
 
@@ -117,7 +121,6 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
     private val signatureConflictReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action != UpdateInstallReceiver.ACTION_SIGNATURE_CONFLICT) return
-            val uriString = intent.getStringExtra(UpdateInstallReceiver.EXTRA_DOWNLOAD_URI) ?: return
             runOnUiThread { showSignatureConflictDialog() }
         }
     }
@@ -2085,15 +2088,15 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         updateCheckDoneThisSession = true
 
         updateExecutor.execute {
-            val info = UpdateChecker.checkForUpdate(this)
+            val result = UpdateChecker.checkForUpdate(this)
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
-                pendingUpdateInfo = info
-                if (info != null) {
+                if (result is UpdateCheckResult.Available) {
+                    pendingUpdateInfo = result.info
                     binding.updateBannerText.text =
-                        getString(R.string.update_available_version, info.latestVersion)
+                        getString(R.string.update_available_version, result.info.latestVersion)
                     binding.updateBanner.visibility = View.VISIBLE
-                    UpdateChecker.showUpdateNotification(this, info)
+                    UpdateChecker.showUpdateNotification(this, result.info)
                 } else {
                     binding.updateBanner.visibility = View.GONE
                 }
@@ -2128,9 +2131,13 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         }
     }
 
-    private fun showSignatureConflictDialog() {
+    private fun resetUpdateBannerButton() {
         binding.btnUpdate.isEnabled = true
         binding.btnUpdate.text = getString(R.string.update_now)
+    }
+
+    private fun showSignatureConflictDialog() {
+        resetUpdateBannerButton()
 
         AlertDialog.Builder(this)
             .setTitle(getString(R.string.update_requires_reinstall))

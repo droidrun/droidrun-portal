@@ -25,6 +25,12 @@ data class UpdateInfo(
     val downloadUrl: String,
 )
 
+sealed class UpdateCheckResult {
+    data class Available(val info: UpdateInfo) : UpdateCheckResult()
+    object UpToDate : UpdateCheckResult()
+    data class Failed(val message: String) : UpdateCheckResult()
+}
+
 object UpdateChecker {
     private const val TAG = "UpdateChecker"
     const val GITHUB_API_URL =
@@ -43,10 +49,9 @@ object UpdateChecker {
     }
 
     /**
-     * Checks GitHub for the latest release. Returns [UpdateInfo] if a newer version is available,
-     * null otherwise. Must be called from a background thread.
+     * Checks GitHub for the latest release. Must be called from a background thread.
      */
-    fun checkForUpdate(context: Context): UpdateInfo? {
+    fun checkForUpdate(context: Context): UpdateCheckResult {
         return try {
             val request = Request.Builder()
                 .url(GITHUB_API_URL)
@@ -58,10 +63,11 @@ object UpdateChecker {
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
                     Log.w(TAG, "GitHub API returned ${response.code}")
-                    return null
+                    return UpdateCheckResult.Failed("Server returned ${response.code}")
                 }
 
-                val body = response.body?.string() ?: return null
+                val body = response.body?.string()
+                    ?: return UpdateCheckResult.Failed("Empty response")
                 val json = JSONObject(body)
                 val tagName = json.getString("tag_name") // e.g. "v0.6.2"
                 val latestVersion = tagName.trimStart('v')
@@ -70,31 +76,40 @@ object UpdateChecker {
                 Log.i(TAG, "Current: $currentVersion, Latest: $latestVersion")
 
                 if (!isNewerVersion(latestVersion, currentVersion)) {
-                    return null
+                    return UpdateCheckResult.UpToDate
                 }
 
-                // Find the APK asset download URL
+                // Find the release APK asset; fall back to any APK if no release variant exists
                 val assets = json.getJSONArray("assets")
                 var downloadUrl: String? = null
+                var fallbackUrl: String? = null
                 for (i in 0 until assets.length()) {
                     val asset = assets.getJSONObject(i)
                     val name = asset.getString("name")
                     if (name.endsWith(".apk")) {
-                        downloadUrl = asset.getString("browser_download_url")
-                        break
+                        if (name.contains("release")) {
+                            downloadUrl = asset.getString("browser_download_url")
+                            break
+                        }
+                        if (fallbackUrl == null) {
+                            fallbackUrl = asset.getString("browser_download_url")
+                        }
                     }
+                }
+                if (downloadUrl == null) {
+                    downloadUrl = fallbackUrl
                 }
 
                 if (downloadUrl == null) {
                     Log.w(TAG, "No APK asset found in release $tagName")
-                    return null
+                    return UpdateCheckResult.Failed("No APK found in release")
                 }
 
-                UpdateInfo(latestVersion, downloadUrl)
+                UpdateCheckResult.Available(UpdateInfo(latestVersion, downloadUrl))
             }
         } catch (e: Exception) {
             Log.e(TAG, "Update check failed", e)
-            null
+            UpdateCheckResult.Failed("Update check failed: ${e.message}")
         }
     }
 
