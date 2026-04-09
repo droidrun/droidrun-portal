@@ -38,6 +38,7 @@ import androidx.core.net.toUri
 import com.droidrun.portal.service.ScreenCaptureService
 import com.droidrun.portal.streaming.WebRtcManager
 import com.droidrun.portal.keepalive.KeepAliveController
+import com.droidrun.portal.keepalive.KeepAliveStartupException
 import org.webrtc.IceCandidate
 import org.webrtc.PeerConnection
 import com.droidrun.portal.service.AutoAcceptGate
@@ -2006,8 +2007,12 @@ class ApiHandler(
     }
 
     fun setScreenKeepAwakeEnabled(enabled: Boolean): ApiResponse {
-        KeepAliveController.setEnabled(context, enabled)
-        return ApiResponse.RawObject(KeepAliveController.getStatusJson(context))
+        return try {
+            KeepAliveController.setEnabled(context, enabled)
+            ApiResponse.RawObject(KeepAliveController.getStatusJson(context))
+        } catch (e: KeepAliveStartupException) {
+            ApiResponse.Error(e.reason)
+        }
     }
 
     fun getScreenKeepAwakeStatus(): ApiResponse =

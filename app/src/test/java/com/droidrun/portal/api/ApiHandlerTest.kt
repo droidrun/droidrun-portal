@@ -6,6 +6,7 @@ import android.view.KeyEvent
 import com.droidrun.portal.core.StateRepository
 import com.droidrun.portal.input.DroidrunKeyboardIME
 import com.droidrun.portal.keepalive.KeepAliveController
+import com.droidrun.portal.keepalive.KeepAliveStartupException
 import com.droidrun.portal.model.PhoneState
 import com.droidrun.portal.service.DroidrunAccessibilityService
 import com.droidrun.portal.streaming.WebRtcManager
@@ -363,6 +364,27 @@ class ApiHandlerTest {
         assertEquals("recovery_throttled", response.json.getString("degradedReason"))
         verify(exactly = 0) { KeepAliveController.setEnabled(any(), any()) }
         verify(exactly = 1) { KeepAliveController.getStatusJson(context) }
+    }
+
+    @Test
+    fun setScreenKeepAwakeEnabled_returnsErrorWhenStartupIsRejected() {
+        val stateRepo = mockk<StateRepository>(relaxed = true)
+        val context = mockk<Context>(relaxed = true)
+        every { context.applicationContext } returns context
+        val handler = createHandler(stateRepo = stateRepo, ime = null, context = context)
+
+        mockkObject(KeepAliveController)
+        every { KeepAliveController.setEnabled(context, true) } throws
+            KeepAliveStartupException("foreground_service_start_not_allowed")
+
+        val response = handler.setScreenKeepAwakeEnabled(true)
+
+        assertEquals(
+            ApiResponse.Error("foreground_service_start_not_allowed"),
+            response,
+        )
+        verify(exactly = 1) { KeepAliveController.setEnabled(context, true) }
+        verify(exactly = 0) { KeepAliveController.getStatusJson(any()) }
     }
 
     private fun createHandler(

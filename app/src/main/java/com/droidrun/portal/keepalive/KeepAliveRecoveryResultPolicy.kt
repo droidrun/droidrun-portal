@@ -7,6 +7,19 @@ data class KeepAliveRecoveryResultDecision(
 )
 
 object KeepAliveRecoveryResultPolicy {
+    private fun stateFailureReason(
+        interactive: Boolean,
+        deviceLocked: Boolean,
+    ): String {
+        return if (deviceLocked) {
+            "device_still_locked"
+        } else if (!interactive) {
+            "screen_not_interactive"
+        } else {
+            "dismiss_failed"
+        }
+    }
+
     fun evaluate(
         enabled: Boolean,
         activeRecoveryToken: Long?,
@@ -30,17 +43,24 @@ object KeepAliveRecoveryResultPolicy {
             )
         }
 
-        if (callbackSuccess || (interactive && !deviceLocked)) {
+        if (interactive && !deviceLocked) {
             return KeepAliveRecoveryResultDecision(
                 shouldIgnore = false,
                 shouldMarkSuccess = true,
             )
         }
 
+        val resolvedFailureReason =
+            if (callbackSuccess) {
+                stateFailureReason(interactive, deviceLocked)
+            } else {
+                failureReason ?: stateFailureReason(interactive, deviceLocked)
+            }
+
         return KeepAliveRecoveryResultDecision(
             shouldIgnore = false,
             shouldMarkSuccess = false,
-            failureReason = failureReason ?: "dismiss_failed",
+            failureReason = resolvedFailureReason,
         )
     }
 }

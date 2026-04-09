@@ -114,6 +114,19 @@ class ConfigManagerTaskPromptTest {
     }
 
     @Test
+    fun nextKeepAliveRecoveryToken_persistsAcrossProcessRestart() {
+        val initial = ConfigManager.getInstance(context)
+
+        assertEquals(1L, initial.nextKeepAliveRecoveryToken())
+        assertEquals(2L, initial.nextKeepAliveRecoveryToken())
+
+        clearSingleton()
+
+        val restored = ConfigManager.getInstance(context)
+        assertEquals(3L, restored.nextKeepAliveRecoveryToken())
+    }
+
+    @Test
     fun taskPromptSettings_prefers_saved_default_model_when_no_explicit_model_exists() {
         val configManager = ConfigManager.getInstance(context)
 

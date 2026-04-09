@@ -18,8 +18,18 @@ object KeepAliveController {
     fun enable(context: Context) {
         val appContext = context.applicationContext
         val configManager = ConfigManager.getInstance(appContext)
+        if (configManager.keepScreenAwakeEnabled && KeepAliveService.isRunning()) {
+            return
+        }
         configManager.setKeepScreenAwakeEnabledWithNotification(true)
-        reconcile(appContext)
+        try {
+            KeepAliveServiceRuntime.start(appContext)
+        } catch (e: KeepAliveStartupException) {
+            configManager.setKeepScreenAwakeEnabledWithNotification(false)
+            configManager.clearKeepAliveRuntimeState()
+            KeepAliveServiceRuntime.stop(appContext)
+            throw e
+        }
     }
 
     fun disable(context: Context) {

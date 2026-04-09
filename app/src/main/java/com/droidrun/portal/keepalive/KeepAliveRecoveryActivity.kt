@@ -5,6 +5,7 @@ import android.app.KeyguardManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.util.Log
 import android.view.WindowManager
 
@@ -19,6 +20,7 @@ class KeepAliveRecoveryActivity : Activity() {
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private var completed = false
+    private var dismissCallbackState: KeepAliveDismissCallbackState = KeepAliveDismissCallbackState.None
     private val recoveryToken by lazy {
         intent?.getLongExtra(EXTRA_RECOVERY_TOKEN, -1L) ?: -1L
     }
@@ -33,9 +35,8 @@ class KeepAliveRecoveryActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        val keyguardManager = getSystemService(KEYGUARD_SERVICE) as? KeyguardManager
-        if (keyguardManager?.isDeviceLocked == false) {
-            complete(success = true, reason = null)
+        KeepAliveRecoveryActivityStatePolicy.resultForResume(sampleScreenState())?.let { result ->
+            complete(success = result.success, reason = result.reason)
         }
     }
 
@@ -46,42 +47,74 @@ class KeepAliveRecoveryActivity : Activity() {
             return
         }
 
-        if (!keyguardManager.isDeviceLocked) {
-            complete(success = true, reason = null)
+        KeepAliveRecoveryActivityStatePolicy.resultForResume(
+            sampleScreenState(keyguardManager = keyguardManager),
+        )?.let { result ->
+            complete(success = result.success, reason = result.reason)
             return
         }
 
         mainHandler.postDelayed(
             {
-                val stillLocked = keyguardManager.isDeviceLocked
-                complete(
-                    success = !stillLocked,
-                    reason = if (stillLocked) "dismiss_timeout" else null,
-                )
+                val result =
+                    KeepAliveRecoveryActivityStatePolicy.resultForTimeout(
+                        sampleScreenState(keyguardManager = keyguardManager),
+                        dismissCallbackState,
+                    )
+                complete(success = result.success, reason = result.reason)
             },
             FINISH_TIMEOUT_MS,
         )
+
+        if (!keyguardManager.isDeviceLocked) {
+            return
+        }
 
         try {
             keyguardManager.requestDismissKeyguard(
                 this,
                 object : KeyguardManager.KeyguardDismissCallback() {
                     override fun onDismissSucceeded() {
-                        complete(success = true, reason = null)
+                        handleDismissCallback(
+                            KeepAliveDismissCallbackState.Succeeded,
+                            keyguardManager,
+                        )
                     }
 
                     override fun onDismissCancelled() {
-                        complete(success = false, reason = "dismiss_cancelled")
+                        handleDismissCallback(
+                            KeepAliveDismissCallbackState.Failed("dismiss_cancelled"),
+                            keyguardManager,
+                        )
                     }
 
                     override fun onDismissError() {
-                        complete(success = false, reason = "dismiss_error")
+                        handleDismissCallback(
+                            KeepAliveDismissCallbackState.Failed("dismiss_error"),
+                            keyguardManager,
+                        )
                     }
                 },
             )
         } catch (e: Exception) {
             Log.e(TAG, "Failed to request keyguard dismissal", e)
-            complete(success = false, reason = "dismiss_exception")
+            handleDismissCallback(
+                KeepAliveDismissCallbackState.Failed("dismiss_exception"),
+                keyguardManager,
+            )
+        }
+    }
+
+    private fun handleDismissCallback(
+        newState: KeepAliveDismissCallbackState,
+        keyguardManager: KeyguardManager,
+    ) {
+        dismissCallbackState = newState
+        KeepAliveRecoveryActivityStatePolicy.resultForDismissCallback(
+            sampleScreenState(keyguardManager = keyguardManager),
+            dismissCallbackState,
+        )?.let { result ->
+            complete(success = result.success, reason = result.reason)
         }
     }
 
@@ -92,8 +125,18 @@ class KeepAliveRecoveryActivity : Activity() {
         if (completed) return
         completed = true
         mainHandler.removeCallbacksAndMessages(null)
-        KeepAliveService.notifyRecoveryResult(applicationContext, recoveryToken, success, reason)
+        KeepAliveService.notifyRecoveryResult(recoveryToken, success, reason)
         finish()
         overridePendingTransition(0, 0)
+    }
+
+    private fun sampleScreenState(keyguardManager: KeyguardManager? = null): KeepAliveRecoveryScreenState {
+        val resolvedKeyguardManager =
+            keyguardManager ?: (getSystemService(KEYGUARD_SERVICE) as? KeyguardManager)
+        val powerManager = getSystemService(POWER_SERVICE) as? PowerManager
+        return KeepAliveRecoveryScreenState(
+            interactive = powerManager?.isInteractive == true,
+            deviceLocked = resolvedKeyguardManager?.isDeviceLocked != false,
+        )
     }
 }

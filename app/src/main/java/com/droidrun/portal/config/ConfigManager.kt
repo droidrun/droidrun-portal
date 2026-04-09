@@ -46,6 +46,7 @@ class ConfigManager private constructor(private val context: Context) {
         private const val KEY_KEEP_ALIVE_CONSECUTIVE_RECOVERY_FAILURES =
             "keep_alive_consecutive_recovery_failures"
         private const val KEY_KEEP_ALIVE_DEGRADED_REASON = "keep_alive_degraded_reason"
+        private const val KEY_KEEP_ALIVE_NEXT_RECOVERY_TOKEN = "keep_alive_next_recovery_token"
         private const val KEY_TASK_PROMPT_MODEL = "task_prompt_model"
         private const val KEY_TASK_PROMPT_DEFAULT_MODEL = "task_prompt_default_model"
         private const val KEY_TASK_PROMPT_REASONING = "task_prompt_reasoning"
@@ -356,6 +357,13 @@ class ConfigManager private constructor(private val context: Context) {
                 }
             }
         }
+
+    @Synchronized
+    fun nextKeepAliveRecoveryToken(): Long {
+        val nextToken = sharedPrefs.getLong(KEY_KEEP_ALIVE_NEXT_RECOVERY_TOKEN, 0L) + 1L
+        sharedPrefs.edit(commit = true) { putLong(KEY_KEEP_ALIVE_NEXT_RECOVERY_TOKEN, nextToken) }
+        return nextToken
+    }
 
     var taskPromptModel: String
         get() = sharedPrefs.getString(KEY_TASK_PROMPT_MODEL, "") ?: ""

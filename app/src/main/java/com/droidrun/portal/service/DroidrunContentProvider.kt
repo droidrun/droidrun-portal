@@ -1,6 +1,7 @@
 package com.droidrun.portal.service
 
 import android.content.ContentProvider
+import android.content.Context
 import android.content.ContentValues
 import android.content.UriMatcher
 import android.database.Cursor
@@ -15,10 +16,23 @@ import com.droidrun.portal.config.ConfigManager
 import com.droidrun.portal.core.StateRepository
 import com.droidrun.portal.input.DroidrunKeyboardIME
 import com.droidrun.portal.keepalive.KeepAliveController
+import com.droidrun.portal.keepalive.KeepAliveStartupException
 import com.droidrun.portal.triggers.TriggerApi
 import com.droidrun.portal.triggers.TriggerApiResult
 
 import android.util.Base64
+
+internal fun handleKeepScreenAwakeInsert(
+    providerContext: Context,
+    enabled: Boolean,
+): ApiResponse {
+    return try {
+        KeepAliveController.setEnabled(providerContext, enabled)
+        ApiResponse.Success("Keep screen awake set to $enabled")
+    } catch (e: KeepAliveStartupException) {
+        ApiResponse.Error(e.reason)
+    }
+}
 
 class DroidrunContentProvider : ContentProvider() {
     companion object {
@@ -256,8 +270,11 @@ class DroidrunContentProvider : ContentProvider() {
         if (uriMatcher.match(uri) == TOGGLE_SCREEN_KEEP_AWAKE) {
             val enabled = values?.getAsBoolean("enabled")
                 ?: return "content://$AUTHORITY/result?status=error&message=${Uri.encode("Missing required field: enabled")}".toUri()
-            KeepAliveController.setEnabled(context ?: throw IllegalStateException("Provider context unavailable"), enabled)
-            return "content://$AUTHORITY/result?status=success&message=${Uri.encode("Keep screen awake set to $enabled")}".toUri()
+            val response = handleKeepScreenAwakeInsert(
+                context ?: throw IllegalStateException("Provider context unavailable"),
+                enabled,
+            )
+            return responseToResultUri(response)
         }
 
         val handler = getHandler()
@@ -378,12 +395,7 @@ class DroidrunContentProvider : ContentProvider() {
         }
 
         // Convert response to URI
-        return if (result is ApiResponse.Success) {
-            "content://$AUTHORITY/result?status=success&message=${Uri.encode(result.data.toString())}".toUri()
-        } else {
-            val errorMsg = (result as ApiResponse.Error).message
-            "content://$AUTHORITY/result?status=error&message=${Uri.encode(errorMsg)}".toUri()
-        }
+        return responseToResultUri(result)
     }
 
     private fun handleTriggerInsert(
@@ -449,6 +461,19 @@ class DroidrunContentProvider : ContentProvider() {
                 val message = result.message ?: "ok"
                 "content://$AUTHORITY/result?status=success&message=${Uri.encode(message)}".toUri()
             }
+        }
+    }
+
+    private fun responseToResultUri(response: ApiResponse): Uri {
+        return when (response) {
+            is ApiResponse.Success ->
+                "content://$AUTHORITY/result?status=success&message=${Uri.encode(response.data.toString())}".toUri()
+
+            is ApiResponse.Error ->
+                "content://$AUTHORITY/result?status=error&message=${Uri.encode(response.message)}".toUri()
+
+            else ->
+                "content://$AUTHORITY/result?status=error&message=${Uri.encode("Unsupported response type")}".toUri()
         }
     }
 

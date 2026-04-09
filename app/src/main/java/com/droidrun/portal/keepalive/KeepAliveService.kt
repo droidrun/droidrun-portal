@@ -38,7 +38,6 @@ class KeepAliveService : Service(), ConfigManager.ConfigChangeListener {
         fun isRunning(): Boolean = instance != null
 
         fun notifyRecoveryResult(
-            context: Context,
             recoveryToken: Long,
             success: Boolean,
             reason: String? = null,
@@ -70,7 +69,6 @@ class KeepAliveService : Service(), ConfigManager.ConfigChangeListener {
     private var receiverRegistered = false
     private var recoveryInFlight = false
     private var activeRecoveryToken: Long? = null
-    private var nextRecoveryToken = 0L
 
     override fun onCreate() {
         super.onCreate()
@@ -176,7 +174,7 @@ class KeepAliveService : Service(), ConfigManager.ConfigChangeListener {
         }
 
         if (decision.shouldLaunchRecoveryActivity) {
-            launchRecoveryActivity("locked:$trigger", recoveryAtMs, recoveryToken)
+            launchRecoveryActivity("locked:$trigger", recoveryToken)
             return
         }
 
@@ -192,7 +190,7 @@ class KeepAliveService : Service(), ConfigManager.ConfigChangeListener {
                         return@postDelayed
                     }
                     if (!refreshedStatus.interactive || refreshedStatus.deviceLocked) {
-                        launchRecoveryActivity("wake_check:$trigger", recoveryAtMs, recoveryToken)
+                        launchRecoveryActivity("wake_check:$trigger", recoveryToken)
                     } else {
                         finalizeRecoveryAttempt(recoveryToken, callbackSuccess = true, reason = null)
                     }
@@ -232,7 +230,6 @@ class KeepAliveService : Service(), ConfigManager.ConfigChangeListener {
 
     private fun launchRecoveryActivity(
         reason: String,
-        recoveryAtMs: Long,
         recoveryToken: Long,
     ) {
         if (recoveryInFlight || !isCurrentRecoveryToken(recoveryToken)) return
@@ -272,10 +269,10 @@ class KeepAliveService : Service(), ConfigManager.ConfigChangeListener {
 
     private fun beginRecoveryAttempt(atMs: Long): Long {
         KeepAliveController.noteRecoveryAttempt(applicationContext, atMs)
-        nextRecoveryToken += 1L
-        activeRecoveryToken = nextRecoveryToken
+        activeRecoveryToken =
+            ConfigManager.getInstance(applicationContext).nextKeepAliveRecoveryToken()
         recoveryInFlight = false
-        return nextRecoveryToken
+        return activeRecoveryToken!!
     }
 
     private fun isCurrentRecoveryToken(recoveryToken: Long): Boolean =

@@ -15,6 +15,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
 
@@ -84,6 +85,35 @@ class KeepAliveControllerTest {
         verify(exactly = 1) { configManager.keepAliveLastRecoveryAttemptAtMs = 789L }
         verify(exactly = 1) { configManager.keepAliveConsecutiveRecoveryFailures = 3 }
         verify(exactly = 1) { configManager.keepAliveDegradedReason = "wake_lock_failed" }
+    }
+
+    @Test
+    fun setEnabled_true_startsRuntime() {
+        KeepAliveController.setEnabled(context, true)
+
+        verify(exactly = 1) { configManager.setKeepScreenAwakeEnabledWithNotification(true) }
+        verify(exactly = 1) { KeepAliveServiceRuntime.start(context) }
+        verify(exactly = 0) { configManager.clearKeepAliveRuntimeState() }
+        verify(exactly = 0) { KeepAliveServiceRuntime.stop(any()) }
+    }
+
+    @Test
+    fun enable_rollsBackPersistedFlagWhenStartupFails() {
+        every { KeepAliveServiceRuntime.start(any()) } throws
+            KeepAliveStartupException("foreground_service_start_not_allowed")
+
+        try {
+            KeepAliveController.enable(context)
+            fail("Expected KeepAliveStartupException")
+        } catch (e: KeepAliveStartupException) {
+            assertEquals("foreground_service_start_not_allowed", e.reason)
+        }
+
+        assertFalse(keepScreenAwakeEnabled)
+        verify(exactly = 1) { configManager.setKeepScreenAwakeEnabledWithNotification(true) }
+        verify(exactly = 1) { configManager.setKeepScreenAwakeEnabledWithNotification(false) }
+        verify(exactly = 1) { configManager.clearKeepAliveRuntimeState() }
+        verify(exactly = 1) { KeepAliveServiceRuntime.stop(context) }
     }
 
     @Test

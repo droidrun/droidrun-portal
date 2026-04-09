@@ -41,7 +41,7 @@ class KeepAliveRecoveryResultPolicyTest {
     }
 
     @Test
-    fun evaluate_marksSuccessWhenCallbackSucceeds() {
+    fun evaluate_requiresRecoveredScreenStateEvenWhenCallbackSucceeds() {
         val decision =
             KeepAliveRecoveryResultPolicy.evaluate(
                 enabled = true,
@@ -49,13 +49,13 @@ class KeepAliveRecoveryResultPolicyTest {
                 reportedRecoveryToken = 7L,
                 callbackSuccess = true,
                 interactive = false,
-                deviceLocked = true,
+                deviceLocked = false,
                 failureReason = "dismiss_cancelled",
             )
 
         assertFalse(decision.shouldIgnore)
-        assertTrue(decision.shouldMarkSuccess)
-        assertEquals(null, decision.failureReason)
+        assertFalse(decision.shouldMarkSuccess)
+        assertEquals("screen_not_interactive", decision.failureReason)
     }
 
     @Test
@@ -92,5 +92,23 @@ class KeepAliveRecoveryResultPolicyTest {
         assertFalse(decision.shouldIgnore)
         assertFalse(decision.shouldMarkSuccess)
         assertEquals("dismiss_cancelled", decision.failureReason)
+    }
+
+    @Test
+    fun evaluate_usesLiveStateFailureReasonWhenCallbackSucceedsButDeviceIsStillLocked() {
+        val decision =
+            KeepAliveRecoveryResultPolicy.evaluate(
+                enabled = true,
+                activeRecoveryToken = 12L,
+                reportedRecoveryToken = 12L,
+                callbackSuccess = true,
+                interactive = true,
+                deviceLocked = true,
+                failureReason = null,
+            )
+
+        assertFalse(decision.shouldIgnore)
+        assertFalse(decision.shouldMarkSuccess)
+        assertEquals("device_still_locked", decision.failureReason)
     }
 }
