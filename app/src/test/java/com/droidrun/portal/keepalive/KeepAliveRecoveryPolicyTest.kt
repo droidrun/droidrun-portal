@@ -13,7 +13,7 @@ class KeepAliveRecoveryPolicyTest {
                 enabled = false,
                 interactive = false,
                 deviceLocked = true,
-                lastRecoveryAtMs = 0L,
+                lastRecoveryAttemptAtMs = 0L,
                 nowMs = 1_000L,
             )
 
@@ -30,7 +30,7 @@ class KeepAliveRecoveryPolicyTest {
                 enabled = true,
                 interactive = true,
                 deviceLocked = false,
-                lastRecoveryAtMs = 0L,
+                lastRecoveryAttemptAtMs = 0L,
                 nowMs = 1_000L,
             )
 
@@ -46,7 +46,7 @@ class KeepAliveRecoveryPolicyTest {
                 enabled = true,
                 interactive = false,
                 deviceLocked = false,
-                lastRecoveryAtMs = 0L,
+                lastRecoveryAttemptAtMs = 0L,
                 nowMs = 1_000L,
             )
 
@@ -62,7 +62,7 @@ class KeepAliveRecoveryPolicyTest {
                 enabled = true,
                 interactive = true,
                 deviceLocked = true,
-                lastRecoveryAtMs = 0L,
+                lastRecoveryAttemptAtMs = 0L,
                 nowMs = 1_000L,
             )
 
@@ -72,13 +72,31 @@ class KeepAliveRecoveryPolicyTest {
     }
 
     @Test
-    fun evaluate_throttlesRecentRecoveryAttempts() {
+    fun evaluate_doesNotThrottleWhenNoRecentAttemptTimestampExists() {
         val decision =
             KeepAliveRecoveryPolicy.evaluate(
                 enabled = true,
                 interactive = false,
                 deviceLocked = false,
-                lastRecoveryAtMs = 5_000L,
+                lastRecoveryAttemptAtMs = 0L,
+                nowMs = 10_000L,
+                throttleMs = 10_000L,
+            )
+
+        assertTrue(decision.shouldAttemptRecovery)
+        assertTrue(decision.shouldWakeDisplay)
+        assertFalse(decision.shouldLaunchRecoveryActivity)
+        assertEquals(null, decision.degradedReason)
+    }
+
+    @Test
+    fun evaluate_throttlesRecentFailedAttempts() {
+        val decision =
+            KeepAliveRecoveryPolicy.evaluate(
+                enabled = true,
+                interactive = false,
+                deviceLocked = false,
+                lastRecoveryAttemptAtMs = 5_000L,
                 nowMs = 10_000L,
                 throttleMs = 10_000L,
             )

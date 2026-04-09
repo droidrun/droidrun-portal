@@ -2,29 +2,41 @@ package com.droidrun.portal.keepalive
 
 import android.app.KeyguardManager
 import android.content.Context
-import android.content.Intent
 import android.os.PowerManager
 import com.droidrun.portal.config.ConfigManager
 import org.json.JSONObject
 
 object KeepAliveController {
     fun setEnabled(context: Context, enabled: Boolean) {
+        if (enabled) {
+            enable(context)
+        } else {
+            disable(context)
+        }
+    }
+
+    fun enable(context: Context) {
         val appContext = context.applicationContext
         val configManager = ConfigManager.getInstance(appContext)
-        configManager.setKeepScreenAwakeEnabledWithNotification(enabled)
-        if (!enabled) {
-            configManager.clearKeepAliveRuntimeState()
-        }
+        configManager.setKeepScreenAwakeEnabledWithNotification(true)
         reconcile(appContext)
+    }
+
+    fun disable(context: Context) {
+        val appContext = context.applicationContext
+        val configManager = ConfigManager.getInstance(appContext)
+        configManager.setKeepScreenAwakeEnabledWithNotification(false)
+        configManager.clearKeepAliveRuntimeState()
+        KeepAliveServiceRuntime.stop(appContext)
     }
 
     fun reconcile(context: Context) {
         val appContext = context.applicationContext
         val configManager = ConfigManager.getInstance(appContext)
         if (configManager.keepScreenAwakeEnabled) {
-            startService(appContext)
+            KeepAliveServiceRuntime.start(appContext)
         } else {
-            stopService(appContext)
+            KeepAliveServiceRuntime.stop(appContext)
         }
     }
 
@@ -48,7 +60,7 @@ object KeepAliveController {
         context: Context,
         atMs: Long = System.currentTimeMillis(),
     ) {
-        ConfigManager.getInstance(context.applicationContext).keepAliveLastRecoveryAtMs = atMs
+        ConfigManager.getInstance(context.applicationContext).keepAliveLastRecoveryAttemptAtMs = atMs
     }
 
     fun markRecoverySuccess(
@@ -57,6 +69,7 @@ object KeepAliveController {
     ) {
         val configManager = ConfigManager.getInstance(context.applicationContext)
         configManager.keepAliveLastRecoveryAtMs = atMs
+        configManager.keepAliveLastRecoveryAttemptAtMs = 0L
         configManager.keepAliveConsecutiveRecoveryFailures = 0
         configManager.keepAliveDegradedReason = null
     }
@@ -68,6 +81,7 @@ object KeepAliveController {
     ) {
         val configManager = ConfigManager.getInstance(context.applicationContext)
         configManager.keepAliveLastRecoveryAtMs = atMs
+        configManager.keepAliveLastRecoveryAttemptAtMs = atMs
         configManager.keepAliveConsecutiveRecoveryFailures =
             configManager.keepAliveConsecutiveRecoveryFailures + 1
         configManager.keepAliveDegradedReason = reason
@@ -78,23 +92,6 @@ object KeepAliveController {
         reason: String?,
     ) {
         ConfigManager.getInstance(context.applicationContext).keepAliveDegradedReason = reason
-    }
-
-    private fun startService(context: Context) {
-        val intent =
-            Intent(context, KeepAliveService::class.java).apply {
-                action = KeepAliveService.ACTION_RECONCILE
-            }
-        context.startForegroundService(intent)
-    }
-
-    private fun stopService(context: Context) {
-        val intent =
-            Intent(context, KeepAliveService::class.java).apply {
-                action = KeepAliveService.ACTION_STOP
-            }
-        context.startService(intent)
-        context.stopService(Intent(context, KeepAliveService::class.java))
     }
 
     private fun isInteractive(context: Context): Boolean {

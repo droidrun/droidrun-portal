@@ -510,7 +510,10 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
 
     fun getActionDispatcher(): ActionDispatcher = actionDispatcher
 
-    fun launchKeepAliveRecoveryActivity(reason: String): Boolean {
+    fun launchKeepAliveRecoveryActivity(
+        reason: String,
+        recoveryToken: Long,
+    ): Boolean {
         return try {
             val intent =
                 Intent(this, KeepAliveRecoveryActivity::class.java).apply {
@@ -520,6 +523,7 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
                             Intent.FLAG_ACTIVITY_NO_ANIMATION or
                             Intent.FLAG_ACTIVITY_SINGLE_TOP
                     putExtra(KeepAliveRecoveryActivity.EXTRA_REASON, reason)
+                    putExtra(KeepAliveRecoveryActivity.EXTRA_RECOVERY_TOKEN, recoveryToken)
                 }
             startActivity(intent)
             true

@@ -41,6 +41,8 @@ class ConfigManager private constructor(private val context: Context) {
         private const val KEY_INSTALL_AUTO_ACCEPT_ENABLED = "install_auto_accept_enabled"
         private const val KEY_KEEP_SCREEN_AWAKE_ENABLED = "keep_screen_awake_enabled"
         private const val KEY_KEEP_ALIVE_LAST_RECOVERY_AT_MS = "keep_alive_last_recovery_at_ms"
+        private const val KEY_KEEP_ALIVE_LAST_RECOVERY_ATTEMPT_AT_MS =
+            "keep_alive_last_recovery_attempt_at_ms"
         private const val KEY_KEEP_ALIVE_CONSECUTIVE_RECOVERY_FAILURES =
             "keep_alive_consecutive_recovery_failures"
         private const val KEY_KEEP_ALIVE_DEGRADED_REASON = "keep_alive_degraded_reason"
@@ -329,6 +331,12 @@ class ConfigManager private constructor(private val context: Context) {
         get() = sharedPrefs.getLong(KEY_KEEP_ALIVE_LAST_RECOVERY_AT_MS, 0L)
         set(value) {
             sharedPrefs.edit { putLong(KEY_KEEP_ALIVE_LAST_RECOVERY_AT_MS, value) }
+        }
+
+    var keepAliveLastRecoveryAttemptAtMs: Long
+        get() = sharedPrefs.getLong(KEY_KEEP_ALIVE_LAST_RECOVERY_ATTEMPT_AT_MS, 0L)
+        set(value) {
+            sharedPrefs.edit { putLong(KEY_KEEP_ALIVE_LAST_RECOVERY_ATTEMPT_AT_MS, value) }
         }
 
     var keepAliveConsecutiveRecoveryFailures: Int
@@ -662,6 +670,7 @@ class ConfigManager private constructor(private val context: Context) {
 
     fun clearKeepAliveRuntimeState() {
         keepAliveLastRecoveryAtMs = 0L
+        keepAliveLastRecoveryAttemptAtMs = 0L
         keepAliveConsecutiveRecoveryFailures = 0
         keepAliveDegradedReason = null
     }

@@ -14,7 +14,7 @@ object KeepAliveRecoveryPolicy {
         enabled: Boolean,
         interactive: Boolean,
         deviceLocked: Boolean,
-        lastRecoveryAtMs: Long,
+        lastRecoveryAttemptAtMs: Long,
         nowMs: Long,
         throttleMs: Long = RECOVERY_THROTTLE_MS,
     ): KeepAliveRecoveryDecision {
@@ -35,7 +35,7 @@ object KeepAliveRecoveryPolicy {
             )
         }
 
-        if (lastRecoveryAtMs > 0L && nowMs - lastRecoveryAtMs < throttleMs) {
+        if (lastRecoveryAttemptAtMs > 0L && nowMs - lastRecoveryAttemptAtMs < throttleMs) {
             return KeepAliveRecoveryDecision(
                 shouldAttemptRecovery = false,
                 shouldWakeDisplay = false,

@@ -4,7 +4,9 @@ import android.app.KeyguardManager
 import android.content.Context
 import android.os.PowerManager
 import com.droidrun.portal.config.ConfigManager
+import io.mockk.Runs
 import io.mockk.every
+import io.mockk.just
 import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.unmockkAll
@@ -44,6 +46,10 @@ class KeepAliveControllerTest {
 
         mockkObject(KeepAliveService.Companion)
         every { KeepAliveService.isRunning() } returns false
+
+        mockkObject(KeepAliveServiceRuntime)
+        every { KeepAliveServiceRuntime.start(any()) } just Runs
+        every { KeepAliveServiceRuntime.stop(any()) } just Runs
     }
 
     @After
@@ -52,30 +58,42 @@ class KeepAliveControllerTest {
     }
 
     @Test
-    fun noteRecoveryAttempt_updatesLastRecoveryTimestamp() {
+    fun noteRecoveryAttempt_updatesLastRecoveryAttemptTimestamp() {
         KeepAliveController.noteRecoveryAttempt(context, atMs = 123L)
 
-        verify(exactly = 1) { configManager.keepAliveLastRecoveryAtMs = 123L }
+        verify(exactly = 1) { configManager.keepAliveLastRecoveryAttemptAtMs = 123L }
     }
 
     @Test
-    fun markRecoverySuccess_resetsFailureTracking() {
+    fun markRecoverySuccess_clearsRetryThrottleAndResetsFailureTracking() {
         KeepAliveController.markRecoverySuccess(context, atMs = 456L)
 
         verify(exactly = 1) { configManager.keepAliveLastRecoveryAtMs = 456L }
+        verify(exactly = 1) { configManager.keepAliveLastRecoveryAttemptAtMs = 0L }
         verify(exactly = 1) { configManager.keepAliveConsecutiveRecoveryFailures = 0 }
         verify(exactly = 1) { configManager.keepAliveDegradedReason = null }
     }
 
     @Test
-    fun markRecoveryFailure_incrementsFailureTracking() {
+    fun markRecoveryFailure_preservesRetryThrottleAndIncrementsFailureTracking() {
         every { configManager.keepAliveConsecutiveRecoveryFailures } returns 2
 
         KeepAliveController.markRecoveryFailure(context, reason = "wake_lock_failed", atMs = 789L)
 
         verify(exactly = 1) { configManager.keepAliveLastRecoveryAtMs = 789L }
+        verify(exactly = 1) { configManager.keepAliveLastRecoveryAttemptAtMs = 789L }
         verify(exactly = 1) { configManager.keepAliveConsecutiveRecoveryFailures = 3 }
         verify(exactly = 1) { configManager.keepAliveDegradedReason = "wake_lock_failed" }
+    }
+
+    @Test
+    fun setEnabled_false_clearsRuntimeStateAndStopsServiceWithoutStart() {
+        KeepAliveController.setEnabled(context, false)
+
+        verify(exactly = 1) { configManager.setKeepScreenAwakeEnabledWithNotification(false) }
+        verify(exactly = 1) { configManager.clearKeepAliveRuntimeState() }
+        verify(exactly = 0) { KeepAliveServiceRuntime.start(any()) }
+        verify(exactly = 1) { KeepAliveServiceRuntime.stop(context) }
     }
 
     @Test

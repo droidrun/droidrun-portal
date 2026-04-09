@@ -39,22 +39,13 @@ class KeepAliveService : Service(), ConfigManager.ConfigChangeListener {
 
         fun notifyRecoveryResult(
             context: Context,
+            recoveryToken: Long,
             success: Boolean,
             reason: String? = null,
         ) {
             val service = instance
-            if (service != null) {
-                service.handleRecoveryResult(success, reason)
-                return
-            }
-            if (success) {
-                KeepAliveController.markRecoverySuccess(context.applicationContext)
-            } else {
-                KeepAliveController.markRecoveryFailure(
-                    context.applicationContext,
-                    reason ?: "recovery_failed",
-                )
-            }
+            if (service == null) return
+            service.handleRecoveryResult(recoveryToken, success, reason)
         }
     }
 
@@ -78,6 +69,8 @@ class KeepAliveService : Service(), ConfigManager.ConfigChangeListener {
     private var recoveryWakeLock: PowerManager.WakeLock? = null
     private var receiverRegistered = false
     private var recoveryInFlight = false
+    private var activeRecoveryToken: Long? = null
+    private var nextRecoveryToken = 0L
 
     override fun onCreate() {
         super.onCreate()
@@ -89,7 +82,11 @@ class KeepAliveService : Service(), ConfigManager.ConfigChangeListener {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val configManager = ConfigManager.getInstance(applicationContext)
-        if (intent?.action == ACTION_STOP || !configManager.keepScreenAwakeEnabled) {
+        if (intent?.action == ACTION_STOP) {
+            KeepAliveController.disable(applicationContext)
+            return START_NOT_STICKY
+        }
+        if (!configManager.keepScreenAwakeEnabled) {
             stopSelf()
             return START_NOT_STICKY
         }
@@ -114,6 +111,7 @@ class KeepAliveService : Service(), ConfigManager.ConfigChangeListener {
         }
         releaseWakeLocks()
         recoveryInFlight = false
+        activeRecoveryToken = null
         instance = null
         super.onDestroy()
     }
@@ -130,6 +128,8 @@ class KeepAliveService : Service(), ConfigManager.ConfigChangeListener {
 
     override fun onKeepScreenAwakeEnabledChanged(enabled: Boolean) {
         if (!enabled) {
+            recoveryInFlight = false
+            activeRecoveryToken = null
             stopSelf()
         }
     }
@@ -154,7 +154,8 @@ class KeepAliveService : Service(), ConfigManager.ConfigChangeListener {
                 enabled = status.enabled,
                 interactive = status.interactive,
                 deviceLocked = status.deviceLocked,
-                lastRecoveryAtMs = status.lastRecoveryAtMs,
+                lastRecoveryAttemptAtMs =
+                    ConfigManager.getInstance(appContext).keepAliveLastRecoveryAttemptAtMs,
                 nowMs = System.currentTimeMillis(),
             )
 
@@ -168,25 +169,32 @@ class KeepAliveService : Service(), ConfigManager.ConfigChangeListener {
         }
 
         val recoveryAtMs = System.currentTimeMillis()
-        KeepAliveController.noteRecoveryAttempt(appContext, recoveryAtMs)
+        val recoveryToken = beginRecoveryAttempt(recoveryAtMs)
 
         if (decision.shouldWakeDisplay) {
             wakeDisplay()
         }
 
         if (decision.shouldLaunchRecoveryActivity) {
-            launchRecoveryActivity("locked:$trigger", recoveryAtMs)
+            launchRecoveryActivity("locked:$trigger", recoveryAtMs, recoveryToken)
             return
         }
 
         if (decision.shouldWakeDisplay) {
             mainHandler.postDelayed(
                 {
+                    if (!isCurrentRecoveryToken(recoveryToken)) {
+                        return@postDelayed
+                    }
                     val refreshedStatus = KeepAliveController.getStatus(appContext)
+                    if (!refreshedStatus.enabled) {
+                        clearRecoveryAttempt(recoveryToken)
+                        return@postDelayed
+                    }
                     if (!refreshedStatus.interactive || refreshedStatus.deviceLocked) {
-                        launchRecoveryActivity("wake_check:$trigger", recoveryAtMs)
+                        launchRecoveryActivity("wake_check:$trigger", recoveryAtMs, recoveryToken)
                     } else {
-                        KeepAliveController.markRecoverySuccess(appContext, recoveryAtMs)
+                        finalizeRecoveryAttempt(recoveryToken, callbackSuccess = true, reason = null)
                     }
                 },
                 WAKE_SETTLE_DELAY_MS,
@@ -225,25 +233,26 @@ class KeepAliveService : Service(), ConfigManager.ConfigChangeListener {
     private fun launchRecoveryActivity(
         reason: String,
         recoveryAtMs: Long,
+        recoveryToken: Long,
     ) {
-        if (recoveryInFlight) return
+        if (recoveryInFlight || !isCurrentRecoveryToken(recoveryToken)) return
 
         val service = DroidrunAccessibilityService.getInstance()
         if (service == null) {
-            KeepAliveController.markRecoveryFailure(
-                applicationContext,
-                "accessibility_service_unavailable",
-                recoveryAtMs,
+            finalizeRecoveryAttempt(
+                recoveryToken,
+                callbackSuccess = false,
+                reason = "accessibility_service_unavailable",
             )
             return
         }
 
-        val launched = service.launchKeepAliveRecoveryActivity(reason)
+        val launched = service.launchKeepAliveRecoveryActivity(reason, recoveryToken)
         if (!launched) {
-            KeepAliveController.markRecoveryFailure(
-                applicationContext,
-                "recovery_activity_launch_failed",
-                recoveryAtMs,
+            finalizeRecoveryAttempt(
+                recoveryToken,
+                callbackSuccess = false,
+                reason = "recovery_activity_launch_failed",
             )
             return
         }
@@ -252,20 +261,64 @@ class KeepAliveService : Service(), ConfigManager.ConfigChangeListener {
     }
 
     private fun handleRecoveryResult(
+        recoveryToken: Long,
         success: Boolean,
         reason: String?,
     ) {
         mainHandler.post {
-            recoveryInFlight = false
-            if (success) {
-                KeepAliveController.markRecoverySuccess(applicationContext)
-            } else {
-                KeepAliveController.markRecoveryFailure(
-                    applicationContext,
-                    reason ?: "dismiss_failed",
-                )
-            }
+            finalizeRecoveryAttempt(recoveryToken, success, reason)
         }
+    }
+
+    private fun beginRecoveryAttempt(atMs: Long): Long {
+        KeepAliveController.noteRecoveryAttempt(applicationContext, atMs)
+        nextRecoveryToken += 1L
+        activeRecoveryToken = nextRecoveryToken
+        recoveryInFlight = false
+        return nextRecoveryToken
+    }
+
+    private fun isCurrentRecoveryToken(recoveryToken: Long): Boolean =
+        activeRecoveryToken != null && activeRecoveryToken == recoveryToken
+
+    private fun clearRecoveryAttempt(recoveryToken: Long) {
+        if (activeRecoveryToken == recoveryToken) {
+            activeRecoveryToken = null
+            recoveryInFlight = false
+        }
+    }
+
+    private fun finalizeRecoveryAttempt(
+        recoveryToken: Long,
+        callbackSuccess: Boolean,
+        reason: String?,
+    ) {
+        val status = KeepAliveController.getStatus(applicationContext)
+        val decision =
+            KeepAliveRecoveryResultPolicy.evaluate(
+                enabled = status.enabled,
+                activeRecoveryToken = activeRecoveryToken,
+                reportedRecoveryToken = recoveryToken,
+                callbackSuccess = callbackSuccess,
+                interactive = status.interactive,
+                deviceLocked = status.deviceLocked,
+                failureReason = reason,
+            )
+
+        if (decision.shouldIgnore) {
+            clearRecoveryAttempt(recoveryToken)
+            return
+        }
+
+        if (decision.shouldMarkSuccess) {
+            KeepAliveController.markRecoverySuccess(applicationContext)
+        } else {
+            KeepAliveController.markRecoveryFailure(
+                applicationContext,
+                decision.failureReason ?: "dismiss_failed",
+            )
+        }
+        clearRecoveryAttempt(recoveryToken)
     }
 
     private fun ensureSteadyWakeLock() {

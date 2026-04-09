@@ -14,10 +14,14 @@ class KeepAliveRecoveryActivity : Activity() {
         private const val TAG = "KeepAliveRecovery"
         private const val FINISH_TIMEOUT_MS = 2_500L
         const val EXTRA_REASON = "extra_reason"
+        const val EXTRA_RECOVERY_TOKEN = "extra_recovery_token"
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private var completed = false
+    private val recoveryToken by lazy {
+        intent?.getLongExtra(EXTRA_RECOVERY_TOKEN, -1L) ?: -1L
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -88,7 +92,7 @@ class KeepAliveRecoveryActivity : Activity() {
         if (completed) return
         completed = true
         mainHandler.removeCallbacksAndMessages(null)
-        KeepAliveService.notifyRecoveryResult(applicationContext, success, reason)
+        KeepAliveService.notifyRecoveryResult(applicationContext, recoveryToken, success, reason)
         finish()
         overridePendingTransition(0, 0)
     }

@@ -101,12 +101,14 @@ class ConfigManagerTaskPromptTest {
     fun clearKeepAliveRuntimeState_clearsRecoveryMetadata() {
         val configManager = ConfigManager.getInstance(context)
         configManager.keepAliveLastRecoveryAtMs = 1234L
+        configManager.keepAliveLastRecoveryAttemptAtMs = 1200L
         configManager.keepAliveConsecutiveRecoveryFailures = 3
         configManager.keepAliveDegradedReason = "wake_lock_failed"
 
         configManager.clearKeepAliveRuntimeState()
 
         assertEquals(0L, configManager.keepAliveLastRecoveryAtMs)
+        assertEquals(0L, configManager.keepAliveLastRecoveryAttemptAtMs)
         assertEquals(0, configManager.keepAliveConsecutiveRecoveryFailures)
         assertEquals(null, configManager.keepAliveDegradedReason)
     }
