@@ -15,6 +15,7 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.RECEIVE_SMS" />
     <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.KILL_BACKGROUND_PROCESSES" />
     <!-- Permissions for WebRTC streaming -->
@@ -80,8 +81,21 @@
             android:exported="false"
             android:foregroundServiceType="mediaProjection" />
 
+        <service
+            android:name=".keepalive.KeepAliveService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
         <activity
             android:name=".ui.ScreenCaptureActivity"
+            android:theme="@style/Theme.Transparent"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:exported="false" />
+
+        <activity
+            android:name=".keepalive.KeepAliveRecoveryActivity"
             android:theme="@style/Theme.Transparent"
             android:excludeFromRecents="true"
             android:noHistory="true"

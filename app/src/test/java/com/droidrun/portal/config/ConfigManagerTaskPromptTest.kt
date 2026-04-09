@@ -81,6 +81,37 @@ class ConfigManagerTaskPromptTest {
     }
 
     @Test
+    fun keepScreenAwakeEnabled_defaultsToFalse() {
+        val configManager = ConfigManager.getInstance(context)
+
+        assertFalse(configManager.keepScreenAwakeEnabled)
+    }
+
+    @Test
+    fun keepScreenAwakeEnabled_persistsAcrossProcessRestart() {
+        val initial = ConfigManager.getInstance(context)
+        initial.keepScreenAwakeEnabled = true
+
+        clearSingleton()
+
+        assertTrue(ConfigManager.getInstance(context).keepScreenAwakeEnabled)
+    }
+
+    @Test
+    fun clearKeepAliveRuntimeState_clearsRecoveryMetadata() {
+        val configManager = ConfigManager.getInstance(context)
+        configManager.keepAliveLastRecoveryAtMs = 1234L
+        configManager.keepAliveConsecutiveRecoveryFailures = 3
+        configManager.keepAliveDegradedReason = "wake_lock_failed"
+
+        configManager.clearKeepAliveRuntimeState()
+
+        assertEquals(0L, configManager.keepAliveLastRecoveryAtMs)
+        assertEquals(0, configManager.keepAliveConsecutiveRecoveryFailures)
+        assertEquals(null, configManager.keepAliveDegradedReason)
+    }
+
+    @Test
     fun taskPromptSettings_prefers_saved_default_model_when_no_explicit_model_exists() {
         val configManager = ConfigManager.getInstance(context)
 

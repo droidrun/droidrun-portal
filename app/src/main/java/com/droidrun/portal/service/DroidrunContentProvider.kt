@@ -14,6 +14,7 @@ import com.droidrun.portal.api.ApiResponse
 import com.droidrun.portal.config.ConfigManager
 import com.droidrun.portal.core.StateRepository
 import com.droidrun.portal.input.DroidrunKeyboardIME
+import com.droidrun.portal.keepalive.KeepAliveController
 import com.droidrun.portal.triggers.TriggerApi
 import com.droidrun.portal.triggers.TriggerApiResult
 
@@ -51,6 +52,8 @@ class DroidrunContentProvider : ContentProvider() {
         private const val TRIGGERS_RULES_TEST = 26
         private const val TRIGGERS_RUNS_DELETE = 27
         private const val TRIGGERS_RUNS_CLEAR = 28
+        private const val TOGGLE_SCREEN_KEEP_AWAKE = 29
+        private const val SCREEN_KEEP_AWAKE_STATUS = 30
 
         private val uriMatcher = UriMatcher(UriMatcher.NO_MATCH).apply {
             addURI(AUTHORITY, "a11y_tree", A11Y_TREE)
@@ -81,6 +84,8 @@ class DroidrunContentProvider : ContentProvider() {
             addURI(AUTHORITY, "triggers/runs", TRIGGERS_RUNS)
             addURI(AUTHORITY, "triggers/runs/delete", TRIGGERS_RUNS_DELETE)
             addURI(AUTHORITY, "triggers/runs/clear", TRIGGERS_RUNS_CLEAR)
+            addURI(AUTHORITY, "toggle_screen_keep_awake", TOGGLE_SCREEN_KEEP_AWAKE)
+            addURI(AUTHORITY, "screen_keep_awake_status", SCREEN_KEEP_AWAKE_STATUS)
         }
     }
 
@@ -157,6 +162,9 @@ class DroidrunContentProvider : ContentProvider() {
             val response = when (match) {
                 VERSION -> ApiResponse.Success(getAppVersion())
                 AUTH_TOKEN -> ApiResponse.Text(configManager.authToken)
+                SCREEN_KEEP_AWAKE_STATUS -> ApiResponse.RawObject(
+                    KeepAliveController.getStatusJson(context ?: throw IllegalStateException("Provider context unavailable")),
+                )
                 TRIGGERS_CATALOG,
                 TRIGGERS_STATUS,
                 TRIGGERS_RULES,
@@ -243,6 +251,13 @@ class DroidrunContentProvider : ContentProvider() {
         val triggerResult = handleTriggerInsert(uri, values)
         if (triggerResult != null) {
             return mutationResultUri(triggerResult)
+        }
+
+        if (uriMatcher.match(uri) == TOGGLE_SCREEN_KEEP_AWAKE) {
+            val enabled = values?.getAsBoolean("enabled")
+                ?: return "content://$AUTHORITY/result?status=error&message=${Uri.encode("Missing required field: enabled")}".toUri()
+            KeepAliveController.setEnabled(context ?: throw IllegalStateException("Provider context unavailable"), enabled)
+            return "content://$AUTHORITY/result?status=success&message=${Uri.encode("Keep screen awake set to $enabled")}".toUri()
         }
 
         val handler = getHandler()

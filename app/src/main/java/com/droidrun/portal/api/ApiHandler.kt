@@ -37,6 +37,7 @@ import java.net.URL
 import androidx.core.net.toUri
 import com.droidrun.portal.service.ScreenCaptureService
 import com.droidrun.portal.streaming.WebRtcManager
+import com.droidrun.portal.keepalive.KeepAliveController
 import org.webrtc.IceCandidate
 import org.webrtc.PeerConnection
 import com.droidrun.portal.service.AutoAcceptGate
@@ -2003,6 +2004,14 @@ class ApiHandler(
         WebRtcManager.getInstance(context).handleKeepAlive(sessionId)
         return ApiResponse.Success("keep_alive_ack")
     }
+
+    fun setScreenKeepAwakeEnabled(enabled: Boolean): ApiResponse {
+        KeepAliveController.setEnabled(context, enabled)
+        return ApiResponse.RawObject(KeepAliveController.getStatusJson(context))
+    }
+
+    fun getScreenKeepAwakeStatus(): ApiResponse =
+        ApiResponse.RawObject(KeepAliveController.getStatusJson(context))
 
     fun listFiles(path: String): ApiResponse {
         return fileOperations.listFiles(path).fold(
