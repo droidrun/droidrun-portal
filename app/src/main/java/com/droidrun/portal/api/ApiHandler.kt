@@ -74,7 +74,6 @@ class ApiHandler(
 
     private val installLock = Any()
     private val fileOperations: FileOperations by lazy { FileOperations() }
-    @Volatile private var clipboardCache: String? = null
     val applicationContext: Context
         get() = context.applicationContext
 
@@ -398,7 +397,6 @@ class ApiHandler(
         // which is required for clipboard access on Android 10+.
         ime.requestKeyboardShow()
         val text = ime.getClipboardText()
-            ?: clipboardCache
             ?: return ApiResponse.Error("Clipboard is empty or access was denied")
         return ApiResponse.Success(text)
     }
@@ -409,15 +407,13 @@ class ApiHandler(
             // has reliable clipboard access, ensuring set and get use the same context.
             val ime = getKeyboardIME()
             if (ime != null && ime.setClipboardText(text)) {
-                // IME set succeeded – cache and return.
+                // IME set succeeded.
             } else {
                 // Fall back to app context (or if IME set failed).
                 val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                 val clip = android.content.ClipData.newPlainText("text", text)
                 cm.setPrimaryClip(clip)
             }
-            // Cache the value so getClipboard can return it even if IME read is blocked.
-            clipboardCache = text
             ApiResponse.Success("Clipboard set")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to set clipboard", e)
