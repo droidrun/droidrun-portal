@@ -104,6 +104,13 @@ class ConfigManagerTaskPromptTest {
         configManager.keepAliveLastRecoveryAttemptAtMs = 1200L
         configManager.keepAliveConsecutiveRecoveryFailures = 3
         configManager.keepAliveDegradedReason = "wake_lock_failed"
+        configManager.keepAliveActiveRecoveryToken = 77L
+        configManager.keepAliveRecoveryActivityInFlight = true
+        configManager.saveKeepAlivePendingRecoveryResult(
+            token = 77L,
+            success = false,
+            reason = "dismiss_cancelled",
+        )
 
         configManager.clearKeepAliveRuntimeState()
 
@@ -111,6 +118,11 @@ class ConfigManagerTaskPromptTest {
         assertEquals(0L, configManager.keepAliveLastRecoveryAttemptAtMs)
         assertEquals(0, configManager.keepAliveConsecutiveRecoveryFailures)
         assertEquals(null, configManager.keepAliveDegradedReason)
+        assertEquals(0L, configManager.keepAliveActiveRecoveryToken)
+        assertFalse(configManager.keepAliveRecoveryActivityInFlight)
+        assertEquals(0L, configManager.keepAlivePendingRecoveryResultToken)
+        assertFalse(configManager.keepAlivePendingRecoveryResultSuccess)
+        assertEquals(null, configManager.keepAlivePendingRecoveryResultReason)
     }
 
     @Test
@@ -124,6 +136,27 @@ class ConfigManagerTaskPromptTest {
 
         val restored = ConfigManager.getInstance(context)
         assertEquals(3L, restored.nextKeepAliveRecoveryToken())
+    }
+
+    @Test
+    fun keepAliveRecoveryHandoffState_persistsAcrossProcessRestart() {
+        val initial = ConfigManager.getInstance(context)
+        initial.keepAliveActiveRecoveryToken = 81L
+        initial.keepAliveRecoveryActivityInFlight = true
+        initial.saveKeepAlivePendingRecoveryResult(
+            token = 81L,
+            success = true,
+            reason = null,
+        )
+
+        clearSingleton()
+
+        val restored = ConfigManager.getInstance(context)
+        assertEquals(81L, restored.keepAliveActiveRecoveryToken)
+        assertTrue(restored.keepAliveRecoveryActivityInFlight)
+        assertEquals(81L, restored.keepAlivePendingRecoveryResultToken)
+        assertTrue(restored.keepAlivePendingRecoveryResultSuccess)
+        assertEquals(null, restored.keepAlivePendingRecoveryResultReason)
     }
 
     @Test

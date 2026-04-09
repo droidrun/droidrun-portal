@@ -2,6 +2,7 @@ package com.droidrun.portal.keepalive
 
 import android.app.Activity
 import android.app.KeyguardManager
+import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -19,49 +20,62 @@ class KeepAliveRecoveryActivity : Activity() {
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val attemptState = KeepAliveRecoveryActivityAttemptState()
     private var completed = false
-    private var dismissCallbackState: KeepAliveDismissCallbackState = KeepAliveDismissCallbackState.None
-    private val recoveryToken by lazy {
-        intent?.getLongExtra(EXTRA_RECOVERY_TOKEN, -1L) ?: -1L
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setShowWhenLocked(true)
         setTurnScreenOn(true)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        attemptDismiss()
+        restartDismissFlow()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        restartDismissFlow()
     }
 
     override fun onResume() {
         super.onResume()
+        val attempt = attemptState.currentAttempt() ?: return
         KeepAliveRecoveryActivityStatePolicy.resultForResume(sampleScreenState())?.let { result ->
-            complete(success = result.success, reason = result.reason)
+            complete(attempt, success = result.success, reason = result.reason)
         }
     }
 
-    private fun attemptDismiss() {
+    private fun restartDismissFlow() {
+        mainHandler.removeCallbacksAndMessages(null)
+        completed = false
+        attemptDismiss(attemptState.beginAttempt(readRecoveryTokenFromIntent()))
+    }
+
+    private fun attemptDismiss(attempt: KeepAliveRecoveryActivityAttempt) {
         val keyguardManager = getSystemService(KEYGUARD_SERVICE) as? KeyguardManager
         if (keyguardManager == null) {
-            complete(success = false, reason = "keyguard_manager_unavailable")
+            complete(attempt, success = false, reason = "keyguard_manager_unavailable")
             return
         }
 
         KeepAliveRecoveryActivityStatePolicy.resultForResume(
             sampleScreenState(keyguardManager = keyguardManager),
         )?.let { result ->
-            complete(success = result.success, reason = result.reason)
+            complete(attempt, success = result.success, reason = result.reason)
             return
         }
 
         mainHandler.postDelayed(
             {
+                if (!attemptState.isCurrentGeneration(attempt.generation)) {
+                    return@postDelayed
+                }
                 val result =
                     KeepAliveRecoveryActivityStatePolicy.resultForTimeout(
                         sampleScreenState(keyguardManager = keyguardManager),
-                        dismissCallbackState,
+                        attemptState.currentDismissCallbackState(),
                     )
-                complete(success = result.success, reason = result.reason)
+                complete(attempt, success = result.success, reason = result.reason)
             },
             FINISH_TIMEOUT_MS,
         )
@@ -76,6 +90,7 @@ class KeepAliveRecoveryActivity : Activity() {
                 object : KeyguardManager.KeyguardDismissCallback() {
                     override fun onDismissSucceeded() {
                         handleDismissCallback(
+                            attempt,
                             KeepAliveDismissCallbackState.Succeeded,
                             keyguardManager,
                         )
@@ -83,6 +98,7 @@ class KeepAliveRecoveryActivity : Activity() {
 
                     override fun onDismissCancelled() {
                         handleDismissCallback(
+                            attempt,
                             KeepAliveDismissCallbackState.Failed("dismiss_cancelled"),
                             keyguardManager,
                         )
@@ -90,6 +106,7 @@ class KeepAliveRecoveryActivity : Activity() {
 
                     override fun onDismissError() {
                         handleDismissCallback(
+                            attempt,
                             KeepAliveDismissCallbackState.Failed("dismiss_error"),
                             keyguardManager,
                         )
@@ -99,6 +116,7 @@ class KeepAliveRecoveryActivity : Activity() {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to request keyguard dismissal", e)
             handleDismissCallback(
+                attempt,
                 KeepAliveDismissCallbackState.Failed("dismiss_exception"),
                 keyguardManager,
             )
@@ -106,28 +124,41 @@ class KeepAliveRecoveryActivity : Activity() {
     }
 
     private fun handleDismissCallback(
+        attempt: KeepAliveRecoveryActivityAttempt,
         newState: KeepAliveDismissCallbackState,
         keyguardManager: KeyguardManager,
     ) {
-        dismissCallbackState = newState
+        if (!attemptState.updateDismissCallbackState(attempt.generation, newState)) {
+            return
+        }
         KeepAliveRecoveryActivityStatePolicy.resultForDismissCallback(
             sampleScreenState(keyguardManager = keyguardManager),
-            dismissCallbackState,
+            attemptState.currentDismissCallbackState(),
         )?.let { result ->
-            complete(success = result.success, reason = result.reason)
+            complete(attempt, success = result.success, reason = result.reason)
         }
     }
 
     private fun complete(
+        attempt: KeepAliveRecoveryActivityAttempt,
         success: Boolean,
         reason: String?,
     ) {
-        if (completed) return
+        if (completed || !attemptState.isCurrentGeneration(attempt.generation)) return
         completed = true
         mainHandler.removeCallbacksAndMessages(null)
-        KeepAliveService.notifyRecoveryResult(recoveryToken, success, reason)
+        KeepAliveService.notifyRecoveryResult(
+            applicationContext,
+            attempt.recoveryToken,
+            success,
+            reason,
+        )
         finish()
         overridePendingTransition(0, 0)
+    }
+
+    private fun readRecoveryTokenFromIntent(): Long {
+        return intent?.getLongExtra(EXTRA_RECOVERY_TOKEN, -1L) ?: -1L
     }
 
     private fun sampleScreenState(keyguardManager: KeyguardManager? = null): KeepAliveRecoveryScreenState {

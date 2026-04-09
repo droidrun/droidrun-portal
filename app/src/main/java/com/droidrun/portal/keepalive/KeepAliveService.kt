@@ -38,13 +38,30 @@ class KeepAliveService : Service(), ConfigManager.ConfigChangeListener {
         fun isRunning(): Boolean = instance != null
 
         fun notifyRecoveryResult(
+            context: Context,
             recoveryToken: Long,
             success: Boolean,
             reason: String? = null,
         ) {
             val service = instance
-            if (service == null) return
-            service.handleRecoveryResult(recoveryToken, success, reason)
+            val appContext = context.applicationContext
+            val configManager = ConfigManager.getInstance(appContext)
+            val deliveryDecision =
+                KeepAliveRecoveryHandoffPolicy.deliveryDecision(
+                    hasLiveService = service != null,
+                    keepAliveEnabled = configManager.keepScreenAwakeEnabled,
+                )
+            if (deliveryDecision.shouldHandleWithLiveService && service != null) {
+                service.handleRecoveryResult(recoveryToken, success, reason)
+                return
+            }
+            if (!deliveryDecision.shouldPersistPendingResult) {
+                return
+            }
+            configManager.saveKeepAlivePendingRecoveryResult(recoveryToken, success, reason)
+            if (deliveryDecision.shouldStartServiceBestEffort) {
+                KeepAliveController.retryStartupIfEnabledAndInactive(appContext)
+            }
         }
     }
 
@@ -73,7 +90,9 @@ class KeepAliveService : Service(), ConfigManager.ConfigChangeListener {
     override fun onCreate() {
         super.onCreate()
         instance = this
-        ConfigManager.getInstance(this).addListener(this)
+        val configManager = ConfigManager.getInstance(this)
+        configManager.addListener(this)
+        restorePersistedRecoveryHandoffState(configManager)
         createNotificationChannel()
         registerScreenStateReceiver()
     }
@@ -146,6 +165,10 @@ class KeepAliveService : Service(), ConfigManager.ConfigChangeListener {
         }
 
         ensureSteadyWakeLock()
+        val nowMs = System.currentTimeMillis()
+        if (handlePersistedRecoveryHandoff(status, nowMs)) {
+            return
+        }
 
         val decision =
             KeepAliveRecoveryPolicy.evaluate(
@@ -154,7 +177,7 @@ class KeepAliveService : Service(), ConfigManager.ConfigChangeListener {
                 deviceLocked = status.deviceLocked,
                 lastRecoveryAttemptAtMs =
                     ConfigManager.getInstance(appContext).keepAliveLastRecoveryAttemptAtMs,
-                nowMs = System.currentTimeMillis(),
+                nowMs = nowMs,
             )
 
         if (!decision.shouldAttemptRecovery) {
@@ -255,6 +278,7 @@ class KeepAliveService : Service(), ConfigManager.ConfigChangeListener {
         }
 
         recoveryInFlight = true
+        ConfigManager.getInstance(applicationContext).keepAliveRecoveryActivityInFlight = true
     }
 
     private fun handleRecoveryResult(
@@ -269,9 +293,12 @@ class KeepAliveService : Service(), ConfigManager.ConfigChangeListener {
 
     private fun beginRecoveryAttempt(atMs: Long): Long {
         KeepAliveController.noteRecoveryAttempt(applicationContext, atMs)
-        activeRecoveryToken =
-            ConfigManager.getInstance(applicationContext).nextKeepAliveRecoveryToken()
+        val configManager = ConfigManager.getInstance(applicationContext)
+        activeRecoveryToken = configManager.nextKeepAliveRecoveryToken()
         recoveryInFlight = false
+        configManager.keepAliveActiveRecoveryToken = activeRecoveryToken!!
+        configManager.keepAliveRecoveryActivityInFlight = false
+        configManager.clearKeepAlivePendingRecoveryResult()
         return activeRecoveryToken!!
     }
 
@@ -282,6 +309,7 @@ class KeepAliveService : Service(), ConfigManager.ConfigChangeListener {
         if (activeRecoveryToken == recoveryToken) {
             activeRecoveryToken = null
             recoveryInFlight = false
+            clearPersistedRecoveryHandoffState()
         }
     }
 
@@ -316,6 +344,60 @@ class KeepAliveService : Service(), ConfigManager.ConfigChangeListener {
             )
         }
         clearRecoveryAttempt(recoveryToken)
+    }
+
+    private fun handlePersistedRecoveryHandoff(
+        status: KeepAliveStatus,
+        nowMs: Long,
+    ): Boolean {
+        val configManager = ConfigManager.getInstance(applicationContext)
+        val decision =
+            KeepAliveRecoveryHandoffPolicy.handoffDecision(
+                activeRecoveryToken = configManager.keepAliveActiveRecoveryToken,
+                recoveryActivityInFlight = configManager.keepAliveRecoveryActivityInFlight,
+                pendingRecoveryResultToken = configManager.keepAlivePendingRecoveryResultToken,
+                lastRecoveryAttemptAtMs = configManager.keepAliveLastRecoveryAttemptAtMs,
+                nowMs = nowMs,
+            )
+
+        if (decision.shouldClearHandoffState) {
+            clearPersistedRecoveryHandoffState(resetLastRecoveryAttemptTimestamp = true)
+            restorePersistedRecoveryHandoffState(configManager)
+            return false
+        }
+
+        if (decision.shouldConsumePendingResult) {
+            restorePersistedRecoveryHandoffState(configManager)
+            finalizeRecoveryAttempt(
+                configManager.keepAlivePendingRecoveryResultToken,
+                configManager.keepAlivePendingRecoveryResultSuccess,
+                configManager.keepAlivePendingRecoveryResultReason,
+            )
+            return true
+        }
+
+        if (decision.shouldSuppressRecoveryEvaluation) {
+            if (status.interactive && !status.deviceLocked) {
+                KeepAliveController.setDegradedReason(applicationContext, null)
+            }
+            return true
+        }
+
+        return false
+    }
+
+    private fun restorePersistedRecoveryHandoffState(configManager: ConfigManager) {
+        activeRecoveryToken = configManager.keepAliveActiveRecoveryToken.takeIf { it > 0L }
+        recoveryInFlight =
+            configManager.keepAliveRecoveryActivityInFlight && activeRecoveryToken != null
+    }
+
+    private fun clearPersistedRecoveryHandoffState(resetLastRecoveryAttemptTimestamp: Boolean = false) {
+        val configManager = ConfigManager.getInstance(applicationContext)
+        configManager.clearKeepAliveRecoveryHandoffState()
+        if (resetLastRecoveryAttemptTimestamp) {
+            configManager.keepAliveLastRecoveryAttemptAtMs = 0L
+        }
     }
 
     private fun ensureSteadyWakeLock() {

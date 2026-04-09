@@ -47,6 +47,15 @@ class ConfigManager private constructor(private val context: Context) {
             "keep_alive_consecutive_recovery_failures"
         private const val KEY_KEEP_ALIVE_DEGRADED_REASON = "keep_alive_degraded_reason"
         private const val KEY_KEEP_ALIVE_NEXT_RECOVERY_TOKEN = "keep_alive_next_recovery_token"
+        private const val KEY_KEEP_ALIVE_ACTIVE_RECOVERY_TOKEN = "keep_alive_active_recovery_token"
+        private const val KEY_KEEP_ALIVE_RECOVERY_ACTIVITY_IN_FLIGHT =
+            "keep_alive_recovery_activity_in_flight"
+        private const val KEY_KEEP_ALIVE_PENDING_RECOVERY_RESULT_TOKEN =
+            "keep_alive_pending_recovery_result_token"
+        private const val KEY_KEEP_ALIVE_PENDING_RECOVERY_RESULT_SUCCESS =
+            "keep_alive_pending_recovery_result_success"
+        private const val KEY_KEEP_ALIVE_PENDING_RECOVERY_RESULT_REASON =
+            "keep_alive_pending_recovery_result_reason"
         private const val KEY_TASK_PROMPT_MODEL = "task_prompt_model"
         private const val KEY_TASK_PROMPT_DEFAULT_MODEL = "task_prompt_default_model"
         private const val KEY_TASK_PROMPT_REASONING = "task_prompt_reasoning"
@@ -365,6 +374,64 @@ class ConfigManager private constructor(private val context: Context) {
         return nextToken
     }
 
+    var keepAliveActiveRecoveryToken: Long
+        get() = sharedPrefs.getLong(KEY_KEEP_ALIVE_ACTIVE_RECOVERY_TOKEN, 0L)
+        set(value) {
+            sharedPrefs.edit { putLong(KEY_KEEP_ALIVE_ACTIVE_RECOVERY_TOKEN, value) }
+        }
+
+    var keepAliveRecoveryActivityInFlight: Boolean
+        get() = sharedPrefs.getBoolean(KEY_KEEP_ALIVE_RECOVERY_ACTIVITY_IN_FLIGHT, false)
+        set(value) {
+            sharedPrefs.edit { putBoolean(KEY_KEEP_ALIVE_RECOVERY_ACTIVITY_IN_FLIGHT, value) }
+        }
+
+    var keepAlivePendingRecoveryResultToken: Long
+        get() = sharedPrefs.getLong(KEY_KEEP_ALIVE_PENDING_RECOVERY_RESULT_TOKEN, 0L)
+        set(value) {
+            sharedPrefs.edit { putLong(KEY_KEEP_ALIVE_PENDING_RECOVERY_RESULT_TOKEN, value) }
+        }
+
+    var keepAlivePendingRecoveryResultSuccess: Boolean
+        get() = sharedPrefs.getBoolean(KEY_KEEP_ALIVE_PENDING_RECOVERY_RESULT_SUCCESS, false)
+        set(value) {
+            sharedPrefs.edit { putBoolean(KEY_KEEP_ALIVE_PENDING_RECOVERY_RESULT_SUCCESS, value) }
+        }
+
+    var keepAlivePendingRecoveryResultReason: String?
+        get() = sharedPrefs.getString(KEY_KEEP_ALIVE_PENDING_RECOVERY_RESULT_REASON, null)?.takeIf { it.isNotBlank() }
+        set(value) {
+            sharedPrefs.edit {
+                if (value.isNullOrBlank()) {
+                    remove(KEY_KEEP_ALIVE_PENDING_RECOVERY_RESULT_REASON)
+                } else {
+                    putString(KEY_KEEP_ALIVE_PENDING_RECOVERY_RESULT_REASON, value)
+                }
+            }
+        }
+
+    fun saveKeepAlivePendingRecoveryResult(
+        token: Long,
+        success: Boolean,
+        reason: String?,
+    ) {
+        keepAlivePendingRecoveryResultToken = token
+        keepAlivePendingRecoveryResultSuccess = success
+        keepAlivePendingRecoveryResultReason = reason
+    }
+
+    fun clearKeepAlivePendingRecoveryResult() {
+        keepAlivePendingRecoveryResultToken = 0L
+        keepAlivePendingRecoveryResultSuccess = false
+        keepAlivePendingRecoveryResultReason = null
+    }
+
+    fun clearKeepAliveRecoveryHandoffState() {
+        keepAliveActiveRecoveryToken = 0L
+        keepAliveRecoveryActivityInFlight = false
+        clearKeepAlivePendingRecoveryResult()
+    }
+
     var taskPromptModel: String
         get() = sharedPrefs.getString(KEY_TASK_PROMPT_MODEL, "") ?: ""
         set(value) {
@@ -681,6 +748,7 @@ class ConfigManager private constructor(private val context: Context) {
         keepAliveLastRecoveryAttemptAtMs = 0L
         keepAliveConsecutiveRecoveryFailures = 0
         keepAliveDegradedReason = null
+        clearKeepAliveRecoveryHandoffState()
     }
 
     // Bulk configuration update
