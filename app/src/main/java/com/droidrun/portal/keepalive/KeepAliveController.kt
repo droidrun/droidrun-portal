@@ -63,6 +63,20 @@ object KeepAliveController {
         }
     }
 
+    fun retryStartupIfEnabledAndInactive(context: Context): String? {
+        val appContext = context.applicationContext
+        val configManager = ConfigManager.getInstance(appContext)
+        if (!configManager.keepScreenAwakeEnabled || KeepAliveService.isRunning()) {
+            return null
+        }
+        return try {
+            KeepAliveServiceRuntime.start(appContext)
+            null
+        } catch (e: KeepAliveStartupException) {
+            e.reason
+        }
+    }
+
     fun getStatus(context: Context): KeepAliveStatus {
         val appContext = context.applicationContext
         val configManager = ConfigManager.getInstance(appContext)

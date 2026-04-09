@@ -51,7 +51,6 @@ import com.droidrun.portal.ui.taskprompt.TaskPromptCardController
 import com.droidrun.portal.ui.taskprompt.TaskDetailsActivity
 import com.droidrun.portal.ui.taskprompt.TaskHistoryActivity
 import com.droidrun.portal.ui.settings.SettingsActivity
-import com.droidrun.portal.state.AppVisibilityTracker
 import androidx.core.graphics.toColorInt
 import androidx.core.content.ContextCompat
 
@@ -293,7 +292,6 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
 
     override fun onStart() {
         super.onStart()
-        AppVisibilityTracker.setForeground(true)
         registerInstallResultReceiver()
         registerTaskPromptStateReceiver()
     }
@@ -317,7 +315,6 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         stopTaskPromptPolling()
         unregisterTaskPromptStateReceiver()
         unregisterInstallResultReceiver()
-        AppVisibilityTracker.setForeground(false)
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {

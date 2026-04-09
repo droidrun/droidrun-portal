@@ -19,7 +19,6 @@ import com.droidrun.portal.events.model.EventType
 import com.droidrun.portal.keepalive.KeepAliveController
 import com.droidrun.portal.service.DroidrunNotificationListener
 import com.droidrun.portal.service.ReverseConnectionService
-import com.droidrun.portal.state.AppVisibilityTracker
 import com.droidrun.portal.state.ConnectionState
 import com.droidrun.portal.state.ConnectionStateManager
 import com.droidrun.portal.taskprompt.PortalBalanceRepository
@@ -93,14 +92,12 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         super.onStart()
         configManager.addListener(this)
         syncServerSettingsFromConfig()
-        AppVisibilityTracker.setForeground(true)
     }
 
     override fun onStop() {
         super.onStop()
         configManager.removeListener(this)
         persistReverseConnectionInputs()
-        AppVisibilityTracker.setForeground(false)
     }
 
     private fun setupDevMode() {

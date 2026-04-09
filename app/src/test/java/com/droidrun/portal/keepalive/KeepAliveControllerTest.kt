@@ -25,6 +25,7 @@ class KeepAliveControllerTest {
     private lateinit var powerManager: PowerManager
     private lateinit var keyguardManager: KeyguardManager
     private var keepScreenAwakeEnabled = false
+    private var keepAliveServiceRunning = false
 
     @Before
     fun setUp() {
@@ -46,7 +47,7 @@ class KeepAliveControllerTest {
         every { ConfigManager.getInstance(context) } returns configManager
 
         mockkObject(KeepAliveService.Companion)
-        every { KeepAliveService.isRunning() } returns false
+        every { KeepAliveService.isRunning() } answers { keepAliveServiceRunning }
 
         mockkObject(KeepAliveServiceRuntime)
         every { KeepAliveServiceRuntime.start(any()) } just Runs
@@ -155,6 +156,60 @@ class KeepAliveControllerTest {
         val result = KeepAliveController.reconcileBestEffort(context)
 
         assertEquals("foreground_service_start_not_allowed", result.deferredReason)
+        assertTrue(keepScreenAwakeEnabled)
+        verify(exactly = 1) { KeepAliveServiceRuntime.start(context) }
+        verify(exactly = 0) { configManager.clearKeepAliveRuntimeState() }
+        verify(exactly = 0) { configManager.setKeepScreenAwakeEnabledWithNotification(false) }
+        verify(exactly = 0) { KeepAliveServiceRuntime.stop(any()) }
+    }
+
+    @Test
+    fun retryStartupIfEnabledAndInactive_startsRuntimeWhenEnabledAndServiceStopped() {
+        keepScreenAwakeEnabled = true
+        keepAliveServiceRunning = false
+
+        val deferredReason = KeepAliveController.retryStartupIfEnabledAndInactive(context)
+
+        assertEquals(null, deferredReason)
+        verify(exactly = 1) { KeepAliveServiceRuntime.start(context) }
+        verify(exactly = 0) { configManager.clearKeepAliveRuntimeState() }
+        verify(exactly = 0) { KeepAliveServiceRuntime.stop(any()) }
+    }
+
+    @Test
+    fun retryStartupIfEnabledAndInactive_isNoOpWhenDisabled() {
+        keepScreenAwakeEnabled = false
+
+        val deferredReason = KeepAliveController.retryStartupIfEnabledAndInactive(context)
+
+        assertEquals(null, deferredReason)
+        verify(exactly = 0) { KeepAliveServiceRuntime.start(any()) }
+        verify(exactly = 0) { configManager.clearKeepAliveRuntimeState() }
+        verify(exactly = 0) { KeepAliveServiceRuntime.stop(any()) }
+    }
+
+    @Test
+    fun retryStartupIfEnabledAndInactive_isNoOpWhenServiceAlreadyRunning() {
+        keepScreenAwakeEnabled = true
+        keepAliveServiceRunning = true
+
+        val deferredReason = KeepAliveController.retryStartupIfEnabledAndInactive(context)
+
+        assertEquals(null, deferredReason)
+        verify(exactly = 0) { KeepAliveServiceRuntime.start(any()) }
+        verify(exactly = 0) { configManager.clearKeepAliveRuntimeState() }
+        verify(exactly = 0) { KeepAliveServiceRuntime.stop(any()) }
+    }
+
+    @Test
+    fun retryStartupIfEnabledAndInactive_returnsDeferredReasonWithoutMutatingStateWhenStartupFails() {
+        keepScreenAwakeEnabled = true
+        every { KeepAliveServiceRuntime.start(any()) } throws
+            KeepAliveStartupException("foreground_service_start_not_allowed")
+
+        val deferredReason = KeepAliveController.retryStartupIfEnabledAndInactive(context)
+
+        assertEquals("foreground_service_start_not_allowed", deferredReason)
         assertTrue(keepScreenAwakeEnabled)
         verify(exactly = 1) { KeepAliveServiceRuntime.start(context) }
         verify(exactly = 0) { configManager.clearKeepAliveRuntimeState() }
