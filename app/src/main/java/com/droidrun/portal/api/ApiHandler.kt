@@ -403,9 +403,17 @@ class ApiHandler(
 
     fun setClipboard(text: String): ApiResponse {
         return try {
-            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-            val clip = android.content.ClipData.newPlainText("text", text)
-            cm.setPrimaryClip(clip)
+            // Prefer using the IME context when available: on Android 10+ the default IME
+            // has reliable clipboard access, ensuring set and get use the same context.
+            val ime = getKeyboardIME()
+            if (ime != null && ime.setClipboardText(text)) {
+                // IME set succeeded.
+            } else {
+                // Fall back to app context (or if IME set failed).
+                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                val clip = android.content.ClipData.newPlainText("text", text)
+                cm.setPrimaryClip(clip)
+            }
             ApiResponse.Success("Clipboard set")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to set clipboard", e)
