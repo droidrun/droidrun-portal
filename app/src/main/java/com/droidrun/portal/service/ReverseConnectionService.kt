@@ -564,7 +564,7 @@ class ReverseConnectionService : Service() {
             val dispatcher = resolveActionDispatcher(normalizedMethod)
             if (dispatcher == null) {
                 val error =
-                    "Accessibility Service not ready. Only stream/*, webrtc/*, global, and triggers/* are available."
+                    "Accessibility Service not ready. Only stream/*, webrtc/*, screen/keepAwake/*, global, and triggers/* are available."
                 Log.e(TAG, error)
                 webSocketClient?.send(ApiResponse.Error(error).toJson(id))
                 return

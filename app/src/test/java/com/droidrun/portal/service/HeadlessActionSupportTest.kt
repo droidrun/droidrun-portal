@@ -22,6 +22,8 @@ class HeadlessActionSupportTest {
         assertTrue(HeadlessActionSupport.isAllowed("webrtc/rtcConfiguration"))
         assertTrue(HeadlessActionSupport.isAllowed("webrtc/requestFrame"))
         assertTrue(HeadlessActionSupport.isAllowed("webrtc/keepAlive"))
+        assertTrue(HeadlessActionSupport.isAllowed("screen/keepAwake/set"))
+        assertTrue(HeadlessActionSupport.isAllowed("screen/keepAwake/status"))
         assertTrue(HeadlessActionSupport.isAllowed("triggers/status"))
     }
 

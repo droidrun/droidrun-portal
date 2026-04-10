@@ -39,6 +39,27 @@ class ConfigManager private constructor(private val context: Context) {
         private const val KEY_PRODUCTION_MODE = "production_mode"
         private const val KEY_DEV_MODE_ENABLED = "dev_mode_enabled"
         private const val KEY_INSTALL_AUTO_ACCEPT_ENABLED = "install_auto_accept_enabled"
+        private const val KEY_KEEP_SCREEN_AWAKE_ENABLED = "keep_screen_awake_enabled"
+        private const val KEY_KEEP_ALIVE_LAST_RECOVERY_AT_MS = "keep_alive_last_recovery_at_ms"
+        private const val KEY_KEEP_ALIVE_LAST_RECOVERY_ATTEMPT_AT_MS =
+            "keep_alive_last_recovery_attempt_at_ms"
+        private const val KEY_KEEP_ALIVE_CONSECUTIVE_RECOVERY_FAILURES =
+            "keep_alive_consecutive_recovery_failures"
+        private const val KEY_KEEP_ALIVE_DEGRADED_REASON = "keep_alive_degraded_reason"
+        private const val KEY_KEEP_ALIVE_NEXT_RECOVERY_TOKEN = "keep_alive_next_recovery_token"
+        private const val KEY_KEEP_ALIVE_ACTIVE_RECOVERY_TOKEN = "keep_alive_active_recovery_token"
+        private const val KEY_KEEP_ALIVE_RECOVERY_ACTIVITY_IN_FLIGHT =
+            "keep_alive_recovery_activity_in_flight"
+        private const val KEY_KEEP_ALIVE_PENDING_RECOVERY_RESULT_TOKEN =
+            "keep_alive_pending_recovery_result_token"
+        private const val KEY_KEEP_ALIVE_PENDING_RECOVERY_RESULT_SUCCESS =
+            "keep_alive_pending_recovery_result_success"
+        private const val KEY_KEEP_ALIVE_PENDING_RECOVERY_RESULT_REASON =
+            "keep_alive_pending_recovery_result_reason"
+        private const val KEY_KEEP_ALIVE_PENDING_RECOVERY_RESULT_AT_MS =
+            "keep_alive_pending_recovery_result_at_ms"
+        private const val KEY_KEEP_ALIVE_RECOVERY_OWNER_SESSION_ID =
+            "keep_alive_recovery_owner_session_id"
         private const val KEY_TASK_PROMPT_MODEL = "task_prompt_model"
         private const val KEY_TASK_PROMPT_DEFAULT_MODEL = "task_prompt_default_model"
         private const val KEY_TASK_PROMPT_REASONING = "task_prompt_reasoning"
@@ -314,6 +335,129 @@ class ConfigManager private constructor(private val context: Context) {
             sharedPrefs.edit { putBoolean(KEY_INSTALL_AUTO_ACCEPT_ENABLED, value) }
         }
 
+    var keepScreenAwakeEnabled: Boolean
+        get() = sharedPrefs.getBoolean(KEY_KEEP_SCREEN_AWAKE_ENABLED, false)
+        set(value) {
+            sharedPrefs.edit { putBoolean(KEY_KEEP_SCREEN_AWAKE_ENABLED, value) }
+        }
+
+    var keepAliveLastRecoveryAtMs: Long
+        get() = sharedPrefs.getLong(KEY_KEEP_ALIVE_LAST_RECOVERY_AT_MS, 0L)
+        set(value) {
+            sharedPrefs.edit { putLong(KEY_KEEP_ALIVE_LAST_RECOVERY_AT_MS, value) }
+        }
+
+    var keepAliveLastRecoveryAttemptAtMs: Long
+        get() = sharedPrefs.getLong(KEY_KEEP_ALIVE_LAST_RECOVERY_ATTEMPT_AT_MS, 0L)
+        set(value) {
+            sharedPrefs.edit { putLong(KEY_KEEP_ALIVE_LAST_RECOVERY_ATTEMPT_AT_MS, value) }
+        }
+
+    var keepAliveConsecutiveRecoveryFailures: Int
+        get() = sharedPrefs.getInt(KEY_KEEP_ALIVE_CONSECUTIVE_RECOVERY_FAILURES, 0)
+        set(value) {
+            sharedPrefs.edit { putInt(KEY_KEEP_ALIVE_CONSECUTIVE_RECOVERY_FAILURES, value) }
+        }
+
+    var keepAliveDegradedReason: String?
+        get() = sharedPrefs.getString(KEY_KEEP_ALIVE_DEGRADED_REASON, null)?.takeIf { it.isNotBlank() }
+        set(value) {
+            sharedPrefs.edit {
+                if (value.isNullOrBlank()) {
+                    remove(KEY_KEEP_ALIVE_DEGRADED_REASON)
+                } else {
+                    putString(KEY_KEEP_ALIVE_DEGRADED_REASON, value)
+                }
+            }
+        }
+
+    @Synchronized
+    fun nextKeepAliveRecoveryToken(): Long {
+        val nextToken = sharedPrefs.getLong(KEY_KEEP_ALIVE_NEXT_RECOVERY_TOKEN, 0L) + 1L
+        sharedPrefs.edit(commit = true) { putLong(KEY_KEEP_ALIVE_NEXT_RECOVERY_TOKEN, nextToken) }
+        return nextToken
+    }
+
+    var keepAliveActiveRecoveryToken: Long
+        get() = sharedPrefs.getLong(KEY_KEEP_ALIVE_ACTIVE_RECOVERY_TOKEN, 0L)
+        set(value) {
+            sharedPrefs.edit { putLong(KEY_KEEP_ALIVE_ACTIVE_RECOVERY_TOKEN, value) }
+        }
+
+    var keepAliveRecoveryActivityInFlight: Boolean
+        get() = sharedPrefs.getBoolean(KEY_KEEP_ALIVE_RECOVERY_ACTIVITY_IN_FLIGHT, false)
+        set(value) {
+            sharedPrefs.edit { putBoolean(KEY_KEEP_ALIVE_RECOVERY_ACTIVITY_IN_FLIGHT, value) }
+        }
+
+    var keepAlivePendingRecoveryResultToken: Long
+        get() = sharedPrefs.getLong(KEY_KEEP_ALIVE_PENDING_RECOVERY_RESULT_TOKEN, 0L)
+        set(value) {
+            sharedPrefs.edit { putLong(KEY_KEEP_ALIVE_PENDING_RECOVERY_RESULT_TOKEN, value) }
+        }
+
+    var keepAlivePendingRecoveryResultSuccess: Boolean
+        get() = sharedPrefs.getBoolean(KEY_KEEP_ALIVE_PENDING_RECOVERY_RESULT_SUCCESS, false)
+        set(value) {
+            sharedPrefs.edit { putBoolean(KEY_KEEP_ALIVE_PENDING_RECOVERY_RESULT_SUCCESS, value) }
+        }
+
+    var keepAlivePendingRecoveryResultReason: String?
+        get() = sharedPrefs.getString(KEY_KEEP_ALIVE_PENDING_RECOVERY_RESULT_REASON, null)?.takeIf { it.isNotBlank() }
+        set(value) {
+            sharedPrefs.edit {
+                if (value.isNullOrBlank()) {
+                    remove(KEY_KEEP_ALIVE_PENDING_RECOVERY_RESULT_REASON)
+                } else {
+                    putString(KEY_KEEP_ALIVE_PENDING_RECOVERY_RESULT_REASON, value)
+                }
+            }
+        }
+
+    var keepAlivePendingRecoveryResultAtMs: Long
+        get() = sharedPrefs.getLong(KEY_KEEP_ALIVE_PENDING_RECOVERY_RESULT_AT_MS, 0L)
+        set(value) {
+            sharedPrefs.edit { putLong(KEY_KEEP_ALIVE_PENDING_RECOVERY_RESULT_AT_MS, value) }
+        }
+
+    var keepAliveRecoveryOwnerSessionId: String?
+        get() = sharedPrefs.getString(KEY_KEEP_ALIVE_RECOVERY_OWNER_SESSION_ID, null)?.takeIf { it.isNotBlank() }
+        set(value) {
+            sharedPrefs.edit {
+                if (value.isNullOrBlank()) {
+                    remove(KEY_KEEP_ALIVE_RECOVERY_OWNER_SESSION_ID)
+                } else {
+                    putString(KEY_KEEP_ALIVE_RECOVERY_OWNER_SESSION_ID, value)
+                }
+            }
+        }
+
+    fun saveKeepAlivePendingRecoveryResult(
+        token: Long,
+        success: Boolean,
+        reason: String?,
+        completedAtMs: Long,
+    ) {
+        keepAlivePendingRecoveryResultToken = token
+        keepAlivePendingRecoveryResultSuccess = success
+        keepAlivePendingRecoveryResultReason = reason
+        keepAlivePendingRecoveryResultAtMs = completedAtMs
+    }
+
+    fun clearKeepAlivePendingRecoveryResult() {
+        keepAlivePendingRecoveryResultToken = 0L
+        keepAlivePendingRecoveryResultSuccess = false
+        keepAlivePendingRecoveryResultReason = null
+        keepAlivePendingRecoveryResultAtMs = 0L
+    }
+
+    fun clearKeepAliveRecoveryHandoffState() {
+        keepAliveActiveRecoveryToken = 0L
+        keepAliveRecoveryOwnerSessionId = null
+        keepAliveRecoveryActivityInFlight = false
+        clearKeepAlivePendingRecoveryResult()
+    }
+
     var taskPromptModel: String
         get() = sharedPrefs.getString(KEY_TASK_PROMPT_MODEL, "") ?: ""
         set(value) {
@@ -554,6 +698,7 @@ class ConfigManager private constructor(private val context: Context) {
         // New WebSocket listeners
         fun onWebSocketEnabledChanged(enabled: Boolean) {}
         fun onWebSocketPortChanged(port: Int) {}
+        fun onKeepScreenAwakeEnabledChanged(enabled: Boolean) {}
 
         fun onProductionModeChanged(enabled: Boolean) {}
     }
@@ -616,6 +761,20 @@ class ConfigManager private constructor(private val context: Context) {
     fun setWebSocketPortWithNotification(port: Int) {
         websocketPort = port
         listeners.forEach { it.onWebSocketPortChanged(port) }
+    }
+
+    fun setKeepScreenAwakeEnabledWithNotification(enabled: Boolean) {
+        if (keepScreenAwakeEnabled == enabled) return
+        keepScreenAwakeEnabled = enabled
+        listeners.forEach { it.onKeepScreenAwakeEnabledChanged(enabled) }
+    }
+
+    fun clearKeepAliveRuntimeState() {
+        keepAliveLastRecoveryAtMs = 0L
+        keepAliveLastRecoveryAttemptAtMs = 0L
+        keepAliveConsecutiveRecoveryFailures = 0
+        keepAliveDegradedReason = null
+        clearKeepAliveRecoveryHandoffState()
     }
 
     // Bulk configuration update
@@ -721,6 +880,7 @@ class ConfigManager private constructor(private val context: Context) {
             putBoolean(KEY_PRODUCTION_MODE, false)
             putBoolean(KEY_DEV_MODE_ENABLED, false)
             putBoolean(KEY_INSTALL_AUTO_ACCEPT_ENABLED, false)
+            putBoolean(KEY_KEEP_SCREEN_AWAKE_ENABLED, false)
             putBoolean("screen_share_auto_accept_enabled", true)
             putBoolean("force_login_on_next_connect", false)
         }
@@ -732,6 +892,7 @@ class ConfigManager private constructor(private val context: Context) {
             it.onSocketServerPortChanged(DEFAULT_SOCKET_PORT)
             it.onWebSocketEnabledChanged(false)
             it.onWebSocketPortChanged(DEFAULT_WEBSOCKET_PORT)
+            it.onKeepScreenAwakeEnabledChanged(false)
             it.onProductionModeChanged(false)
         }
     }
@@ -746,6 +907,7 @@ class ConfigManager private constructor(private val context: Context) {
         val socketServerPort: Int,
         val websocketEnabled: Boolean,
         val websocketPort: Int,
+        val keepScreenAwakeEnabled: Boolean,
         val authToken: String
     )
 
@@ -759,6 +921,7 @@ class ConfigManager private constructor(private val context: Context) {
             socketServerPort = socketServerPort,
             websocketEnabled = websocketEnabled,
             websocketPort = websocketPort,
+            keepScreenAwakeEnabled = keepScreenAwakeEnabled,
             authToken = authToken
         )
     }

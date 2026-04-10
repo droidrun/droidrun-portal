@@ -5,6 +5,8 @@ import android.content.pm.PackageManager
 import android.view.KeyEvent
 import com.droidrun.portal.core.StateRepository
 import com.droidrun.portal.input.DroidrunKeyboardIME
+import com.droidrun.portal.keepalive.KeepAliveController
+import com.droidrun.portal.keepalive.KeepAliveStartupException
 import com.droidrun.portal.model.PhoneState
 import com.droidrun.portal.service.DroidrunAccessibilityService
 import com.droidrun.portal.streaming.WebRtcManager
@@ -305,6 +307,115 @@ class ApiHandlerTest {
         )
         verify(exactly = 1) { manager.handleRequestFrame("session-1") }
         verify(exactly = 1) { manager.handleKeepAlive("session-1") }
+    }
+
+    @Test
+    fun setScreenKeepAwakeEnabled_routesThroughControllerAndReturnsStatus() {
+        val stateRepo = mockk<StateRepository>(relaxed = true)
+        val context = mockk<Context>(relaxed = true)
+        every { context.applicationContext } returns context
+        val handler = createHandler(stateRepo = stateRepo, ime = null, context = context)
+        val statusJson =
+            JSONObject().apply {
+                put("enabled", true)
+                put("serviceActive", true)
+                put("interactive", true)
+                put("deviceLocked", false)
+                put("lastRecoveryAtMs", 111L)
+                put("consecutiveRecoveryFailures", 0)
+                put("degradedReason", JSONObject.NULL)
+            }
+
+        mockkObject(KeepAliveController)
+        every { KeepAliveController.setEnabled(context, true) } just Runs
+        every { KeepAliveController.getMutationResultStatusJson(context, true) } returns statusJson
+
+        val response = handler.setScreenKeepAwakeEnabled(true) as ApiResponse.RawObject
+
+        assertEquals(true, response.json.getBoolean("enabled"))
+        assertEquals(true, response.json.getBoolean("serviceActive"))
+        verify(exactly = 1) { KeepAliveController.setEnabled(context, true) }
+        verify(exactly = 1) { KeepAliveController.getMutationResultStatusJson(context, true) }
+    }
+
+    @Test
+    fun setScreenKeepAwakeEnabled_returnsDisabledTargetStateAfterSuccessfulDisable() {
+        val stateRepo = mockk<StateRepository>(relaxed = true)
+        val context = mockk<Context>(relaxed = true)
+        every { context.applicationContext } returns context
+        val handler = createHandler(stateRepo = stateRepo, ime = null, context = context)
+        val statusJson =
+            JSONObject().apply {
+                put("enabled", false)
+                put("serviceActive", false)
+                put("interactive", true)
+                put("deviceLocked", false)
+                put("lastRecoveryAtMs", 222L)
+                put("consecutiveRecoveryFailures", 1)
+                put("degradedReason", "recovery_throttled")
+            }
+
+        mockkObject(KeepAliveController)
+        every { KeepAliveController.setEnabled(context, false) } just Runs
+        every { KeepAliveController.getMutationResultStatusJson(context, false) } returns statusJson
+
+        val response = handler.setScreenKeepAwakeEnabled(false) as ApiResponse.RawObject
+
+        assertEquals(false, response.json.getBoolean("enabled"))
+        assertEquals(false, response.json.getBoolean("serviceActive"))
+        assertEquals("recovery_throttled", response.json.getString("degradedReason"))
+        verify(exactly = 1) { KeepAliveController.setEnabled(context, false) }
+        verify(exactly = 1) { KeepAliveController.getMutationResultStatusJson(context, false) }
+    }
+
+    @Test
+    fun getScreenKeepAwakeStatus_returnsControllerStatusWithoutMutation() {
+        val stateRepo = mockk<StateRepository>(relaxed = true)
+        val context = mockk<Context>(relaxed = true)
+        every { context.applicationContext } returns context
+        val handler = createHandler(stateRepo = stateRepo, ime = null, context = context)
+        val statusJson =
+            JSONObject().apply {
+                put("enabled", false)
+                put("serviceActive", false)
+                put("interactive", true)
+                put("deviceLocked", false)
+                put("lastRecoveryAtMs", 0L)
+                put("consecutiveRecoveryFailures", 2)
+                put("degradedReason", "recovery_throttled")
+            }
+
+        mockkObject(KeepAliveController)
+        every { KeepAliveController.getStatusJson(context) } returns statusJson
+
+        val response = handler.getScreenKeepAwakeStatus() as ApiResponse.RawObject
+
+        assertEquals(false, response.json.getBoolean("enabled"))
+        assertEquals("recovery_throttled", response.json.getString("degradedReason"))
+        verify(exactly = 0) { KeepAliveController.setEnabled(any(), any()) }
+        verify(exactly = 1) { KeepAliveController.getStatusJson(context) }
+    }
+
+    @Test
+    fun setScreenKeepAwakeEnabled_returnsErrorWhenStartupIsRejected() {
+        val stateRepo = mockk<StateRepository>(relaxed = true)
+        val context = mockk<Context>(relaxed = true)
+        every { context.applicationContext } returns context
+        val handler = createHandler(stateRepo = stateRepo, ime = null, context = context)
+
+        mockkObject(KeepAliveController)
+        every { KeepAliveController.setEnabled(context, true) } throws
+            KeepAliveStartupException("foreground_service_start_not_allowed")
+
+        val response = handler.setScreenKeepAwakeEnabled(true)
+
+        assertEquals(
+            ApiResponse.Error("foreground_service_start_not_allowed"),
+            response,
+        )
+        verify(exactly = 1) { KeepAliveController.setEnabled(context, true) }
+        verify(exactly = 0) { KeepAliveController.getStatusJson(any()) }
+        verify(exactly = 0) { KeepAliveController.getMutationResultStatusJson(any(), any()) }
     }
 
     private fun createHandler(
