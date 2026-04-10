@@ -207,7 +207,6 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
 
     override fun onServiceConnected() {
         super.onServiceConnected()
-        overlayManager.showOverlay()
         instance = this
         TriggerRuntime.initialize(this)
 

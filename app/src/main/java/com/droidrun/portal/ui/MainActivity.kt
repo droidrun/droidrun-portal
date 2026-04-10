@@ -2,6 +2,7 @@ package com.droidrun.portal.ui
 
 import com.droidrun.portal.config.ConfigManager
 import com.droidrun.portal.service.DroidrunAccessibilityService
+import com.droidrun.portal.state.AppVisibilityTracker
 import com.droidrun.portal.state.ConnectionState
 import com.droidrun.portal.state.ConnectionStateManager
 import com.droidrun.portal.service.ReverseConnectionService
@@ -58,9 +59,15 @@ import android.content.BroadcastReceiver
 import android.content.IntentFilter
 import com.droidrun.portal.R
 import com.droidrun.portal.api.ApiHandler
+import com.droidrun.portal.update.UpdateCheckResult
+import com.droidrun.portal.update.UpdateChecker
+import com.droidrun.portal.update.UpdateInfo
+import com.droidrun.portal.update.UpdateInstallReceiver
 import com.google.android.material.snackbar.Snackbar
 import com.google.android.material.textfield.TextInputEditText
 import java.text.NumberFormat
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 import androidx.core.net.toUri
 
 class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
@@ -73,6 +80,9 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
     private var isEndpointsExpanded = false
 
     private var isProgrammaticUpdate = false
+    private var pendingUpdateInfo: UpdateInfo? = null
+    private var updateCheckDoneThisSession = false
+    private val updateExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private var isInstallReceiverRegistered = false
     private lateinit var taskPromptCardController: TaskPromptCardController
     private val portalCloudClient = PortalCloudClient()
@@ -100,7 +110,19 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             val message =
                 intent.getStringExtra(ApiHandler.EXTRA_INSTALL_MESSAGE)
                     ?: "App installed successfully"
-            showInstallSnackbar(message, success)
+            runOnUiThread {
+                resetUpdateBannerButton()
+                showInstallSnackbar(message, success)
+            }
+        }
+    }
+
+    private var isSignatureConflictReceiverRegistered = false
+
+    private val signatureConflictReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != UpdateInstallReceiver.ACTION_SIGNATURE_CONFLICT) return
+            runOnUiThread { showSignatureConflictDialog() }
         }
     }
 
@@ -164,6 +186,11 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
 
         // Set app version
         setAppVersion()
+
+        // Wire up the update banner button
+        binding.btnUpdate.setOnClickListener {
+            pendingUpdateInfo?.let { info -> triggerUpdate(info) }
+        }
 
         // Configure the offset slider and input
         setupOffsetSlider()
@@ -286,6 +313,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
     override fun onDestroy() {
         stopTaskPromptPolling()
         unregisterTaskPromptStateReceiver()
+        updateExecutor.shutdownNow()
         super.onDestroy()
         ConfigManager.getInstance(this).removeListener(this)
     }
@@ -293,6 +321,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
     override fun onStart() {
         super.onStart()
         registerInstallResultReceiver()
+        registerSignatureConflictReceiver()
         registerTaskPromptStateReceiver()
     }
 
@@ -307,6 +336,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         refreshTaskPromptUi()
         refreshCreditsBalance()
         syncTaskPromptPolling(immediate = true)
+        checkForUpdates()
     }
 
     override fun onStop() {
@@ -315,6 +345,8 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         stopTaskPromptPolling()
         unregisterTaskPromptStateReceiver()
         unregisterInstallResultReceiver()
+        unregisterSignatureConflictReceiver()
+        AppVisibilityTracker.setForeground(false)
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -1163,6 +1195,29 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             Log.w("MainActivity", "Failed to unregister install receiver", e)
         } finally {
             isInstallReceiverRegistered = false
+        }
+    }
+
+    private fun registerSignatureConflictReceiver() {
+        if (isSignatureConflictReceiverRegistered) return
+        val filter = IntentFilter(UpdateInstallReceiver.ACTION_SIGNATURE_CONFLICT)
+        ContextCompat.registerReceiver(
+            this,
+            signatureConflictReceiver,
+            filter,
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+        isSignatureConflictReceiverRegistered = true
+    }
+
+    private fun unregisterSignatureConflictReceiver() {
+        if (!isSignatureConflictReceiverRegistered) return
+        try {
+            unregisterReceiver(signatureConflictReceiver)
+        } catch (e: Exception) {
+            Log.w("MainActivity", "Failed to unregister conflict receiver", e)
+        } finally {
+            isSignatureConflictReceiverRegistered = false
         }
     }
 
@@ -2024,6 +2079,85 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             Log.e("DROIDRUN_MAIN", "Error getting app version: ${e.message}")
             binding.versionText.text = "Version: N/A"
         }
+
+    }
+
+    private fun checkForUpdates() {
+        // Only check once per MainActivity instance to avoid repeated GitHub API hits on every resume
+        if (updateCheckDoneThisSession) return
+        updateCheckDoneThisSession = true
+
+        updateExecutor.execute {
+            val result = UpdateChecker.checkForUpdate(this)
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                if (result is UpdateCheckResult.Available) {
+                    pendingUpdateInfo = result.info
+                    binding.updateBannerText.text =
+                        getString(R.string.update_available_version, result.info.latestVersion)
+                    binding.updateBanner.visibility = View.VISIBLE
+                    UpdateChecker.showUpdateNotification(this, result.info)
+                } else {
+                    binding.updateBanner.visibility = View.GONE
+                }
+            }
+        }
+    }
+
+    private fun triggerUpdate(info: UpdateInfo) {
+        binding.btnUpdate.isEnabled = false
+        binding.btnUpdate.text = getString(R.string.update_downloading)
+
+        updateExecutor.execute {
+            UpdateChecker.downloadAndInstall(
+                context = this,
+                downloadUrl = info.downloadUrl,
+                onProgress = { percent ->
+                    runOnUiThread {
+                        if (isFinishing || isDestroyed) return@runOnUiThread
+                        binding.btnUpdate.text =
+                            getString(R.string.update_downloading_percent, percent)
+                    }
+                },
+                onError = { msg ->
+                    runOnUiThread {
+                        if (isFinishing || isDestroyed) return@runOnUiThread
+                        binding.btnUpdate.isEnabled = true
+                        binding.btnUpdate.text = getString(R.string.update_now)
+                        Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+                    }
+                },
+            )
+        }
+    }
+
+    private fun resetUpdateBannerButton() {
+        binding.btnUpdate.isEnabled = true
+        binding.btnUpdate.text = getString(R.string.update_now)
+    }
+
+    private fun showSignatureConflictDialog() {
+        resetUpdateBannerButton()
+
+        AlertDialog.Builder(this)
+            .setTitle(getString(R.string.update_requires_reinstall))
+            .setMessage(getString(R.string.update_signature_mismatch_message))
+            .setPositiveButton(getString(R.string.update_uninstall)) { _, _ ->
+                try {
+                    val settingsIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                        data = Uri.fromParts("package", packageName, null)
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    startActivity(settingsIntent)
+                } catch (e: Exception) {
+                    Toast.makeText(this, "Could not open App Settings", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+            .apply {
+                window?.setBackgroundDrawableResource(android.R.color.background_dark)
+            }
     }
 
     private fun showLogsDialog() {

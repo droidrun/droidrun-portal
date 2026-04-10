@@ -4,6 +4,19 @@
     <string name="keyboard_name">Droidrun Keyboard</string>
     <string name="keyboard_on">Droidrun Keyboard</string>
 
+    <!-- Update -->
+    <string name="update_available">Update available</string>
+    <string name="update_available_version">Update available (v%1$s)</string>
+    <string name="update_now">Update</string>
+    <string name="update_downloading">Downloading…</string>
+    <string name="update_downloading_percent">Downloading %1$d%%</string>
+    <string name="update_requires_reinstall">Reinstall required</string>
+    <string name="update_signature_mismatch_message">The update uses a different signing key and cannot install over the current app.\n\nThe new APK has been saved to your Downloads folder. Here\'s what to do:\n\n① Tap \"Go to App Settings\" below\n② Tap Uninstall on that screen\n③ Open your Downloads folder\n④ Tap DroidrunPortal-update.apk to install</string>
+    <string name="update_uninstall">Go to App Settings</string>
+    <string name="update_check_for_updates">Check for Updates</string>
+    <string name="update_checking">Checking…</string>
+    <string name="update_up_to_date">You\'re up to date (v%1$s)</string>
+
     <!-- Activity Main -->
     <string name="settings_content_description">Settings</string>
     <string name="accessibility_service_not_enabled">Accessibility Service Not Enabled</string>

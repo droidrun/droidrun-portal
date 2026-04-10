@@ -13,12 +13,19 @@ import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.IntentFilter
+import android.widget.Toast
+import androidx.core.content.ContextCompat
+import com.droidrun.portal.R
 import com.droidrun.portal.config.ConfigManager
 import com.droidrun.portal.databinding.ActivitySettingsBinding
 import com.droidrun.portal.events.model.EventType
 import com.droidrun.portal.keepalive.KeepAliveController
 import com.droidrun.portal.service.DroidrunNotificationListener
 import com.droidrun.portal.service.ReverseConnectionService
+import com.droidrun.portal.state.AppVisibilityTracker
 import com.droidrun.portal.state.ConnectionState
 import com.droidrun.portal.state.ConnectionStateManager
 import com.droidrun.portal.taskprompt.PortalBalanceRepository
@@ -26,25 +33,58 @@ import com.droidrun.portal.taskprompt.PortalCloudClient
 import com.droidrun.portal.triggers.TriggerRepository
 import com.droidrun.portal.ui.addWhitespaceStrippingWatcher
 import com.droidrun.portal.ui.triggers.TriggerRulesActivity
+import com.droidrun.portal.api.ApiHandler
+import com.droidrun.portal.update.UpdateCheckResult
+import com.droidrun.portal.update.UpdateChecker
+import com.droidrun.portal.update.UpdateInfo
+import com.droidrun.portal.update.UpdateInstallReceiver
 import java.text.NumberFormat
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
 
     private lateinit var configManager: ConfigManager
     private lateinit var binding: ActivitySettingsBinding
     private val portalCloudClient = PortalCloudClient()
+    private val executor: ExecutorService = Executors.newSingleThreadExecutor()
     private var suppressSocketServerSwitchCallback = false
     private var suppressWebSocketSwitchCallback = false
+
+    private var isSignatureConflictReceiverRegistered = false
+    private val signatureConflictReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: android.content.Intent?) {
+            if (intent?.action != UpdateInstallReceiver.ACTION_SIGNATURE_CONFLICT) return
+            runOnUiThread { showSignatureConflictDialog() }
+        }
+    }
+
+    private var isInstallResultReceiverRegistered = false
+    private val installResultReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != ApiHandler.ACTION_INSTALL_RESULT) return
+            val success = intent.getBooleanExtra(ApiHandler.EXTRA_INSTALL_SUCCESS, false)
+            val message = intent.getStringExtra(ApiHandler.EXTRA_INSTALL_MESSAGE) ?: ""
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                binding.btnCheckUpdates.isEnabled = true
+                binding.btnCheckUpdates.text = getString(R.string.update_check_for_updates)
+                if (message.isNotBlank()) {
+                    Toast.makeText(this@SettingsActivity, message, Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
 
     private val requestNotificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         binding.switchPostNotifications.isChecked = isGranted
         if (isGranted) {
-            android.widget.Toast.makeText(
+            Toast.makeText(
                 this,
                 "Notification permission granted",
-                android.widget.Toast.LENGTH_SHORT
+                Toast.LENGTH_SHORT
             ).show()
         }
     }
@@ -65,6 +105,7 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         setupPermissions()
         setupAutomation()
         setupEventFilters()
+        setupCheckUpdates()
         setupResetButton()
     }
 
@@ -92,12 +133,45 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         super.onStart()
         configManager.addListener(this)
         syncServerSettingsFromConfig()
+        AppVisibilityTracker.setForeground(true)
+        if (!isSignatureConflictReceiverRegistered) {
+            ContextCompat.registerReceiver(
+                this,
+                signatureConflictReceiver,
+                IntentFilter(UpdateInstallReceiver.ACTION_SIGNATURE_CONFLICT),
+                ContextCompat.RECEIVER_NOT_EXPORTED,
+            )
+            isSignatureConflictReceiverRegistered = true
+        }
+        if (!isInstallResultReceiverRegistered) {
+            ContextCompat.registerReceiver(
+                this,
+                installResultReceiver,
+                IntentFilter(ApiHandler.ACTION_INSTALL_RESULT),
+                ContextCompat.RECEIVER_NOT_EXPORTED,
+            )
+            isInstallResultReceiverRegistered = true
+        }
     }
 
     override fun onStop() {
         super.onStop()
         configManager.removeListener(this)
         persistReverseConnectionInputs()
+        AppVisibilityTracker.setForeground(false)
+        if (isSignatureConflictReceiverRegistered) {
+            try { unregisterReceiver(signatureConflictReceiver) } catch (_: Exception) {}
+            isSignatureConflictReceiverRegistered = false
+        }
+        if (isInstallResultReceiverRegistered) {
+            try { unregisterReceiver(installResultReceiver) } catch (_: Exception) {}
+            isInstallResultReceiverRegistered = false
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        executor.shutdownNow()
     }
 
     private fun setupDevMode() {
@@ -241,16 +315,16 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
             try {
                 val intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
                 startActivity(intent)
-                android.widget.Toast.makeText(
+                Toast.makeText(
                     this,
                     "Please grant Notification Access to Droidrun Portal",
-                    android.widget.Toast.LENGTH_LONG
+                    Toast.LENGTH_LONG
                 ).show()
             } catch (e: Exception) {
-                android.widget.Toast.makeText(
+                Toast.makeText(
                     this,
                     "Error opening settings",
-                    android.widget.Toast.LENGTH_SHORT
+                    Toast.LENGTH_SHORT
                 ).show()
             }
             // Revert visual state until onResume confirms change
@@ -316,6 +390,111 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         }
     }
 
+    private fun setupCheckUpdates() {
+        // Show current version
+        try {
+            val version = packageManager.getPackageInfo(packageName, 0).versionName ?: "?"
+            binding.textAppVersion.text = "Version $version"
+        } catch (e: Exception) {
+            binding.textAppVersion.text = "Version ?"
+        }
+
+        binding.btnCheckUpdates.setOnClickListener {
+            binding.btnCheckUpdates.isEnabled = false
+            binding.btnCheckUpdates.text = getString(R.string.update_checking)
+
+            executor.execute {
+                val result = UpdateChecker.checkForUpdate(this)
+                runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    binding.btnCheckUpdates.isEnabled = true
+                    binding.btnCheckUpdates.text = getString(R.string.update_check_for_updates)
+
+                    when (result) {
+                        is UpdateCheckResult.Available -> showUpdateAvailableDialog(result.info)
+                        is UpdateCheckResult.UpToDate -> {
+                            val current = UpdateChecker.getCurrentVersion(this)
+                            Toast.makeText(
+                                this,
+                                getString(R.string.update_up_to_date, current),
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        }
+                        is UpdateCheckResult.Failed -> {
+                            Toast.makeText(this, result.message, Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun showSignatureConflictDialog() {
+        binding.btnCheckUpdates.isEnabled = true
+        binding.btnCheckUpdates.text = getString(R.string.update_check_for_updates)
+
+        AlertDialog.Builder(this)
+            .setTitle(getString(R.string.update_requires_reinstall))
+            .setMessage(getString(R.string.update_signature_mismatch_message))
+            .setPositiveButton(getString(R.string.update_uninstall)) { _, _ ->
+                try {
+                    val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                        data = Uri.fromParts("package", packageName, null)
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    startActivity(intent)
+                } catch (e: Exception) {
+                    Toast.makeText(this, "Could not open App Settings", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+            .apply {
+                window?.setBackgroundDrawableResource(android.R.color.background_dark)
+            }
+    }
+
+    private fun showUpdateAvailableDialog(info: UpdateInfo) {
+        AlertDialog.Builder(this)
+            .setTitle(getString(R.string.update_available_version, info.latestVersion))
+            .setMessage("A new version is available. Tap Update to download and install it now.")
+            .setPositiveButton(getString(R.string.update_now)) { _, _ ->
+                startUpdate(info)
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+            .apply {
+                window?.setBackgroundDrawableResource(android.R.color.background_dark)
+            }
+    }
+
+    private fun startUpdate(info: UpdateInfo) {
+        binding.btnCheckUpdates.isEnabled = false
+        binding.btnCheckUpdates.text = getString(R.string.update_downloading)
+
+        executor.execute {
+            UpdateChecker.downloadAndInstall(
+                context = this,
+                downloadUrl = info.downloadUrl,
+                onProgress = { percent ->
+                    runOnUiThread {
+                        if (isFinishing || isDestroyed) return@runOnUiThread
+                        binding.btnCheckUpdates.text =
+                            getString(R.string.update_downloading_percent, percent)
+                    }
+                },
+                onError = { msg ->
+                    runOnUiThread {
+                        if (isFinishing || isDestroyed) return@runOnUiThread
+                        binding.btnCheckUpdates.isEnabled = true
+                        binding.btnCheckUpdates.text = getString(R.string.update_check_for_updates)
+                        Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+                    }
+                },
+            )
+        }
+    }
+
     private fun setupResetButton() {
         binding.btnResetSettings.setOnClickListener {
             AlertDialog.Builder(this)
@@ -331,10 +510,10 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
                     TriggerRepository.getInstance(this).clearAll()
                     ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
 
-                    android.widget.Toast.makeText(
+                    Toast.makeText(
                         this,
                         "Settings reset to defaults",
-                        android.widget.Toast.LENGTH_SHORT,
+                        Toast.LENGTH_SHORT,
                     ).show()
 
                     val intent = Intent(this, SettingsActivity::class.java)
@@ -418,13 +597,13 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         val info = if (cloudBaseUrl != null) creditsState.info else null
         val balanceLine = info?.let {
             getString(
-                com.droidrun.portal.R.string.credits_balance_line,
+                R.string.credits_balance_line,
                 formatCreditsCount(info.balance),
             )
         }?.takeIf { it.isNotBlank() }
         val usageLine = info?.let {
             getString(
-                com.droidrun.portal.R.string.credits_usage_line,
+                R.string.credits_usage_line,
                 formatCreditsCount(info.usage),
             )
         }?.takeIf { it.isNotBlank() }
@@ -435,9 +614,9 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         binding.cardCreditsMetricsSettings.visibility = if (hasMetrics) View.VISIBLE else View.GONE
 
         val message = when {
-            cloudBaseUrl == null -> getString(com.droidrun.portal.R.string.credits_unsupported_host)
-            creditsState.isLoading && hasMetrics -> getString(com.droidrun.portal.R.string.credits_refreshing)
-            creditsState.isLoading -> getString(com.droidrun.portal.R.string.credits_loading)
+            cloudBaseUrl == null -> getString(R.string.credits_unsupported_host)
+            creditsState.isLoading && hasMetrics -> getString(R.string.credits_refreshing)
+            creditsState.isLoading -> getString(R.string.credits_loading)
             !creditsState.message.isNullOrBlank() -> creditsState.message
             else -> null
         }
