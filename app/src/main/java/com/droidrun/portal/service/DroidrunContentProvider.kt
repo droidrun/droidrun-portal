@@ -1,11 +1,13 @@
 package com.droidrun.portal.service
 
 import android.content.ContentProvider
+import android.content.Context
 import android.content.ContentValues
 import android.content.UriMatcher
 import android.database.Cursor
 import android.database.MatrixCursor
 import android.net.Uri
+import android.os.Binder
 import android.util.Log
 import androidx.core.net.toUri
 import com.droidrun.portal.api.ApiHandler
@@ -13,10 +15,24 @@ import com.droidrun.portal.api.ApiResponse
 import com.droidrun.portal.config.ConfigManager
 import com.droidrun.portal.core.StateRepository
 import com.droidrun.portal.input.DroidrunKeyboardIME
+import com.droidrun.portal.keepalive.KeepAliveController
+import com.droidrun.portal.keepalive.KeepAliveStartupException
 import com.droidrun.portal.triggers.TriggerApi
 import com.droidrun.portal.triggers.TriggerApiResult
 
 import android.util.Base64
+
+internal fun handleKeepScreenAwakeInsert(
+    providerContext: Context,
+    enabled: Boolean,
+): ApiResponse {
+    return try {
+        KeepAliveController.setEnabled(providerContext, enabled)
+        ApiResponse.Success("Keep screen awake set to $enabled")
+    } catch (e: KeepAliveStartupException) {
+        ApiResponse.Error(e.reason)
+    }
+}
 
 class DroidrunContentProvider : ContentProvider() {
     companion object {
@@ -50,6 +66,8 @@ class DroidrunContentProvider : ContentProvider() {
         private const val TRIGGERS_RULES_TEST = 26
         private const val TRIGGERS_RUNS_DELETE = 27
         private const val TRIGGERS_RUNS_CLEAR = 28
+        private const val TOGGLE_SCREEN_KEEP_AWAKE = 29
+        private const val SCREEN_KEEP_AWAKE_STATUS = 30
 
         private val uriMatcher = UriMatcher(UriMatcher.NO_MATCH).apply {
             addURI(AUTHORITY, "a11y_tree", A11Y_TREE)
@@ -80,6 +98,8 @@ class DroidrunContentProvider : ContentProvider() {
             addURI(AUTHORITY, "triggers/runs", TRIGGERS_RUNS)
             addURI(AUTHORITY, "triggers/runs/delete", TRIGGERS_RUNS_DELETE)
             addURI(AUTHORITY, "triggers/runs/clear", TRIGGERS_RUNS_CLEAR)
+            addURI(AUTHORITY, "toggle_screen_keep_awake", TOGGLE_SCREEN_KEEP_AWAKE)
+            addURI(AUTHORITY, "screen_keep_awake_status", SCREEN_KEEP_AWAKE_STATUS)
         }
     }
 
@@ -130,6 +150,17 @@ class DroidrunContentProvider : ContentProvider() {
         return TriggerApi(appContext)
     }
 
+    private fun enforceAuthorizedCaller() {
+        val appContext = context?.applicationContext
+            ?: throw SecurityException("Provider context unavailable")
+        val callingUid = Binder.getCallingUid()
+        val appUid = appContext.applicationInfo.uid
+        if (!ContentProviderAccessPolicy.isUidAllowed(callingUid, appUid)) {
+            Log.w(TAG, "Rejected content provider call from uid=$callingUid")
+            throw SecurityException("Caller uid $callingUid is not allowed")
+        }
+    }
+
     override fun query(
         uri: Uri,
         projection: Array<String>?,
@@ -137,6 +168,7 @@ class DroidrunContentProvider : ContentProvider() {
         selectionArgs: Array<String>?,
         sortOrder: String?
     ): Cursor {
+        enforceAuthorizedCaller()
         val cursor = MatrixCursor(arrayOf("result"))
 
         try {
@@ -144,6 +176,9 @@ class DroidrunContentProvider : ContentProvider() {
             val response = when (match) {
                 VERSION -> ApiResponse.Success(getAppVersion())
                 AUTH_TOKEN -> ApiResponse.Text(configManager.authToken)
+                SCREEN_KEEP_AWAKE_STATUS -> ApiResponse.RawObject(
+                    KeepAliveController.getStatusJson(context ?: throw IllegalStateException("Provider context unavailable")),
+                )
                 TRIGGERS_CATALOG,
                 TRIGGERS_STATUS,
                 TRIGGERS_RULES,
@@ -226,9 +261,20 @@ class DroidrunContentProvider : ContentProvider() {
     }
 
     override fun insert(uri: Uri, values: ContentValues?): Uri? {
+        enforceAuthorizedCaller()
         val triggerResult = handleTriggerInsert(uri, values)
         if (triggerResult != null) {
             return mutationResultUri(triggerResult)
+        }
+
+        if (uriMatcher.match(uri) == TOGGLE_SCREEN_KEEP_AWAKE) {
+            val enabled = values?.getAsBoolean("enabled")
+                ?: return "content://$AUTHORITY/result?status=error&message=${Uri.encode("Missing required field: enabled")}".toUri()
+            val response = handleKeepScreenAwakeInsert(
+                context ?: throw IllegalStateException("Provider context unavailable"),
+                enabled,
+            )
+            return responseToResultUri(response)
         }
 
         val handler = getHandler()
@@ -349,12 +395,7 @@ class DroidrunContentProvider : ContentProvider() {
         }
 
         // Convert response to URI
-        return if (result is ApiResponse.Success) {
-            "content://$AUTHORITY/result?status=success&message=${Uri.encode(result.data.toString())}".toUri()
-        } else {
-            val errorMsg = (result as ApiResponse.Error).message
-            "content://$AUTHORITY/result?status=error&message=${Uri.encode(errorMsg)}".toUri()
-        }
+        return responseToResultUri(result)
     }
 
     private fun handleTriggerInsert(
@@ -423,6 +464,19 @@ class DroidrunContentProvider : ContentProvider() {
         }
     }
 
+    private fun responseToResultUri(response: ApiResponse): Uri {
+        return when (response) {
+            is ApiResponse.Success ->
+                "content://$AUTHORITY/result?status=success&message=${Uri.encode(response.data.toString())}".toUri()
+
+            is ApiResponse.Error ->
+                "content://$AUTHORITY/result?status=error&message=${Uri.encode(response.message)}".toUri()
+
+            else ->
+                "content://$AUTHORITY/result?status=error&message=${Uri.encode("Unsupported response type")}".toUri()
+        }
+    }
+
     private fun <T> mapTriggerResult(
         result: TriggerApiResult<T>,
         onSuccess: (T) -> ApiResponse,
@@ -433,13 +487,20 @@ class DroidrunContentProvider : ContentProvider() {
         }
     }
 
-    override fun delete(uri: Uri, selection: String?, selectionArgs: Array<String>?): Int = 0
+    override fun delete(uri: Uri, selection: String?, selectionArgs: Array<String>?): Int {
+        enforceAuthorizedCaller()
+        return 0
+    }
+
     override fun update(
         uri: Uri,
         values: ContentValues?,
         selection: String?,
         selectionArgs: Array<String>?
-    ): Int = 0
+    ): Int {
+        enforceAuthorizedCaller()
+        return 0
+    }
 
     override fun getType(uri: Uri): String? = null
 }

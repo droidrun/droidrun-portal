@@ -413,6 +413,76 @@ class ActionDispatcherTest {
     }
 
     @Test
+    fun dispatch_screenKeepAwakeSet_requiresEnabled() {
+        val apiHandler = mockk<ApiHandler>(relaxed = true)
+        val dispatcher = ActionDispatcher(apiHandler)
+
+        assertEquals(
+            ApiResponse.Error("Missing required param: 'enabled'"),
+            dispatcher.dispatch(
+                "screen/keepAwake/set",
+                JSONObject(),
+                ActionDispatcher.Origin.WEBSOCKET_REVERSE,
+            ),
+        )
+    }
+
+    @Test
+    fun dispatch_screenKeepAwakeSet_rejectsHttp() {
+        val apiHandler = mockk<ApiHandler>(relaxed = true)
+        val dispatcher = ActionDispatcher(apiHandler)
+
+        assertEquals(
+            ApiResponse.Error("Screen keep-awake commands require WebSocket connection"),
+            dispatcher.dispatch(
+                "screen/keepAwake/set",
+                JSONObject().put("enabled", true),
+                ActionDispatcher.Origin.HTTP,
+            ),
+        )
+    }
+
+    @Test
+    fun dispatch_screenKeepAwakeSet_routesToApiHandler() {
+        val apiHandler = mockk<ApiHandler>()
+        val response = ApiResponse.RawObject(JSONObject().put("enabled", true))
+        every { apiHandler.setScreenKeepAwakeEnabled(true) } returns response
+        val dispatcher = ActionDispatcher(apiHandler)
+
+        assertEquals(
+            response,
+            dispatcher.dispatch(
+                "screen/keepAwake/set",
+                JSONObject().put("enabled", true),
+                ActionDispatcher.Origin.WEBSOCKET_LOCAL,
+            ),
+        )
+        verify(exactly = 1) { apiHandler.setScreenKeepAwakeEnabled(true) }
+    }
+
+    @Test
+    fun dispatch_screenKeepAwakeStatus_routesToApiHandlerWithoutMutation() {
+        val apiHandler = mockk<ApiHandler>()
+        val response =
+            ApiResponse.RawObject(
+                JSONObject().put("enabled", false).put("consecutiveRecoveryFailures", 1),
+            )
+        every { apiHandler.getScreenKeepAwakeStatus() } returns response
+        val dispatcher = ActionDispatcher(apiHandler)
+
+        assertEquals(
+            response,
+            dispatcher.dispatch(
+                "screen/keepAwake/status",
+                JSONObject(),
+                ActionDispatcher.Origin.WEBSOCKET_REVERSE,
+            ),
+        )
+        verify(exactly = 0) { apiHandler.setScreenKeepAwakeEnabled(any()) }
+        verify(exactly = 1) { apiHandler.getScreenKeepAwakeStatus() }
+    }
+
+    @Test
     fun dispatch_triggerCatalogStatusAndLists_returnStructuredResults() {
         val apiHandler = mockk<ApiHandler>(relaxed = true)
         val triggerApi = mockk<TriggerApi>()

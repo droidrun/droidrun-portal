@@ -21,6 +21,7 @@ class ConfigManager private constructor(private val context: Context) {
     companion object {
         private const val PREFS_NAME = "droidrun_config"
         private const val DEVICE_PREFS_NAME = "droidrun_device"
+        private const val SECRET_PREFS_NAME = "droidrun_secrets"
         private const val KEY_OVERLAY_VISIBLE = "overlay_visible"
         private const val KEY_OVERLAY_OFFSET = "overlay_offset"
         private const val KEY_AUTO_OFFSET_ENABLED = "auto_offset_enabled"
@@ -38,6 +39,27 @@ class ConfigManager private constructor(private val context: Context) {
         private const val KEY_PRODUCTION_MODE = "production_mode"
         private const val KEY_DEV_MODE_ENABLED = "dev_mode_enabled"
         private const val KEY_INSTALL_AUTO_ACCEPT_ENABLED = "install_auto_accept_enabled"
+        private const val KEY_KEEP_SCREEN_AWAKE_ENABLED = "keep_screen_awake_enabled"
+        private const val KEY_KEEP_ALIVE_LAST_RECOVERY_AT_MS = "keep_alive_last_recovery_at_ms"
+        private const val KEY_KEEP_ALIVE_LAST_RECOVERY_ATTEMPT_AT_MS =
+            "keep_alive_last_recovery_attempt_at_ms"
+        private const val KEY_KEEP_ALIVE_CONSECUTIVE_RECOVERY_FAILURES =
+            "keep_alive_consecutive_recovery_failures"
+        private const val KEY_KEEP_ALIVE_DEGRADED_REASON = "keep_alive_degraded_reason"
+        private const val KEY_KEEP_ALIVE_NEXT_RECOVERY_TOKEN = "keep_alive_next_recovery_token"
+        private const val KEY_KEEP_ALIVE_ACTIVE_RECOVERY_TOKEN = "keep_alive_active_recovery_token"
+        private const val KEY_KEEP_ALIVE_RECOVERY_ACTIVITY_IN_FLIGHT =
+            "keep_alive_recovery_activity_in_flight"
+        private const val KEY_KEEP_ALIVE_PENDING_RECOVERY_RESULT_TOKEN =
+            "keep_alive_pending_recovery_result_token"
+        private const val KEY_KEEP_ALIVE_PENDING_RECOVERY_RESULT_SUCCESS =
+            "keep_alive_pending_recovery_result_success"
+        private const val KEY_KEEP_ALIVE_PENDING_RECOVERY_RESULT_REASON =
+            "keep_alive_pending_recovery_result_reason"
+        private const val KEY_KEEP_ALIVE_PENDING_RECOVERY_RESULT_AT_MS =
+            "keep_alive_pending_recovery_result_at_ms"
+        private const val KEY_KEEP_ALIVE_RECOVERY_OWNER_SESSION_ID =
+            "keep_alive_recovery_owner_session_id"
         private const val KEY_TASK_PROMPT_MODEL = "task_prompt_model"
         private const val KEY_TASK_PROMPT_DEFAULT_MODEL = "task_prompt_default_model"
         private const val KEY_TASK_PROMPT_REASONING = "task_prompt_reasoning"
@@ -62,6 +84,7 @@ class ConfigManager private constructor(private val context: Context) {
         private const val PREFIX_EVENT_ENABLED = "event_enabled_"
         private const val KEY_AUTH_TOKEN = "auth_token"
         private const val KEY_DEVICE_ID = "device_id"
+        private const val KEY_BROWSER_AUTH_PENDING_UNTIL_MS = "browser_auth_pending_until_ms"
         private const val DEVICE_ID_PLACEHOLDER = "{deviceId}"
 
         private const val DEFAULT_OFFSET = 0
@@ -87,7 +110,11 @@ class ConfigManager private constructor(private val context: Context) {
     private val devicePrefs: SharedPreferences =
         context.getSharedPreferences(DEVICE_PREFS_NAME, Context.MODE_PRIVATE)
 
+    private val secretsPrefs: SharedPreferences =
+        context.getSharedPreferences(SECRET_PREFS_NAME, Context.MODE_PRIVATE)
+
     init {
+        migrateSecretPrefsIfNeeded()
         if (sharedPrefs.contains(KEY_REVERSE_CONNECTION_ENABLED)) {
             sharedPrefs.edit { putBoolean(KEY_REVERSE_CONNECTION_ENABLED, false) }
         }
@@ -98,10 +125,10 @@ class ConfigManager private constructor(private val context: Context) {
     // TODO add external injection from some config file
     val authToken: String
         get() {
-            var token = sharedPrefs.getString(KEY_AUTH_TOKEN, null)
+            var token = secretsPrefs.getString(KEY_AUTH_TOKEN, null)
             if (token == null) {
                 token = java.util.UUID.randomUUID().toString()
-                sharedPrefs.edit { putString(KEY_AUTH_TOKEN, token) }
+                secretsPrefs.edit { putString(KEY_AUTH_TOKEN, token) }
             }
             return token
         }
@@ -204,16 +231,16 @@ class ConfigManager private constructor(private val context: Context) {
 
     // Reverse Connection Token (Optional, for authenticating with Host/Cloud)
     var reverseConnectionToken: String
-        get() = sharedPrefs.getString(KEY_REVERSE_CONNECTION_TOKEN, "") ?: ""
+        get() = secretsPrefs.getString(KEY_REVERSE_CONNECTION_TOKEN, "") ?: ""
         set(value) {
-            sharedPrefs.edit { putString(KEY_REVERSE_CONNECTION_TOKEN, value) }
+            secretsPrefs.edit { putString(KEY_REVERSE_CONNECTION_TOKEN, value) }
         }
 
     // Reverse Connection Service Key (Header: X-Remote-Device-Key)
     var reverseConnectionServiceKey: String
-        get() = sharedPrefs.getString(KEY_REVERSE_CONNECTION_SERVICE_KEY, "") ?: ""
+        get() = secretsPrefs.getString(KEY_REVERSE_CONNECTION_SERVICE_KEY, "") ?: ""
         set(value) {
-            sharedPrefs.edit { putString(KEY_REVERSE_CONNECTION_SERVICE_KEY, value) }
+            secretsPrefs.edit { putString(KEY_REVERSE_CONNECTION_SERVICE_KEY, value) }
         }
 
     var productionMode: Boolean
@@ -285,11 +312,151 @@ class ConfigManager private constructor(private val context: Context) {
             sharedPrefs.edit { putBoolean("screen_share_auto_accept_enabled", value) }
         }
 
+    fun markBrowserAuthPending(
+        nowMs: Long = System.currentTimeMillis(),
+        ttlMs: Long = 10 * 60 * 1000L,
+    ) {
+        sharedPrefs.edit {
+            putLong(KEY_BROWSER_AUTH_PENDING_UNTIL_MS, nowMs + ttlMs.coerceAtLeast(0L))
+        }
+    }
+
+    fun isBrowserAuthPending(nowMs: Long = System.currentTimeMillis()): Boolean {
+        return sharedPrefs.getLong(KEY_BROWSER_AUTH_PENDING_UNTIL_MS, 0L) > nowMs
+    }
+
+    fun clearBrowserAuthPending() {
+        sharedPrefs.edit { remove(KEY_BROWSER_AUTH_PENDING_UNTIL_MS) }
+    }
+
     var installAutoAcceptEnabled: Boolean
         get() = sharedPrefs.getBoolean(KEY_INSTALL_AUTO_ACCEPT_ENABLED, false)
         set(value) {
             sharedPrefs.edit { putBoolean(KEY_INSTALL_AUTO_ACCEPT_ENABLED, value) }
         }
+
+    var keepScreenAwakeEnabled: Boolean
+        get() = sharedPrefs.getBoolean(KEY_KEEP_SCREEN_AWAKE_ENABLED, false)
+        set(value) {
+            sharedPrefs.edit { putBoolean(KEY_KEEP_SCREEN_AWAKE_ENABLED, value) }
+        }
+
+    var keepAliveLastRecoveryAtMs: Long
+        get() = sharedPrefs.getLong(KEY_KEEP_ALIVE_LAST_RECOVERY_AT_MS, 0L)
+        set(value) {
+            sharedPrefs.edit { putLong(KEY_KEEP_ALIVE_LAST_RECOVERY_AT_MS, value) }
+        }
+
+    var keepAliveLastRecoveryAttemptAtMs: Long
+        get() = sharedPrefs.getLong(KEY_KEEP_ALIVE_LAST_RECOVERY_ATTEMPT_AT_MS, 0L)
+        set(value) {
+            sharedPrefs.edit { putLong(KEY_KEEP_ALIVE_LAST_RECOVERY_ATTEMPT_AT_MS, value) }
+        }
+
+    var keepAliveConsecutiveRecoveryFailures: Int
+        get() = sharedPrefs.getInt(KEY_KEEP_ALIVE_CONSECUTIVE_RECOVERY_FAILURES, 0)
+        set(value) {
+            sharedPrefs.edit { putInt(KEY_KEEP_ALIVE_CONSECUTIVE_RECOVERY_FAILURES, value) }
+        }
+
+    var keepAliveDegradedReason: String?
+        get() = sharedPrefs.getString(KEY_KEEP_ALIVE_DEGRADED_REASON, null)?.takeIf { it.isNotBlank() }
+        set(value) {
+            sharedPrefs.edit {
+                if (value.isNullOrBlank()) {
+                    remove(KEY_KEEP_ALIVE_DEGRADED_REASON)
+                } else {
+                    putString(KEY_KEEP_ALIVE_DEGRADED_REASON, value)
+                }
+            }
+        }
+
+    @Synchronized
+    fun nextKeepAliveRecoveryToken(): Long {
+        val nextToken = sharedPrefs.getLong(KEY_KEEP_ALIVE_NEXT_RECOVERY_TOKEN, 0L) + 1L
+        sharedPrefs.edit(commit = true) { putLong(KEY_KEEP_ALIVE_NEXT_RECOVERY_TOKEN, nextToken) }
+        return nextToken
+    }
+
+    var keepAliveActiveRecoveryToken: Long
+        get() = sharedPrefs.getLong(KEY_KEEP_ALIVE_ACTIVE_RECOVERY_TOKEN, 0L)
+        set(value) {
+            sharedPrefs.edit { putLong(KEY_KEEP_ALIVE_ACTIVE_RECOVERY_TOKEN, value) }
+        }
+
+    var keepAliveRecoveryActivityInFlight: Boolean
+        get() = sharedPrefs.getBoolean(KEY_KEEP_ALIVE_RECOVERY_ACTIVITY_IN_FLIGHT, false)
+        set(value) {
+            sharedPrefs.edit { putBoolean(KEY_KEEP_ALIVE_RECOVERY_ACTIVITY_IN_FLIGHT, value) }
+        }
+
+    var keepAlivePendingRecoveryResultToken: Long
+        get() = sharedPrefs.getLong(KEY_KEEP_ALIVE_PENDING_RECOVERY_RESULT_TOKEN, 0L)
+        set(value) {
+            sharedPrefs.edit { putLong(KEY_KEEP_ALIVE_PENDING_RECOVERY_RESULT_TOKEN, value) }
+        }
+
+    var keepAlivePendingRecoveryResultSuccess: Boolean
+        get() = sharedPrefs.getBoolean(KEY_KEEP_ALIVE_PENDING_RECOVERY_RESULT_SUCCESS, false)
+        set(value) {
+            sharedPrefs.edit { putBoolean(KEY_KEEP_ALIVE_PENDING_RECOVERY_RESULT_SUCCESS, value) }
+        }
+
+    var keepAlivePendingRecoveryResultReason: String?
+        get() = sharedPrefs.getString(KEY_KEEP_ALIVE_PENDING_RECOVERY_RESULT_REASON, null)?.takeIf { it.isNotBlank() }
+        set(value) {
+            sharedPrefs.edit {
+                if (value.isNullOrBlank()) {
+                    remove(KEY_KEEP_ALIVE_PENDING_RECOVERY_RESULT_REASON)
+                } else {
+                    putString(KEY_KEEP_ALIVE_PENDING_RECOVERY_RESULT_REASON, value)
+                }
+            }
+        }
+
+    var keepAlivePendingRecoveryResultAtMs: Long
+        get() = sharedPrefs.getLong(KEY_KEEP_ALIVE_PENDING_RECOVERY_RESULT_AT_MS, 0L)
+        set(value) {
+            sharedPrefs.edit { putLong(KEY_KEEP_ALIVE_PENDING_RECOVERY_RESULT_AT_MS, value) }
+        }
+
+    var keepAliveRecoveryOwnerSessionId: String?
+        get() = sharedPrefs.getString(KEY_KEEP_ALIVE_RECOVERY_OWNER_SESSION_ID, null)?.takeIf { it.isNotBlank() }
+        set(value) {
+            sharedPrefs.edit {
+                if (value.isNullOrBlank()) {
+                    remove(KEY_KEEP_ALIVE_RECOVERY_OWNER_SESSION_ID)
+                } else {
+                    putString(KEY_KEEP_ALIVE_RECOVERY_OWNER_SESSION_ID, value)
+                }
+            }
+        }
+
+    fun saveKeepAlivePendingRecoveryResult(
+        token: Long,
+        success: Boolean,
+        reason: String?,
+        completedAtMs: Long,
+    ) {
+        keepAlivePendingRecoveryResultToken = token
+        keepAlivePendingRecoveryResultSuccess = success
+        keepAlivePendingRecoveryResultReason = reason
+        keepAlivePendingRecoveryResultAtMs = completedAtMs
+    }
+
+    fun clearKeepAlivePendingRecoveryResult() {
+        keepAlivePendingRecoveryResultToken = 0L
+        keepAlivePendingRecoveryResultSuccess = false
+        keepAlivePendingRecoveryResultReason = null
+        keepAlivePendingRecoveryResultAtMs = 0L
+    }
+
+    fun clearKeepAliveRecoveryHandoffState() {
+        keepAliveActiveRecoveryToken = 0L
+        keepAliveRecoveryOwnerSessionId = null
+        keepAliveRecoveryActivityInFlight = false
+        clearKeepAlivePendingRecoveryResult()
+    }
 
     var taskPromptModel: String
         get() = sharedPrefs.getString(KEY_TASK_PROMPT_MODEL, "") ?: ""
@@ -321,6 +488,21 @@ class ConfigManager private constructor(private val context: Context) {
         get() = taskPromptModel.takeIf { it.isNotBlank() }
             ?: taskPromptDefaultModel.takeIf { it.isNotBlank() }
             ?: PortalCloudClient.DEFAULT_MODEL_ID
+
+    private fun migrateSecretPrefsIfNeeded() {
+        migrateSecretKey(KEY_AUTH_TOKEN)
+        migrateSecretKey(KEY_REVERSE_CONNECTION_TOKEN)
+        migrateSecretKey(KEY_REVERSE_CONNECTION_SERVICE_KEY)
+    }
+
+    private fun migrateSecretKey(key: String) {
+        if (secretsPrefs.contains(key)) {
+            return
+        }
+        val legacyValue = sharedPrefs.getString(key, null) ?: return
+        secretsPrefs.edit { putString(key, legacyValue) }
+        sharedPrefs.edit { remove(key) }
+    }
 
     var taskPromptReasoning: Boolean
         get() = sharedPrefs.getBoolean(
@@ -516,6 +698,7 @@ class ConfigManager private constructor(private val context: Context) {
         // New WebSocket listeners
         fun onWebSocketEnabledChanged(enabled: Boolean) {}
         fun onWebSocketPortChanged(port: Int) {}
+        fun onKeepScreenAwakeEnabledChanged(enabled: Boolean) {}
 
         fun onProductionModeChanged(enabled: Boolean) {}
     }
@@ -578,6 +761,20 @@ class ConfigManager private constructor(private val context: Context) {
     fun setWebSocketPortWithNotification(port: Int) {
         websocketPort = port
         listeners.forEach { it.onWebSocketPortChanged(port) }
+    }
+
+    fun setKeepScreenAwakeEnabledWithNotification(enabled: Boolean) {
+        if (keepScreenAwakeEnabled == enabled) return
+        keepScreenAwakeEnabled = enabled
+        listeners.forEach { it.onKeepScreenAwakeEnabledChanged(enabled) }
+    }
+
+    fun clearKeepAliveRuntimeState() {
+        keepAliveLastRecoveryAtMs = 0L
+        keepAliveLastRecoveryAttemptAtMs = 0L
+        keepAliveConsecutiveRecoveryFailures = 0
+        keepAliveDegradedReason = null
+        clearKeepAliveRecoveryHandoffState()
     }
 
     // Bulk configuration update
@@ -683,6 +880,7 @@ class ConfigManager private constructor(private val context: Context) {
             putBoolean(KEY_PRODUCTION_MODE, false)
             putBoolean(KEY_DEV_MODE_ENABLED, false)
             putBoolean(KEY_INSTALL_AUTO_ACCEPT_ENABLED, false)
+            putBoolean(KEY_KEEP_SCREEN_AWAKE_ENABLED, false)
             putBoolean("screen_share_auto_accept_enabled", true)
             putBoolean("force_login_on_next_connect", false)
         }
@@ -694,6 +892,7 @@ class ConfigManager private constructor(private val context: Context) {
             it.onSocketServerPortChanged(DEFAULT_SOCKET_PORT)
             it.onWebSocketEnabledChanged(false)
             it.onWebSocketPortChanged(DEFAULT_WEBSOCKET_PORT)
+            it.onKeepScreenAwakeEnabledChanged(false)
             it.onProductionModeChanged(false)
         }
     }
@@ -708,6 +907,7 @@ class ConfigManager private constructor(private val context: Context) {
         val socketServerPort: Int,
         val websocketEnabled: Boolean,
         val websocketPort: Int,
+        val keepScreenAwakeEnabled: Boolean,
         val authToken: String
     )
 
@@ -721,6 +921,7 @@ class ConfigManager private constructor(private val context: Context) {
             socketServerPort = socketServerPort,
             websocketEnabled = websocketEnabled,
             websocketPort = websocketPort,
+            keepScreenAwakeEnabled = keepScreenAwakeEnabled,
             authToken = authToken
         )
     }

@@ -22,9 +22,9 @@ import com.droidrun.portal.R
 import com.droidrun.portal.config.ConfigManager
 import com.droidrun.portal.databinding.ActivitySettingsBinding
 import com.droidrun.portal.events.model.EventType
+import com.droidrun.portal.keepalive.KeepAliveController
 import com.droidrun.portal.service.DroidrunNotificationListener
 import com.droidrun.portal.service.ReverseConnectionService
-import com.droidrun.portal.state.AppVisibilityTracker
 import com.droidrun.portal.state.ConnectionState
 import com.droidrun.portal.state.ConnectionStateManager
 import com.droidrun.portal.taskprompt.PortalBalanceRepository
@@ -299,6 +299,11 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         binding.switchInstallAutoAccept.isChecked = configManager.installAutoAcceptEnabled
         binding.switchInstallAutoAccept.setOnCheckedChangeListener { _, isChecked ->
             configManager.installAutoAcceptEnabled = isChecked
+        }
+
+        binding.switchKeepScreenAwake.isChecked = configManager.keepScreenAwakeEnabled
+        binding.switchKeepScreenAwake.setOnCheckedChangeListener { _, isChecked ->
+            KeepAliveController.setEnabled(this, isChecked)
         }
     }
 
@@ -655,6 +660,7 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
         updateSocketServerPortUi(configManager.socketServerPort)
         updateWebSocketEnabledUi(configManager.websocketEnabled)
         updateWebSocketPortUi(configManager.websocketPort)
+        binding.switchKeepScreenAwake.isChecked = configManager.keepScreenAwakeEnabled
     }
 
     private fun updateSocketServerEnabledUi(enabled: Boolean) {
@@ -736,6 +742,12 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
     override fun onWebSocketPortChanged(port: Int) {
         runOnUiThread {
             updateWebSocketPortUi(port)
+        }
+    }
+
+    override fun onKeepScreenAwakeEnabledChanged(enabled: Boolean) {
+        runOnUiThread {
+            binding.switchKeepScreenAwake.isChecked = enabled
         }
     }
 

@@ -67,6 +67,7 @@ Enable reverse connection to let the device initiate an outbound WebSocket conne
 
 See [Reverse Connection](docs/reverse-connection.md) for configuration details and the streaming protocol.
 Trigger JSON-RPC methods are documented in [Triggers and Events](docs/triggers.md).
+The operator-facing screen-awake watchdog can also be enabled from **Settings** with **Keep Screen Awake**, or over WebSocket with `screen/keepAwake/set` and `screen/keepAwake/status`.
 
 ### 💻 ADB Commands (ContentProvider)
 
@@ -107,6 +108,9 @@ adb shell content query --uri content://com.droidrun.portal/packages
 
 # Get local auth token for HTTP/WS access
 adb shell content query --uri content://com.droidrun.portal/auth_token
+
+# Get keep-screen-awake watchdog status
+adb shell content query --uri content://com.droidrun.portal/screen_keep_awake_status
 ```
 
 #### Insert Commands (Actions & Configuration)
@@ -136,6 +140,10 @@ adb shell content insert --uri content://com.droidrun.portal/socket_port --bind 
 
 # Enable/disable local WebSocket server (default port: 8081)
 adb shell content insert --uri content://com.droidrun.portal/toggle_websocket_server --bind enabled:b:true --bind port:i:8081
+
+# Enable or disable the keep-screen-awake watchdog
+adb shell content insert --uri content://com.droidrun.portal/toggle_screen_keep_awake --bind enabled:b:true
+adb shell content insert --uri content://com.droidrun.portal/toggle_screen_keep_awake --bind enabled:b:false
 
 # Configure reverse connection (host URL + optional token/service key)
 adb shell content insert --uri content://com.droidrun.portal/configure_reverse_connection --bind url_base64:s:"d3NzOi8vYXBpLm1vYmlsZXJ1bi5haS92MS9wcm92aWRlcnMvcGVyc29uYWwvam9pbg==" --bind token_base64:s:"WU9VUl9UT0tFTg==" --bind enabled:b:true

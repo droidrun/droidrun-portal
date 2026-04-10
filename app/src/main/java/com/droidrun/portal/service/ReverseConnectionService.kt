@@ -206,6 +206,27 @@ class ReverseConnectionService : Service() {
         return headers
     }
 
+    private fun logConnectionAttempt(uri: URI, headers: Map<String, String>) {
+        val destination = buildString {
+            append(uri.scheme ?: "ws")
+            append("://")
+            append(uri.host ?: "unknown")
+            if (uri.port != -1) {
+                append(":")
+                append(uri.port)
+            }
+            append(uri.path ?: "")
+        }
+        Log.d(
+            TAG,
+            "connectToHost: destination=$destination tokenPresent=${
+                configManager.reverseConnectionToken.isNotBlank()
+            } serviceKeyPresent=${configManager.reverseConnectionServiceKey.isNotBlank()} headerNames=${
+                headers.keys.sorted().joinToString()
+            }",
+        )
+    }
+
     private fun connectToHost() {
         Log.d(TAG, "connectToHost: called, isServiceRunning=${isServiceRunning.get()}")
         if (!isServiceRunning.get()) {
@@ -214,7 +235,6 @@ class ReverseConnectionService : Service() {
         }
 
         val hostUrl = configManager.reverseConnectionUrlOrDefault
-        Log.d(TAG, "connectToHost: hostUrl='$hostUrl'")
         if (hostUrl.isBlank()) {
             Log.w(TAG, "connectToHost: No host URL configured")
             ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
@@ -225,25 +245,10 @@ class ReverseConnectionService : Service() {
             Log.d(TAG, "connectToHost: Setting state to CONNECTING")
             ConnectionStateManager.setState(ConnectionState.CONNECTING)
             disconnect() // Prevent resource leaks from zombie connections
-            val deviceId = configManager.deviceID
-            val finalUrl = hostUrl.replace("{deviceId}", deviceId)
-            Log.d(TAG, "connectToHost: deviceId='$deviceId', finalUrl='$finalUrl'")
+            val finalUrl = hostUrl.replace("{deviceId}", configManager.deviceID)
             val uri = URI(finalUrl)
             val headers = buildHeaders()
-            val token = configManager.reverseConnectionToken
-            Log.d(
-                TAG,
-                "connectToHost: apiKey='${
-                    if (token.length > 20) "${token.take(10)}...${
-                        token.takeLast(10)
-                    } (${token.length})" else token
-                }'"
-            )
-            Log.d(TAG, "connectToHost: url='$finalUrl'")
-            Log.d(
-                TAG,
-                "connectToHost: headers=${headers.entries.joinToString { "${it.key}=${it.value}" }}"
-            )
+            logConnectionAttempt(uri, headers)
 
             webSocketClient = object : WebSocketClient(uri, headers) {
                 override fun onOpen(handshakedata: ServerHandshake?) {
@@ -559,7 +564,7 @@ class ReverseConnectionService : Service() {
             val dispatcher = resolveActionDispatcher(normalizedMethod)
             if (dispatcher == null) {
                 val error =
-                    "Accessibility Service not ready. Only stream/*, webrtc/*, global, and triggers/* are available."
+                    "Accessibility Service not ready. Only stream/*, webrtc/*, screen/keepAwake/*, global, and triggers/* are available."
                 Log.e(TAG, error)
                 webSocketClient?.send(ApiResponse.Error(error).toJson(id))
                 return

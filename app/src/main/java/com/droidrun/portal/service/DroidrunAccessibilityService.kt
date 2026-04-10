@@ -36,6 +36,8 @@ import com.droidrun.portal.events.EventHub
 import com.droidrun.portal.events.PortalWebSocketServer
 import com.droidrun.portal.events.model.EventType
 import com.droidrun.portal.events.model.PortalEvent
+import com.droidrun.portal.keepalive.KeepAliveController
+import com.droidrun.portal.keepalive.KeepAliveRecoveryActivity
 import com.droidrun.portal.triggers.TriggerRuntime
 import androidx.core.app.NotificationCompat
 import org.json.JSONObject
@@ -232,6 +234,13 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
 
         startSocketServerIfEnabled()
         startWebSocketServerIfEnabled()
+        val keepAliveReconcileResult = KeepAliveController.reconcileBestEffort(this)
+        keepAliveReconcileResult.deferredReason?.let { reason ->
+            Log.w(
+                TAG,
+                "Deferred keep-awake reconcile during accessibility startup: $reason",
+            )
+        }
 
         Log.d(TAG, "Accessibility service connected and configured")
     }
@@ -505,6 +514,29 @@ class DroidrunAccessibilityService : AccessibilityService(), ConfigManager.Confi
     fun getScreenBounds(): Rect = screenBounds
 
     fun getActionDispatcher(): ActionDispatcher = actionDispatcher
+
+    fun launchKeepAliveRecoveryActivity(
+        reason: String,
+        recoveryToken: Long,
+    ): Boolean {
+        return try {
+            val intent =
+                Intent(this, KeepAliveRecoveryActivity::class.java).apply {
+                    flags =
+                        Intent.FLAG_ACTIVITY_NEW_TASK or
+                            Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS or
+                            Intent.FLAG_ACTIVITY_NO_ANIMATION or
+                            Intent.FLAG_ACTIVITY_SINGLE_TOP
+                    putExtra(KeepAliveRecoveryActivity.EXTRA_REASON, reason)
+                    putExtra(KeepAliveRecoveryActivity.EXTRA_RECOVERY_TOKEN, recoveryToken)
+                }
+            startActivity(intent)
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to launch keep-alive recovery activity", e)
+            false
+        }
+    }
 
     fun setAutoOffsetEnabled(enabled: Boolean): Boolean {
         return try {

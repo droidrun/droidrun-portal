@@ -13,6 +13,7 @@ import io.mockk.mockk
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.lang.reflect.Modifier
@@ -22,13 +23,15 @@ class ConfigManagerTaskPromptTest {
     private lateinit var context: Context
     private lateinit var sharedStore: MutableMap<String, Any?>
     private lateinit var deviceStore: MutableMap<String, Any?>
+    private lateinit var secretsStore: MutableMap<String, Any?>
 
     @Before
     fun setUp() {
         clearSingleton()
         sharedStore = mutableMapOf()
         deviceStore = mutableMapOf()
-        context = mockContext(sharedStore, deviceStore)
+        secretsStore = mutableMapOf()
+        context = mockContext(sharedStore, deviceStore, secretsStore)
     }
 
     @After
@@ -75,6 +78,93 @@ class ConfigManagerTaskPromptTest {
         assertEquals(1.25, restored.temperature, 0.0)
         assertEquals(777, restored.executionTimeout)
         assertFalse(sharedStore.isEmpty())
+    }
+
+    @Test
+    fun keepScreenAwakeEnabled_defaultsToFalse() {
+        val configManager = ConfigManager.getInstance(context)
+
+        assertFalse(configManager.keepScreenAwakeEnabled)
+    }
+
+    @Test
+    fun keepScreenAwakeEnabled_persistsAcrossProcessRestart() {
+        val initial = ConfigManager.getInstance(context)
+        initial.keepScreenAwakeEnabled = true
+
+        clearSingleton()
+
+        assertTrue(ConfigManager.getInstance(context).keepScreenAwakeEnabled)
+    }
+
+    @Test
+    fun clearKeepAliveRuntimeState_clearsRecoveryMetadata() {
+        val configManager = ConfigManager.getInstance(context)
+        configManager.keepAliveLastRecoveryAtMs = 1234L
+        configManager.keepAliveLastRecoveryAttemptAtMs = 1200L
+        configManager.keepAliveConsecutiveRecoveryFailures = 3
+        configManager.keepAliveDegradedReason = "wake_lock_failed"
+        configManager.keepAliveActiveRecoveryToken = 77L
+        configManager.keepAliveRecoveryOwnerSessionId = "session-a"
+        configManager.keepAliveRecoveryActivityInFlight = true
+        configManager.saveKeepAlivePendingRecoveryResult(
+            token = 77L,
+            success = false,
+            reason = "dismiss_cancelled",
+            completedAtMs = 1300L,
+        )
+
+        configManager.clearKeepAliveRuntimeState()
+
+        assertEquals(0L, configManager.keepAliveLastRecoveryAtMs)
+        assertEquals(0L, configManager.keepAliveLastRecoveryAttemptAtMs)
+        assertEquals(0, configManager.keepAliveConsecutiveRecoveryFailures)
+        assertEquals(null, configManager.keepAliveDegradedReason)
+        assertEquals(0L, configManager.keepAliveActiveRecoveryToken)
+        assertEquals(null, configManager.keepAliveRecoveryOwnerSessionId)
+        assertFalse(configManager.keepAliveRecoveryActivityInFlight)
+        assertEquals(0L, configManager.keepAlivePendingRecoveryResultToken)
+        assertFalse(configManager.keepAlivePendingRecoveryResultSuccess)
+        assertEquals(null, configManager.keepAlivePendingRecoveryResultReason)
+        assertEquals(0L, configManager.keepAlivePendingRecoveryResultAtMs)
+    }
+
+    @Test
+    fun nextKeepAliveRecoveryToken_persistsAcrossProcessRestart() {
+        val initial = ConfigManager.getInstance(context)
+
+        assertEquals(1L, initial.nextKeepAliveRecoveryToken())
+        assertEquals(2L, initial.nextKeepAliveRecoveryToken())
+
+        clearSingleton()
+
+        val restored = ConfigManager.getInstance(context)
+        assertEquals(3L, restored.nextKeepAliveRecoveryToken())
+    }
+
+    @Test
+    fun keepAliveRecoveryHandoffState_persistsAcrossProcessRestart() {
+        val initial = ConfigManager.getInstance(context)
+        initial.keepAliveActiveRecoveryToken = 81L
+        initial.keepAliveRecoveryOwnerSessionId = "session-a"
+        initial.keepAliveRecoveryActivityInFlight = true
+        initial.saveKeepAlivePendingRecoveryResult(
+            token = 81L,
+            success = true,
+            reason = null,
+            completedAtMs = 999L,
+        )
+
+        clearSingleton()
+
+        val restored = ConfigManager.getInstance(context)
+        assertEquals(81L, restored.keepAliveActiveRecoveryToken)
+        assertEquals("session-a", restored.keepAliveRecoveryOwnerSessionId)
+        assertTrue(restored.keepAliveRecoveryActivityInFlight)
+        assertEquals(81L, restored.keepAlivePendingRecoveryResultToken)
+        assertTrue(restored.keepAlivePendingRecoveryResultSuccess)
+        assertEquals(null, restored.keepAlivePendingRecoveryResultReason)
+        assertEquals(999L, restored.keepAlivePendingRecoveryResultAtMs)
     }
 
     @Test
@@ -150,13 +240,51 @@ class ConfigManagerTaskPromptTest {
         assertEquals(true, restored.terminalTransitionHandled)
     }
 
+    @Test
+    fun secretPrefs_migrateLegacyValuesOutOfMainConfigStore() {
+        sharedStore["auth_token"] = "legacy-auth"
+        sharedStore["reverse_connection_token"] = "legacy-reverse-token"
+        sharedStore["reverse_connection_service_key"] = "legacy-service-key"
+
+        val configManager = ConfigManager.getInstance(context)
+
+        assertEquals("legacy-auth", configManager.authToken)
+        assertEquals("legacy-reverse-token", configManager.reverseConnectionToken)
+        assertEquals("legacy-service-key", configManager.reverseConnectionServiceKey)
+        assertEquals("legacy-auth", secretsStore["auth_token"])
+        assertEquals("legacy-reverse-token", secretsStore["reverse_connection_token"])
+        assertEquals("legacy-service-key", secretsStore["reverse_connection_service_key"])
+        assertFalse(sharedStore.containsKey("auth_token"))
+        assertFalse(sharedStore.containsKey("reverse_connection_token"))
+        assertFalse(sharedStore.containsKey("reverse_connection_service_key"))
+    }
+
+    @Test
+    fun browserAuthPendingWindow_isTimeBoundAndClearable() {
+        val configManager = ConfigManager.getInstance(context)
+
+        assertFalse(configManager.isBrowserAuthPending(nowMs = 1_000L))
+
+        configManager.markBrowserAuthPending(nowMs = 1_000L, ttlMs = 600_000L)
+
+        assertTrue(configManager.isBrowserAuthPending(nowMs = 600_999L))
+        assertFalse(configManager.isBrowserAuthPending(nowMs = 601_000L))
+
+        configManager.markBrowserAuthPending(nowMs = 2_000L, ttlMs = 600_000L)
+        configManager.clearBrowserAuthPending()
+
+        assertFalse(configManager.isBrowserAuthPending(nowMs = 2_001L))
+    }
+
     private fun mockContext(
         sharedPrefsStore: MutableMap<String, Any?>,
         devicePrefsStore: MutableMap<String, Any?>,
+        secretsPrefsStore: MutableMap<String, Any?>,
     ): Context {
         val context = mockk<Context>(relaxed = true)
         val sharedPrefs = mockPreferences(sharedPrefsStore)
         val devicePrefs = mockPreferences(devicePrefsStore)
+        val secretsPrefs = mockPreferences(secretsPrefsStore)
 
         every { context.applicationContext } returns context
         every {
@@ -165,6 +293,9 @@ class ConfigManagerTaskPromptTest {
         every {
             context.getSharedPreferences("droidrun_device", Context.MODE_PRIVATE)
         } returns devicePrefs
+        every {
+            context.getSharedPreferences("droidrun_secrets", Context.MODE_PRIVATE)
+        } returns secretsPrefs
 
         return context
     }

@@ -66,8 +66,11 @@ Response format:
 | `version` | - | App version |
 | `time` | - | Unix ms timestamp |
 | `install` | `urls`, `hideOverlay` | WebSocket only; supports split APKs |
+| `screen/keepAwake/set` | `enabled` | WebSocket only; local and reverse; toggles the screen-awake watchdog and returns the requested target status |
+| `screen/keepAwake/status` | - | WebSocket only; local and reverse; returns live watchdog status |
 
 Streaming methods (`stream/start`, `stream/stop`, `webrtc/*`) are only available over reverse connection.
+Screen-awake methods (`screen/keepAwake/*`) are available over local and reverse WebSocket. They are not available over HTTP.
 Trigger management methods (`triggers/*`) are available over the local WebSocket API and reverse connection. See [Triggers and Events](triggers.md) for the exact method list, params, validation rules, and response shape.
 Local WebSocket sends unsolicited device events as raw
 `{ "type": "...", "timestamp": ..., "payload": { ... } }` by default. Add
@@ -151,6 +154,7 @@ adb shell content query --uri content://com.droidrun.portal/state
 adb shell content query --uri content://com.droidrun.portal/state_full?filter=false
 adb shell content query --uri content://com.droidrun.portal/packages
 adb shell content query --uri content://com.droidrun.portal/auth_token
+adb shell content query --uri content://com.droidrun.portal/screen_keep_awake_status
 ```
 
 ### Insert
@@ -165,6 +169,8 @@ adb shell content insert --uri content://com.droidrun.portal/overlay_visible --b
 adb shell content insert --uri content://com.droidrun.portal/socket_port --bind port:i:8090
 
 adb shell content insert --uri content://com.droidrun.portal/toggle_websocket_server --bind enabled:b:true --bind port:i:8081
+adb shell content insert --uri content://com.droidrun.portal/toggle_screen_keep_awake --bind enabled:b:true
+adb shell content insert --uri content://com.droidrun.portal/toggle_screen_keep_awake --bind enabled:b:false
 
 adb shell content insert --uri content://com.droidrun.portal/configure_reverse_connection --bind url_base64:s:"d3NzOi8vYXBpLm1vYmlsZXJ1bi5haS92MS9wcm92aWRlcnMvcGVyc29uYWwvam9pbg==" --bind token_base64:s:"WU9VUl9UT0tFTg==" --bind enabled:b:true
 adb shell content insert --uri content://com.droidrun.portal/configure_reverse_connection --bind service_key_base64:s:"WU9VUl9LRVk="
