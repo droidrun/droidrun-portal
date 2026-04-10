@@ -25,6 +25,7 @@ import com.droidrun.portal.events.model.EventType
 import com.droidrun.portal.keepalive.KeepAliveController
 import com.droidrun.portal.service.DroidrunNotificationListener
 import com.droidrun.portal.service.ReverseConnectionService
+import com.droidrun.portal.state.AppVisibilityTracker
 import com.droidrun.portal.state.ConnectionState
 import com.droidrun.portal.state.ConnectionStateManager
 import com.droidrun.portal.taskprompt.PortalBalanceRepository

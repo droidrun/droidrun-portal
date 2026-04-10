@@ -2,6 +2,7 @@ package com.droidrun.portal.ui
 
 import com.droidrun.portal.config.ConfigManager
 import com.droidrun.portal.service.DroidrunAccessibilityService
+import com.droidrun.portal.state.AppVisibilityTracker
 import com.droidrun.portal.state.ConnectionState
 import com.droidrun.portal.state.ConnectionStateManager
 import com.droidrun.portal.service.ReverseConnectionService
