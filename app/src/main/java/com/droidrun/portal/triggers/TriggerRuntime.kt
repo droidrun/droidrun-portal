@@ -52,15 +52,15 @@ object TriggerRuntime {
             repository = TriggerRepository.getInstance(appContext)
             scheduler = TriggerScheduler(appContext)
             taskLauncher = TriggerTaskLauncher(appContext)
-            notificationBuffer = NotificationDebounceBuffer(
-                onFlush = ::evaluateBatchedNotification,
-            )
             normalizePersistedRules()
 
             if (initialized) {
                 return
             }
 
+            notificationBuffer = NotificationDebounceBuffer(
+                onFlush = ::evaluateBatchedNotification,
+            )
             EventHub.subscribe(eventListener)
             registerBatteryReceiver()
             registerScreenReceiver()
@@ -442,6 +442,7 @@ object TriggerRuntime {
         val limitReached = !isTestRun &&
             currentRule.maxLaunchCount != null &&
             successfulLaunchCount >= currentRule.maxLaunchCount
+        val justDisabled = limitReached && currentRule.enabled
         val updatedRule = currentRule.copy(
             lastMatchedAtMs = matchedAtMs,
             lastLaunchedAtMs = launchedAtMs,
@@ -449,7 +450,7 @@ object TriggerRuntime {
             enabled = if (limitReached) false else currentRule.enabled,
         )
         repository.saveRule(updatedRule)
-        if (limitReached) {
+        if (justDisabled) {
             logRun(
                 rule = updatedRule,
                 disposition = TriggerRunDisposition.RULE_DISABLED,
@@ -623,7 +624,7 @@ object TriggerRuntime {
                 is TriggerTaskLauncher.Result.Success -> {
                     val rule = repository.getRule(entry.ruleId)
                     if (rule != null) {
-                        handleLaunchSuccess(rule, entry.enqueuedAtMs, isTestRun = false)
+                        handleLaunchSuccess(rule, rule.lastMatchedAtMs, isTestRun = false)
                     }
                     logQueueEntry(
                         entry = entry,
