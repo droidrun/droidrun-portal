@@ -240,6 +240,7 @@ class TriggerApiTest {
                 "LAUNCHED",
                 "SKIPPED_BUSY",
                 "BUFFERED",
+                "DEBOUNCED",
                 "PERMISSION_MISSING",
                 "LAUNCH_FAILED",
                 "RULE_DISABLED",

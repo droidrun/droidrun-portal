@@ -23,6 +23,7 @@ class PortalTaskLaunchCoordinator(
         broadcastTaskStateChanged: Boolean,
         metadata: PortalTaskLaunchMetadata = PortalTaskLaunchMetadata(),
         skipBusyCheck: Boolean = false,
+        memoryNamespace: String? = null,
         onComplete: (Result) -> Unit,
     ) {
         val authToken = configManager.reverseConnectionToken.trim()
@@ -48,6 +49,7 @@ class PortalTaskLaunchCoordinator(
             prompt = prompt,
             settings = settings,
             returnToPortalOnTerminal = metadata.returnToPortalOnTerminal,
+            memoryNamespace = memoryNamespace,
         )
         portalCloudClient.launchTask(
             restBaseUrl = restBaseUrl,

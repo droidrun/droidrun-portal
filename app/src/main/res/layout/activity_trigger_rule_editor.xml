@@ -63,6 +63,14 @@
                         android:text="Enable task queuing"
                         android:textColor="@color/text_white" />
 
+                    <com.google.android.material.switchmaterial.SwitchMaterial
+                        android:id="@+id/switchIncludeNotificationContext"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="Include notification context in the prompt"
+                        android:textColor="@color/text_white" />
+
                     <com.google.android.material.textfield.TextInputLayout
                         android:id="@+id/inputRuleNameLayout"
                         style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"

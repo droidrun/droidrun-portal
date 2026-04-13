@@ -29,6 +29,7 @@ data class PortalTaskDraft(
     val prompt: String,
     val settings: PortalTaskSettings,
     val returnToPortalOnTerminal: Boolean = false,
+    val memoryNamespace: String? = null,
 )
 
 data class PortalModelOption(
@@ -418,6 +419,9 @@ class PortalCloudClient(
                 put("temperature", draft.settings.temperature)
                 put("executionTimeout", draft.settings.executionTimeout)
                 put("displayId", 0)
+                if (draft.memoryNamespace != null) {
+                    put("memoryNamespace", draft.memoryNamespace)
+                }
             }
         }
 

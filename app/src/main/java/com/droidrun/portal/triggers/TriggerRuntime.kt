@@ -18,6 +18,7 @@ import com.droidrun.portal.events.model.PortalEvent
 import com.droidrun.portal.taskprompt.PortalTaskSettings
 import com.droidrun.portal.taskprompt.PortalTaskTracking
 import org.json.JSONObject
+import java.util.Locale
 
 object TriggerRuntime {
     private const val BATTERY_LOW_THRESHOLD = 15
@@ -28,6 +29,7 @@ object TriggerRuntime {
     private lateinit var repository: TriggerRepository
     private lateinit var scheduler: TriggerScheduler
     private lateinit var taskLauncher: TriggerTaskLauncher
+    private lateinit var notificationBuffer: NotificationDebounceBuffer
 
     private var batteryReceiver: BroadcastReceiver? = null
     private var screenReceiver: BroadcastReceiver? = null
@@ -47,6 +49,9 @@ object TriggerRuntime {
             repository = TriggerRepository.getInstance(appContext)
             scheduler = TriggerScheduler(appContext)
             taskLauncher = TriggerTaskLauncher(appContext)
+            notificationBuffer = NotificationDebounceBuffer(
+                onFlush = ::evaluateBatchedNotification,
+            )
             normalizePersistedRules()
 
             if (initialized) {
@@ -171,8 +176,23 @@ object TriggerRuntime {
             .filter { it.hasLaunchLimitRemaining() }
             .filterNot { isCoolingDown(it, nowMs) }
             .filter { TriggerMatcher.matches(it, signal) }
-            .forEach { evaluateRule(it, signal, isTestRun = false) }
+            .forEach { rule ->
+                if (isNotificationSource(signal.source)) {
+                    logRun(
+                        rule = rule,
+                        disposition = TriggerRunDisposition.DEBOUNCED,
+                        summary = "Buffered message from ${signal.payload["title"] ?: "Unknown"}",
+                        signal = signal,
+                    )
+                    notificationBuffer.add(rule, signal)
+                } else {
+                    evaluateRule(rule, signal, isTestRun = false)
+                }
+            }
     }
+
+    private fun isNotificationSource(source: TriggerSource): Boolean =
+        source == TriggerSource.NOTIFICATION_POSTED
 
     private fun evaluateRule(rule: TriggerRule, signal: TriggerSignal, isTestRun: Boolean) {
         val nowMs = System.currentTimeMillis()
@@ -244,6 +264,116 @@ object TriggerRuntime {
                 }
             }
         }
+    }
+
+    private fun evaluateBatchedNotification(
+        rule: TriggerRule,
+        senderName: String,
+        packageName: String,
+        messages: List<BufferedMessage>,
+    ) {
+        val currentRule = repository.getRule(rule.id)
+        if (currentRule == null || !currentRule.enabled) return
+
+        val nowMs = System.currentTimeMillis()
+        repository.updateRuleTimestamps(currentRule.id, matchedAtMs = nowMs, launchedAtMs = null)
+
+        val messageBlock = if (messages.size == 1) {
+            "New message from $senderName: ${messages[0].text}"
+        } else {
+            "New messages from $senderName (${messages.size} messages):\n" +
+                messages.joinToString("\n") { "- ${it.text}" }
+        }
+
+        val combinedText = messages.joinToString("\n") { it.text }
+        val batchSignal = TriggerSignal(
+            source = currentRule.source,
+            payload = mapOf(
+                "package" to packageName,
+                "title" to senderName,
+                "text" to combinedText,
+            ),
+        )
+
+        val renderedPrompt = TriggerTemplateRenderer.render(currentRule.promptTemplate, batchSignal)
+        val finalPrompt = when {
+            "{{trigger.text}}" in currentRule.promptTemplate -> renderedPrompt
+            currentRule.includeNotificationContext -> "$renderedPrompt\n\n$messageBlock"
+            else -> renderedPrompt
+        }
+
+        val memoryNamespace = sanitizeSenderToNamespace(senderName)
+        val taskSettings = currentRule.taskSettingsOverride
+            ?: ConfigManager.getInstance(appContext).taskPromptSettings
+
+        logRun(
+            rule = currentRule,
+            disposition = TriggerRunDisposition.MATCHED,
+            summary = "Matched ${messages.size} message(s) from $senderName",
+            signal = batchSignal,
+        )
+
+        val activeTask = ConfigManager.getInstance(appContext).activePortalTask
+        val deviceBusy = activeTask != null && PortalTaskTracking.isBlockingStatus(activeTask.lastStatus)
+        val queuing = deviceBusy && currentRule.busyPolicy == TriggerBusyPolicy.QUEUE
+
+        if (queuing) {
+            logRun(
+                rule = currentRule,
+                disposition = TriggerRunDisposition.BUFFERED,
+                summary = "Queued because another portal task is active",
+                signal = batchSignal,
+            )
+        }
+
+        taskLauncher.launchPrompt(
+            prompt = finalPrompt,
+            settings = taskSettings,
+            triggerRuleId = currentRule.id,
+            returnToPortalOnTerminal = currentRule.returnToPortal,
+            skipBusyCheck = queuing,
+            memoryNamespace = memoryNamespace,
+        ) { result ->
+            when (result) {
+                is TriggerTaskLauncher.Result.Success -> {
+                    val updatedRule = handleLaunchSuccess(currentRule, nowMs, isTestRun = false)
+                    logRun(
+                        rule = updatedRule,
+                        disposition = TriggerRunDisposition.LAUNCHED,
+                        summary = "Launched portal task ${result.record.taskId}",
+                        signal = batchSignal,
+                    )
+                    finalizeTimeRuleIfNeeded(updatedRule, isTestRun = false)
+                }
+
+                TriggerTaskLauncher.Result.Busy -> {
+                    logRun(
+                        rule = currentRule,
+                        disposition = TriggerRunDisposition.SKIPPED_BUSY,
+                        summary = "Skipped because another portal task is active",
+                        signal = batchSignal,
+                    )
+                }
+
+                is TriggerTaskLauncher.Result.Error -> {
+                    logRun(
+                        rule = currentRule,
+                        disposition = TriggerRunDisposition.LAUNCH_FAILED,
+                        summary = result.message,
+                        signal = batchSignal,
+                    )
+                }
+            }
+        }
+    }
+
+    private fun sanitizeSenderToNamespace(sender: String): String {
+        return sender.trim()
+            .lowercase(Locale.US)
+            .replace(Regex("[^a-z0-9]+"), "-")
+            .trim('-')
+            .take(64)
+            .ifEmpty { "unknown" }
     }
 
     private fun handleLaunchSuccess(
