@@ -22,6 +22,7 @@ class PortalTaskLaunchCoordinator(
         settings: PortalTaskSettings,
         broadcastTaskStateChanged: Boolean,
         metadata: PortalTaskLaunchMetadata = PortalTaskLaunchMetadata(),
+        skipBusyCheck: Boolean = false,
         onComplete: (Result) -> Unit,
     ) {
         val authToken = configManager.reverseConnectionToken.trim()
@@ -38,7 +39,7 @@ class PortalTaskLaunchCoordinator(
             return
         }
 
-        if (activeTask != null && PortalTaskTracking.isBlockingStatus(activeTask.lastStatus)) {
+        if (!skipBusyCheck && activeTask != null && PortalTaskTracking.isBlockingStatus(activeTask.lastStatus)) {
             onComplete(Result.Busy)
             return
         }
@@ -62,10 +63,13 @@ class PortalTaskLaunchCoordinator(
                         taskId = result.value.taskId,
                         metadata = metadata,
                     )
-                    configManager.saveActivePortalTask(record)
-                    TaskPromptNotificationManager.showActiveTask(appContext, record)
-                    PortalTaskStateMonitor.initialize(appContext)
-                    PortalTaskStateMonitor.reconcileActiveTask(immediate = true)
+                    val existingTask = configManager.activePortalTask
+                    if (existingTask == null || !PortalTaskTracking.isBlockingStatus(existingTask.lastStatus)) {
+                        configManager.saveActivePortalTask(record)
+                        TaskPromptNotificationManager.showActiveTask(appContext, record)
+                        PortalTaskStateMonitor.initialize(appContext)
+                        PortalTaskStateMonitor.reconcileActiveTask(immediate = true)
+                    }
                     if (broadcastTaskStateChanged) {
                         TaskPromptNotificationManager.broadcastTaskStateChanged(appContext)
                     }

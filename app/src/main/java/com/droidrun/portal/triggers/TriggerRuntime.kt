@@ -16,6 +16,7 @@ import com.droidrun.portal.events.EventHub
 import com.droidrun.portal.events.model.EventType
 import com.droidrun.portal.events.model.PortalEvent
 import com.droidrun.portal.taskprompt.PortalTaskSettings
+import com.droidrun.portal.taskprompt.PortalTaskTracking
 import org.json.JSONObject
 
 object TriggerRuntime {
@@ -185,11 +186,26 @@ object TriggerRuntime {
 
         val renderedPrompt = TriggerTemplateRenderer.render(rule.promptTemplate, signal)
         val taskSettings = rule.taskSettingsOverride ?: ConfigManager.getInstance(appContext).taskPromptSettings
+
+        val activeTask = ConfigManager.getInstance(appContext).activePortalTask
+        val deviceBusy = activeTask != null && PortalTaskTracking.isBlockingStatus(activeTask.lastStatus)
+        val queuing = deviceBusy && rule.busyPolicy == TriggerBusyPolicy.QUEUE
+
+        if (queuing) {
+            logRun(
+                rule = rule,
+                disposition = TriggerRunDisposition.BUFFERED,
+                summary = "Queued because another portal task is active",
+                signal = signal,
+            )
+        }
+
         taskLauncher.launchPrompt(
             prompt = renderedPrompt,
             settings = taskSettings,
             triggerRuleId = rule.id,
             returnToPortalOnTerminal = rule.returnToPortal,
+            skipBusyCheck = queuing,
         ) { result ->
             when (result) {
                 is TriggerTaskLauncher.Result.Success -> {

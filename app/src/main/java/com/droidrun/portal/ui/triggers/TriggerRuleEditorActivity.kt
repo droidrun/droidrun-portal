@@ -239,6 +239,7 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
 
         binding.switchRuleEnabled.isChecked = seed.enabled
         binding.switchReturnToPortal.isChecked = seed.returnToPortal
+        binding.switchEnableQueuing.isChecked = seed.busyPolicy == TriggerBusyPolicy.QUEUE
         binding.inputRuleName.setText(seed.name)
         binding.inputPromptTemplate.setText(seed.promptTemplate)
         binding.inputCooldownSeconds.setText(seed.cooldownSeconds.toString())
@@ -629,7 +630,11 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
             source = selectedSource,
             promptTemplate = promptTemplate,
             cooldownSeconds = cooldownSeconds ?: 0,
-            busyPolicy = TriggerBusyPolicy.SKIP,
+            busyPolicy = if (binding.switchEnableQueuing.isChecked) {
+                TriggerBusyPolicy.QUEUE
+            } else {
+                TriggerBusyPolicy.SKIP
+            },
             stringMatchMode = selectedMatchMode(),
             packageName = binding.inputPackageName.text?.toString(),
             titleFilter = binding.inputTitleFilter.text?.toString(),

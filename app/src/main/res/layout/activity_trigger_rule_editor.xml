@@ -55,6 +55,14 @@
                         android:text="Return to Portal when task ends"
                         android:textColor="@color/text_white" />
 
+                    <com.google.android.material.switchmaterial.SwitchMaterial
+                        android:id="@+id/switchEnableQueuing"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="Enable task queuing"
+                        android:textColor="@color/text_white" />
+
                     <com.google.android.material.textfield.TextInputLayout
                         android:id="@+id/inputRuleNameLayout"
                         style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"

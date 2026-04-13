@@ -28,6 +28,7 @@ enum class TriggerSource {
 
 enum class TriggerBusyPolicy {
     SKIP,
+    QUEUE,
 }
 
 enum class TriggerStringMatchMode {
@@ -52,6 +53,7 @@ enum class TriggerRunDisposition {
     MATCHED,
     LAUNCHED,
     SKIPPED_BUSY,
+    BUFFERED,
     PERMISSION_MISSING,
     LAUNCH_FAILED,
     RULE_DISABLED,
