@@ -17,6 +17,7 @@ import com.droidrun.portal.events.model.EventType
 import com.droidrun.portal.events.model.PortalEvent
 import com.droidrun.portal.taskprompt.PortalTaskSettings
 import com.droidrun.portal.taskprompt.PortalTaskTracking
+import com.droidrun.portal.taskprompt.TaskPromptNotificationManager
 import org.json.JSONObject
 import java.util.Locale
 
@@ -30,10 +31,12 @@ object TriggerRuntime {
     private lateinit var scheduler: TriggerScheduler
     private lateinit var taskLauncher: TriggerTaskLauncher
     private lateinit var notificationBuffer: NotificationDebounceBuffer
+    private val busyQueue = TriggerBusyQueue()
 
     private var batteryReceiver: BroadcastReceiver? = null
     private var screenReceiver: BroadcastReceiver? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var taskStateReceiver: BroadcastReceiver? = null
 
     private var lastBatteryLevel: Int? = null
     private var lastCharging: Boolean? = null
@@ -62,6 +65,7 @@ object TriggerRuntime {
             registerBatteryReceiver()
             registerScreenReceiver()
             registerNetworkCallback()
+            registerTaskStateReceiver()
             scheduler.rescheduleAll(repository.listRules())
             initialized = true
         }
@@ -76,6 +80,10 @@ object TriggerRuntime {
         if (!initialized) return emptyList()
         return repository.listRuns(limit)
     }
+
+    fun listQueued(): List<TriggerQueueEntry> = busyQueue.list()
+
+    fun cancelQueued(entryId: String): Boolean = busyQueue.removeById(entryId)
 
     fun restoreRun(record: TriggerRunRecord) {
         initialize(appContext)
@@ -209,15 +217,37 @@ object TriggerRuntime {
 
         val activeTask = ConfigManager.getInstance(appContext).activePortalTask
         val deviceBusy = activeTask != null && PortalTaskTracking.isBlockingStatus(activeTask.lastStatus)
-        val queuing = deviceBusy && rule.busyPolicy == TriggerBusyPolicy.QUEUE
+        val shouldQueue = !isTestRun && deviceBusy && rule.busyPolicy == TriggerBusyPolicy.QUEUE
 
-        if (queuing) {
-            logRun(
-                rule = rule,
-                disposition = TriggerRunDisposition.BUFFERED,
-                summary = "Queued because another portal task is active",
+        if (shouldQueue) {
+            val entry = TriggerQueueEntry(
+                ruleId = rule.id,
+                ruleName = rule.name,
+                source = rule.source,
+                prompt = renderedPrompt,
+                settings = taskSettings,
                 signal = signal,
+                memoryNamespace = null,
+                returnToPortalOnTerminal = rule.returnToPortal,
             )
+            val enqueued = busyQueue.enqueue(entry)
+            if (enqueued) {
+                logRun(
+                    rule = rule,
+                    disposition = TriggerRunDisposition.BUFFERED,
+                    summary = "Queued because another portal task is active",
+                    signal = signal,
+                )
+            } else {
+                logRun(
+                    rule = rule,
+                    disposition = TriggerRunDisposition.LAUNCH_FAILED,
+                    summary = "Queue is full; trigger dropped",
+                    signal = signal,
+                )
+            }
+            finalizeTimeRuleIfNeeded(rule, isTestRun)
+            return
         }
 
         taskLauncher.launchPrompt(
@@ -225,7 +255,7 @@ object TriggerRuntime {
             settings = taskSettings,
             triggerRuleId = rule.id,
             returnToPortalOnTerminal = rule.returnToPortal,
-            skipBusyCheck = queuing,
+            skipBusyCheck = false,
         ) { result ->
             when (result) {
                 is TriggerTaskLauncher.Result.Success -> {
@@ -315,15 +345,36 @@ object TriggerRuntime {
 
         val activeTask = ConfigManager.getInstance(appContext).activePortalTask
         val deviceBusy = activeTask != null && PortalTaskTracking.isBlockingStatus(activeTask.lastStatus)
-        val queuing = deviceBusy && currentRule.busyPolicy == TriggerBusyPolicy.QUEUE
+        val shouldQueue = deviceBusy && currentRule.busyPolicy == TriggerBusyPolicy.QUEUE
 
-        if (queuing) {
-            logRun(
-                rule = currentRule,
-                disposition = TriggerRunDisposition.BUFFERED,
-                summary = "Queued because another portal task is active",
+        if (shouldQueue) {
+            val entry = TriggerQueueEntry(
+                ruleId = currentRule.id,
+                ruleName = currentRule.name,
+                source = currentRule.source,
+                prompt = finalPrompt,
+                settings = taskSettings,
                 signal = batchSignal,
+                memoryNamespace = memoryNamespace,
+                returnToPortalOnTerminal = currentRule.returnToPortal,
             )
+            val enqueued = busyQueue.enqueue(entry)
+            if (enqueued) {
+                logRun(
+                    rule = currentRule,
+                    disposition = TriggerRunDisposition.BUFFERED,
+                    summary = "Queued because another portal task is active",
+                    signal = batchSignal,
+                )
+            } else {
+                logRun(
+                    rule = currentRule,
+                    disposition = TriggerRunDisposition.LAUNCH_FAILED,
+                    summary = "Queue is full; trigger dropped",
+                    signal = batchSignal,
+                )
+            }
+            return
         }
 
         taskLauncher.launchPrompt(
@@ -331,7 +382,7 @@ object TriggerRuntime {
             settings = taskSettings,
             triggerRuleId = currentRule.id,
             returnToPortalOnTerminal = currentRule.returnToPortal,
-            skipBusyCheck = queuing,
+            skipBusyCheck = false,
             memoryNamespace = memoryNamespace,
         ) { result ->
             when (result) {
@@ -533,6 +584,87 @@ object TriggerRuntime {
             screenReceiver,
             filter,
             ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+    }
+
+    private fun registerTaskStateReceiver() {
+        if (taskStateReceiver != null) return
+        taskStateReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent?) {
+                if (intent?.action == TaskPromptNotificationManager.ACTION_TASK_STATE_CHANGED) {
+                    maybeDrainQueue()
+                }
+            }
+        }
+        ContextCompat.registerReceiver(
+            appContext,
+            taskStateReceiver,
+            IntentFilter(TaskPromptNotificationManager.ACTION_TASK_STATE_CHANGED),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+    }
+
+    private fun maybeDrainQueue() {
+        val activeTask = ConfigManager.getInstance(appContext).activePortalTask
+        val deviceBusy = activeTask != null && PortalTaskTracking.isBlockingStatus(activeTask.lastStatus)
+        if (deviceBusy) return
+
+        val entry = busyQueue.popNext() ?: return
+
+        taskLauncher.launchPrompt(
+            prompt = entry.prompt,
+            settings = entry.settings,
+            triggerRuleId = entry.ruleId,
+            returnToPortalOnTerminal = entry.returnToPortalOnTerminal,
+            skipBusyCheck = false,
+            memoryNamespace = entry.memoryNamespace,
+        ) { result ->
+            when (result) {
+                is TriggerTaskLauncher.Result.Success -> {
+                    val rule = repository.getRule(entry.ruleId)
+                    if (rule != null) {
+                        handleLaunchSuccess(rule, entry.enqueuedAtMs, isTestRun = false)
+                    }
+                    logQueueEntry(
+                        entry = entry,
+                        disposition = TriggerRunDisposition.LAUNCHED,
+                        summary = "Launched portal task ${result.record.taskId}",
+                    )
+                }
+
+                TriggerTaskLauncher.Result.Busy -> {
+                    busyQueue.pushFront(entry)
+                }
+
+                is TriggerTaskLauncher.Result.Error -> {
+                    logQueueEntry(
+                        entry = entry,
+                        disposition = TriggerRunDisposition.LAUNCH_FAILED,
+                        summary = result.message,
+                    )
+                }
+            }
+        }
+    }
+
+    private fun logQueueEntry(
+        entry: TriggerQueueEntry,
+        disposition: TriggerRunDisposition,
+        summary: String,
+    ) {
+        repository.addRun(
+            TriggerRunRecord(
+                ruleId = entry.ruleId,
+                ruleName = entry.ruleName,
+                source = entry.source,
+                disposition = disposition,
+                summary = summary,
+                payloadSnapshot = JSONObject().apply {
+                    entry.signal.payload.toSortedMap().forEach { (key, value) ->
+                        put(key, value)
+                    }
+                }.toString(),
+            ),
         )
     }
 
