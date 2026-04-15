@@ -383,6 +383,11 @@ object TriggerRuntime {
             return
         }
 
+        // Reserve a launch slot eagerly so concurrent flushes for the same rule
+        // cannot all pass hasLaunchLimitRemaining against stale state while this
+        // launch is still in flight.
+        reserveLaunchSlot(currentRule.id)
+
         taskLauncher.launchPrompt(
             prompt = finalPrompt,
             settings = taskSettings,
@@ -393,17 +398,20 @@ object TriggerRuntime {
         ) { result ->
             when (result) {
                 is TriggerTaskLauncher.Result.Success -> {
-                    val updatedRule = handleLaunchSuccess(currentRule, nowMs, isTestRun = false)
+                    val updatedRule = commitReservedLaunch(currentRule.id, batchSignal)
                     logRun(
-                        rule = updatedRule,
+                        rule = updatedRule ?: currentRule,
                         disposition = TriggerRunDisposition.LAUNCHED,
                         summary = "Launched portal task ${result.record.taskId}",
                         signal = batchSignal,
                     )
-                    finalizeTimeRuleIfNeeded(updatedRule, isTestRun = false)
+                    if (updatedRule != null) {
+                        finalizeTimeRuleIfNeeded(updatedRule, isTestRun = false)
+                    }
                 }
 
                 TriggerTaskLauncher.Result.Busy -> {
+                    releaseLaunchReservation(currentRule.id)
                     logRun(
                         rule = currentRule,
                         disposition = TriggerRunDisposition.SKIPPED_BUSY,
@@ -413,6 +421,7 @@ object TriggerRuntime {
                 }
 
                 is TriggerTaskLauncher.Result.Error -> {
+                    releaseLaunchReservation(currentRule.id)
                     logRun(
                         rule = currentRule,
                         disposition = TriggerRunDisposition.LAUNCH_FAILED,
@@ -422,6 +431,38 @@ object TriggerRuntime {
                 }
             }
         }
+    }
+
+    private fun reserveLaunchSlot(ruleId: String) {
+        val rule = repository.getRule(ruleId) ?: return
+        repository.saveRule(rule.copy(successfulLaunchCount = rule.successfulLaunchCount + 1))
+    }
+
+    private fun releaseLaunchReservation(ruleId: String) {
+        val rule = repository.getRule(ruleId) ?: return
+        val newCount = (rule.successfulLaunchCount - 1).coerceAtLeast(0)
+        repository.saveRule(rule.copy(successfulLaunchCount = newCount))
+    }
+
+    private fun commitReservedLaunch(ruleId: String, signal: TriggerSignal): TriggerRule? {
+        val currentRule = repository.getRule(ruleId) ?: return null
+        val launchedAtMs = System.currentTimeMillis()
+        val limitReached = currentRule.maxLaunchCount != null &&
+            currentRule.successfulLaunchCount >= currentRule.maxLaunchCount
+        val updatedRule = currentRule.copy(
+            lastLaunchedAtMs = launchedAtMs,
+            enabled = if (limitReached) false else currentRule.enabled,
+        )
+        repository.saveRule(updatedRule)
+        if (limitReached && currentRule.enabled) {
+            logRun(
+                rule = updatedRule,
+                disposition = TriggerRunDisposition.RULE_DISABLED,
+                summary = "Rule disabled because the run limit was reached",
+                signal = signal,
+            )
+        }
+        return updatedRule
     }
 
     private fun sanitizeSenderToNamespace(sender: String): String {
