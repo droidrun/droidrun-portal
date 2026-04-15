@@ -309,6 +309,11 @@ object TriggerRuntime {
         val nowMs = System.currentTimeMillis()
         if (isCoolingDown(currentRule, nowMs)) return
 
+        // Reserve the match eagerly so concurrent flushes for the same rule see
+        // the updated cooldown state instead of the stale one while this launch
+        // is still in flight, mirroring evaluateRule.
+        repository.updateRuleTimestamps(currentRule.id, matchedAtMs = nowMs, launchedAtMs = null)
+
         val messageBlock = if (messages.size == 1) {
             "New message from $senderName: ${messages[0].text}"
         } else {
@@ -611,7 +616,23 @@ object TriggerRuntime {
         val deviceBusy = activeTask != null && PortalTaskTracking.isBlockingStatus(activeTask.lastStatus)
         if (deviceBusy) return
 
-        val entry = busyQueue.popNext() ?: return
+        var entry = busyQueue.popNext() ?: return
+        while (true) {
+            val currentRule = repository.getRule(entry.ruleId)
+            val skipReason = when {
+                currentRule == null -> null
+                !currentRule.enabled -> "Rule is disabled"
+                !currentRule.hasLaunchLimitRemaining() -> "Rule launch limit reached"
+                else -> null
+            }
+            if (skipReason == null) break
+            logQueueEntry(
+                entry = entry,
+                disposition = TriggerRunDisposition.RULE_DISABLED,
+                summary = skipReason,
+            )
+            entry = busyQueue.popNext() ?: return
+        }
 
         taskLauncher.launchPrompt(
             prompt = entry.prompt,
