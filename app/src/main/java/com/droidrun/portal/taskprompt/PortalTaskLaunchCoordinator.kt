@@ -77,11 +77,7 @@ class PortalTaskLaunchCoordinator(
                     if (broadcastTaskStateChanged) {
                         TaskPromptNotificationManager.broadcastTaskStateChanged(appContext)
                     }
-                    if (slotAvailable) {
-                        onComplete(Result.Success(record))
-                    } else {
-                        onComplete(Result.Busy)
-                    }
+                    onComplete(Result.Success(record))
                 }
 
                 is PortalTaskLaunchResult.Error -> onComplete(Result.Error(result.message))
