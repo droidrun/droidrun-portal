@@ -304,9 +304,10 @@ object TriggerRuntime {
     ) {
         val currentRule = repository.getRule(rule.id)
         if (currentRule == null || !currentRule.enabled) return
+        if (!currentRule.hasLaunchLimitRemaining()) return
 
         val nowMs = System.currentTimeMillis()
-        repository.updateRuleTimestamps(currentRule.id, matchedAtMs = nowMs, launchedAtMs = null)
+        if (isCoolingDown(currentRule, nowMs)) return
 
         val messageBlock = if (messages.size == 1) {
             "New message from $senderName: ${messages[0].text}"
