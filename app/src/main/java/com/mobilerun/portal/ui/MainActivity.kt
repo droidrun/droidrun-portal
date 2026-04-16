@@ -1210,7 +1210,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
     }
 
     private fun showSignOutConfirmation() {
-        AlertDialog.Builder(this, R.style.Theme_DroidrunPortal_Dialog)
+        AlertDialog.Builder(this, R.style.Theme_MobilerunPortal_Dialog)
             .setTitle(getString(R.string.sign_out_confirmation_title))
             .setMessage(getString(R.string.sign_out_confirmation_message))
             .setNegativeButton(android.R.string.cancel, null)
@@ -1296,7 +1296,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
 
         inputToken.addWhitespaceStrippingWatcher()
 
-        val dialog = AlertDialog.Builder(this, R.style.Theme_DroidrunPortal_Dialog)
+        val dialog = AlertDialog.Builder(this, R.style.Theme_MobilerunPortal_Dialog)
             .setView(dialogView)
             .create()
 
@@ -1362,7 +1362,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         }
         inputToken.addWhitespaceStrippingWatcher()
 
-        val dialog = AlertDialog.Builder(this, R.style.Theme_DroidrunPortal_Dialog)
+        val dialog = AlertDialog.Builder(this, R.style.Theme_MobilerunPortal_Dialog)
             .setView(dialogView)
             .create()
 
@@ -1842,7 +1842,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
                 null
             } else {
                 android.content.res.ColorStateList.valueOf(
-                    ContextCompat.getColor(this, R.color.droidrun_warning)
+                    ContextCompat.getColor(this, R.color.mobilerun_warning)
                 )
             }
             binding.keyboardWarningBanner.visibility = View.VISIBLE

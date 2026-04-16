@@ -42,7 +42,7 @@
         android:roundIcon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="true"
-        android:theme="@style/Theme.Droidrun"
+        android:theme="@style/Theme.Mobilerun"
         android:usesCleartextTraffic="true"
         tools:targetApi="31">
 
@@ -163,27 +163,27 @@
 
         <activity
             android:name=".ui.settings.SettingsActivity"
-            android:theme="@style/Theme.Droidrun"
+            android:theme="@style/Theme.Mobilerun"
             android:exported="false" />
 
         <activity
             android:name=".ui.triggers.TriggerRulesActivity"
-            android:theme="@style/Theme.Droidrun"
+            android:theme="@style/Theme.Mobilerun"
             android:exported="false" />
 
         <activity
             android:name=".ui.triggers.TriggerRuleEditorActivity"
-            android:theme="@style/Theme.Droidrun"
+            android:theme="@style/Theme.Mobilerun"
             android:exported="false" />
 
         <activity
             android:name=".ui.taskprompt.TaskHistoryActivity"
-            android:theme="@style/Theme.Droidrun"
+            android:theme="@style/Theme.Mobilerun"
             android:exported="false" />
 
         <activity
             android:name=".ui.taskprompt.TaskDetailsActivity"
-            android:theme="@style/Theme.Droidrun"
+            android:theme="@style/Theme.Mobilerun"
             android:exported="false" />
 
         <activity
