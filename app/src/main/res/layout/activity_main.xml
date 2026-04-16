@@ -241,7 +241,7 @@
                         android:layout_weight="1"
                         android:layout_gravity="center_vertical"
                         android:layout_marginStart="8dp"
-                        android:text="Droidrun Portal"
+                        android:text="Mobilerun Portal"
                         android:textColor="@color/text_white"
                         android:textSize="22sp"
                         android:textStyle="bold"
@@ -437,7 +437,7 @@
                             android:layout_width="20dp"
                             android:layout_height="20dp"
                             android:src="@drawable/info"
-                            app:tint="@color/droidrun_warning"
+                            app:tint="@color/mobilerun_warning"
                             android:layout_marginEnd="12dp"
                             android:importantForAccessibility="no" />
 

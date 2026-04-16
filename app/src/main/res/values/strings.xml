@@ -1,8 +1,8 @@
 <resources>
-    <string name="app_name">Droidrun Portal</string>
-    <string name="accessibility_service_description">Droidrun Portal identifies and visualizes UI elements on screen. This service helps to detect which elements are visible to the user by examining the layers of the UI, which is useful for UI analysis and automation.</string>
-    <string name="keyboard_name">Droidrun Keyboard</string>
-    <string name="keyboard_on">Droidrun Keyboard</string>
+    <string name="app_name">Mobilerun Portal</string>
+    <string name="accessibility_service_description">Mobilerun Portal identifies and visualizes UI elements on screen. This service helps to detect which elements are visible to the user by examining the layers of the UI, which is useful for UI analysis and automation.</string>
+    <string name="keyboard_name">Mobilerun Keyboard</string>
+    <string name="keyboard_on">Mobilerun Keyboard</string>
 
     <!-- Activity Main -->
     <string name="settings_content_description">Settings</string>
@@ -200,7 +200,7 @@
 
     <!-- Permission Dialog -->
     <string name="permission_required_title">Permission Required</string>
-    <string name="install_permission_message">To install apps, Droidrun Portal needs permission to install from unknown sources.</string>
+    <string name="install_permission_message">To install apps, Mobilerun Portal needs permission to install from unknown sources.</string>
     <string name="install_permission_steps">1. Tap \"Open Settings\" below\n2. Enable \"Allow from this source\"\n3. Return and try again</string>
     <string name="open_settings">Open Settings</string>
     <string name="cancel">Cancel</string>
@@ -247,9 +247,9 @@
     <string name="task_prompt_status_unexpected_response">Mobilerun returned an unexpected response.</string>
 
     <!-- Keyboard Warning -->
-    <string name="keyboard_enabled_message">Droidrun Keyboard active.</string>
-    <string name="keyboard_not_enabled_warning">Droidrun Keyboard not active. Using accessibility fallback for text input.</string>
-    <string name="keyboard_enable_settings_help">Enable Droidrun Keyboard, then select it as your keyboard.</string>
+    <string name="keyboard_enabled_message">Mobilerun Keyboard active.</string>
+    <string name="keyboard_not_enabled_warning">Mobilerun Keyboard not active. Using accessibility fallback for text input.</string>
+    <string name="keyboard_enable_settings_help">Enable Mobilerun Keyboard, then select it as your keyboard.</string>
     <string name="keyboard_switch_settings_help">Enable another keyboard, then switch to it.</string>
     <string name="keyboard_switch_unavailable">Could not open keyboard switching options.</string>
     <string name="select_keyboard">Select</string>

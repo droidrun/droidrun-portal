@@ -1,6 +1,6 @@
 # WebSocket Events
 
-Droidrun Portal includes a WebSocket server that broadcasts real-time events from the device, including notifications, app transitions, battery and power changes, user-present events, network changes, and SMS reception.
+Mobilerun Portal includes a WebSocket server that broadcasts real-time events from the device, including notifications, app transitions, battery and power changes, user-present events, network changes, and SMS reception.
 
 For the complete trigger and event contract, including every emitted `EventType`, every rule `TriggerSource`, and the payload keys for each device event, see [Triggers and Events](triggers.md).
 Local WebSocket defaults to raw unsolicited device event frames. Reverse connection uses
@@ -11,14 +11,14 @@ with `?eventFormat=rpc`. See [Reverse Connection](reverse-connection.md).
 
 ### 1. Enable WebSocket Server
 
-Open the Droidrun Portal app and enable the WebSocket server in settings. The default port is `8081`.
+Open the Mobilerun Portal app and enable the WebSocket server in settings. The default port is `8081`.
 
 ### 2. Get the auth token
 
 Local WebSocket access requires a token. You can copy it from the main screen or query via ADB:
 
 ```bash
-adb shell content query --uri content://com.droidrun.portal/auth_token
+adb shell content query --uri content://com.mobilerun.portal/auth_token
 ```
 
 ### 3. Set Up ADB Port Forwarding
@@ -197,5 +197,5 @@ asyncio.run(listen())
 | Issue | Solution |
 |-------|----------|
 | Connection refused | Ensure the app is running and WebSocket server is enabled in settings |
-| No events received | Check that notification listener permission is granted for Droidrun Portal |
+| No events received | Check that notification listener permission is granted for Mobilerun Portal |
 | ADB forward fails | Make sure a device is connected via `adb devices` |

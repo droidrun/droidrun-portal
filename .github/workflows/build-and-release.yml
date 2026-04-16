@@ -108,7 +108,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: apks
-          path: com.droidrun.portal-*.apk
+          path: com.mobilerun.portal-*.apk
           retention-days: 1
 
       - name: Upload debug APK
@@ -145,7 +145,7 @@ jobs:
     uses: ./.github/workflows/deploy-r2.yml
     with:
       artifact-name: apks
-      file-prefix: com.droidrun.portal
+      file-prefix: com.mobilerun.portal
       tag: ${{ needs.build.outputs.version-name }}
     secrets:
       R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}

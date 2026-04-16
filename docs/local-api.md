@@ -1,13 +1,13 @@
 # Local API
 
-Droidrun Portal exposes local control over HTTP, WebSocket, and ContentProvider. Use these when the device is on the same network or connected via ADB.
+Mobilerun Portal exposes local control over HTTP, WebSocket, and ContentProvider. Use these when the device is on the same network or connected via ADB.
 
 ## Auth token
 
 Local HTTP and WebSocket access require a token (except `GET /ping`). You can copy it from the main screen or query it via ADB:
 
 ```bash
-adb shell content query --uri content://com.droidrun.portal/auth_token
+adb shell content query --uri content://com.mobilerun.portal/auth_token
 ```
 
 Response example:
@@ -82,7 +82,7 @@ the reverse notification shape.
 
 Install notes:
 
-- The device must allow **Install unknown apps** for Droidrun Portal.
+- The device must allow **Install unknown apps** for Mobilerun Portal.
 - Enable **Install Auto-Accept** in Settings to auto-confirm install prompts.
 
 ### Binary screenshot responses
@@ -138,42 +138,42 @@ curl -X POST \
 
 ## ContentProvider (ADB)
 
-All commands use `content://com.droidrun.portal/`.
+All commands use `content://com.mobilerun.portal/`.
 
 Trigger queries and mutations are also available through the same `ContentProvider`, including `triggers/catalog`, `triggers/status`, rule CRUD, enable/disable, test runs, and run history management. See [Triggers and Events](triggers.md) for the full URI list and `rule_json_base64` examples.
 
 ### Query
 
 ```bash
-adb shell content query --uri content://com.droidrun.portal/ping
-adb shell content query --uri content://com.droidrun.portal/version
-adb shell content query --uri content://com.droidrun.portal/a11y_tree
-adb shell content query --uri content://com.droidrun.portal/a11y_tree_full?filter=false
-adb shell content query --uri content://com.droidrun.portal/phone_state
-adb shell content query --uri content://com.droidrun.portal/state
-adb shell content query --uri content://com.droidrun.portal/state_full?filter=false
-adb shell content query --uri content://com.droidrun.portal/packages
-adb shell content query --uri content://com.droidrun.portal/auth_token
-adb shell content query --uri content://com.droidrun.portal/screen_keep_awake_status
+adb shell content query --uri content://com.mobilerun.portal/ping
+adb shell content query --uri content://com.mobilerun.portal/version
+adb shell content query --uri content://com.mobilerun.portal/a11y_tree
+adb shell content query --uri content://com.mobilerun.portal/a11y_tree_full?filter=false
+adb shell content query --uri content://com.mobilerun.portal/phone_state
+adb shell content query --uri content://com.mobilerun.portal/state
+adb shell content query --uri content://com.mobilerun.portal/state_full?filter=false
+adb shell content query --uri content://com.mobilerun.portal/packages
+adb shell content query --uri content://com.mobilerun.portal/auth_token
+adb shell content query --uri content://com.mobilerun.portal/screen_keep_awake_status
 ```
 
 ### Insert
 
 ```bash
-adb shell content insert --uri content://com.droidrun.portal/keyboard/input --bind base64_text:s:"SGVsbG8="
-adb shell content insert --uri content://com.droidrun.portal/keyboard/clear
-adb shell content insert --uri content://com.droidrun.portal/keyboard/key --bind key_code:i:66
+adb shell content insert --uri content://com.mobilerun.portal/keyboard/input --bind base64_text:s:"SGVsbG8="
+adb shell content insert --uri content://com.mobilerun.portal/keyboard/clear
+adb shell content insert --uri content://com.mobilerun.portal/keyboard/key --bind key_code:i:66
 
-adb shell content insert --uri content://com.droidrun.portal/overlay_offset --bind offset:i:100
-adb shell content insert --uri content://com.droidrun.portal/overlay_visible --bind visible:b:false
-adb shell content insert --uri content://com.droidrun.portal/socket_port --bind port:i:8090
+adb shell content insert --uri content://com.mobilerun.portal/overlay_offset --bind offset:i:100
+adb shell content insert --uri content://com.mobilerun.portal/overlay_visible --bind visible:b:false
+adb shell content insert --uri content://com.mobilerun.portal/socket_port --bind port:i:8090
 
-adb shell content insert --uri content://com.droidrun.portal/toggle_websocket_server --bind enabled:b:true --bind port:i:8081
-adb shell content insert --uri content://com.droidrun.portal/toggle_screen_keep_awake --bind enabled:b:true
-adb shell content insert --uri content://com.droidrun.portal/toggle_screen_keep_awake --bind enabled:b:false
+adb shell content insert --uri content://com.mobilerun.portal/toggle_websocket_server --bind enabled:b:true --bind port:i:8081
+adb shell content insert --uri content://com.mobilerun.portal/toggle_screen_keep_awake --bind enabled:b:true
+adb shell content insert --uri content://com.mobilerun.portal/toggle_screen_keep_awake --bind enabled:b:false
 
-adb shell content insert --uri content://com.droidrun.portal/configure_reverse_connection --bind url_base64:s:"d3NzOi8vYXBpLm1vYmlsZXJ1bi5haS92MS9wcm92aWRlcnMvcGVyc29uYWwvam9pbg==" --bind token_base64:s:"WU9VUl9UT0tFTg==" --bind enabled:b:true
-adb shell content insert --uri content://com.droidrun.portal/configure_reverse_connection --bind service_key_base64:s:"WU9VUl9LRVk="
+adb shell content insert --uri content://com.mobilerun.portal/configure_reverse_connection --bind url_base64:s:"d3NzOi8vYXBpLm1vYmlsZXJ1bi5haS92MS9wcm92aWRlcnMvcGVyc29uYWwvam9pbg==" --bind token_base64:s:"WU9VUl9UT0tFTg==" --bind enabled:b:true
+adb shell content insert --uri content://com.mobilerun.portal/configure_reverse_connection --bind service_key_base64:s:"WU9VUl9LRVk="
 
-adb shell content insert --uri content://com.droidrun.portal/toggle_production_mode --bind enabled:b:true
+adb shell content insert --uri content://com.mobilerun.portal/toggle_production_mode --bind enabled:b:true
 ```

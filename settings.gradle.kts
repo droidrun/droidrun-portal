@@ -19,6 +19,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Droidrun"
+rootProject.name = "Mobilerun"
 include(":app")
  

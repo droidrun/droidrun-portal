@@ -5,6 +5,6 @@
 -->
 <full-backup-content>
     <!-- Exclude device_id from backup to ensure unique IDs per device/emulator -->
-    <exclude domain="sharedpref" path="droidrun_device.xml"/>
-    <exclude domain="sharedpref" path="droidrun_secrets.xml"/>
+    <exclude domain="sharedpref" path="mobilerun_device.xml"/>
+    <exclude domain="sharedpref" path="mobilerun_secrets.xml"/>
 </full-backup-content>
