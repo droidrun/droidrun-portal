@@ -66,6 +66,8 @@ class DroidrunContentProvider : ContentProvider() {
         private const val TRIGGERS_RULES_TEST = 26
         private const val TRIGGERS_RUNS_DELETE = 27
         private const val TRIGGERS_RUNS_CLEAR = 28
+        private const val GETCLIPBOARD = 31
+        private const val SETCLIPBOARD = 32
         private const val TOGGLE_SCREEN_KEEP_AWAKE = 29
         private const val SCREEN_KEEP_AWAKE_STATUS = 30
 
@@ -98,6 +100,8 @@ class DroidrunContentProvider : ContentProvider() {
             addURI(AUTHORITY, "triggers/runs", TRIGGERS_RUNS)
             addURI(AUTHORITY, "triggers/runs/delete", TRIGGERS_RUNS_DELETE)
             addURI(AUTHORITY, "triggers/runs/clear", TRIGGERS_RUNS_CLEAR)
+            addURI(AUTHORITY, "getclipboard", GETCLIPBOARD)
+            addURI(AUTHORITY, "setclipboard", SETCLIPBOARD)
             addURI(AUTHORITY, "toggle_screen_keep_awake", TOGGLE_SCREEN_KEEP_AWAKE)
             addURI(AUTHORITY, "screen_keep_awake_status", SCREEN_KEEP_AWAKE_STATUS)
         }
@@ -210,6 +214,7 @@ class DroidrunContentProvider : ContentProvider() {
                             )
 
                             PACKAGES -> handler.getPackages()
+                            GETCLIPBOARD -> handler.getClipboard()
                             else -> ApiResponse.Error("Unknown endpoint: ${uri.path}")
                         }
                     }
@@ -385,6 +390,12 @@ class DroidrunContentProvider : ContentProvider() {
                     context!!.sendBroadcast(intent)
 
                     ApiResponse.Success("Production mode set to $enabled")
+                }
+
+                SETCLIPBOARD -> {
+                    val text = getStringValue(values, "text")
+                        ?: return "content://$AUTHORITY/result?status=error&message=${Uri.encode("Missing required parameter: text or text_base64")}".toUri()
+                    handler.setClipboard(text)
                 }
 
                 else -> ApiResponse.Error("Unsupported insert endpoint")
