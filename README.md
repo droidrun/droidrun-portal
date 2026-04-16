@@ -1,24 +1,24 @@
 <p align="center">
-  <br>
+  <br><br><br>
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="./static/mobilerun-dark.png">
     <source media="(prefers-color-scheme: light)" srcset="./static/mobilerun.png">
     <img src="./static/mobilerun.png" width="full">
   </picture>
-  <br><br>
+  <br><br><br>
 </p>
 
-[![GitHub stars](https://img.shields.io/github/stars/mobilerun/mobilerun-portal?style=social)](https://github.com/mobilerun/mobilerun-portal/stargazers)
+[![GitHub stars](https://img.shields.io/github/stars/droidrun/mobilerun-portal?style=social)](https://github.com/droidrun/mobilerun-portal/stargazers)
 [![Discord](https://img.shields.io/discord/1360219330318696488?color=7289DA&label=Discord&logo=discord&logoColor=white)](https://discord.gg/ZZbKEZZkwK)
 [![Documentation](https://img.shields.io/badge/Documentation-📕-blue)](https://docs.droidrun.ai)
-[![Twitter Follow](https://img.shields.io/twitter/follow/droid_run?style=social)](https://x.com/droid_run)
+[![Twitter Follow](https://img.shields.io/twitter/follow/mobilerun_ai?style=social)](https://x.com/mobilerun_ai)
 
 <p>
-  <br>
-  <a href="https://github.com/mobilerun/mobilerun-portal/releases" target="_blank">
+  <br><br>
+  <a href="https://github.com/droidrun/mobilerun-portal/releases" target="_blank">
       <img src="https://raw.githubusercontent.com/Kunzisoft/Github-badge/main/get-it-on-github.png" alt="Get it on GitHub" style="width:200px;height:auto;">
   </a>
-  <br>
+  <br><br>
 </p>
 
 ## 👁️ Overview
