@@ -4,12 +4,12 @@
   <img src="./static/mobilerun.png"  width="full">
 </picture>
 
-[![GitHub stars](https://img.shields.io/github/stars/droidrun/droidrun-portal?style=social)](https://github.com/droidrun/droidrun-portal/stargazers)
+[![GitHub stars](https://img.shields.io/github/stars/mobilerun/mobilerun-portal?style=social)](https://github.com/mobilerun/mobilerun-portal/stargazers)
 [![Discord](https://img.shields.io/discord/1360219330318696488?color=7289DA&label=Discord&logo=discord&logoColor=white)](https://discord.gg/ZZbKEZZkwK)
 [![Documentation](https://img.shields.io/badge/Documentation-📕-blue)](https://docs.droidrun.ai)
 [![Twitter Follow](https://img.shields.io/twitter/follow/droid_run?style=social)](https://x.com/droid_run)
 
-<a href="https://github.com/droidrun/droidrun-portal/releases" target="_blank">
+<a href="https://github.com/mobilerun/mobilerun-portal/releases" target="_blank">
     <img src="https://raw.githubusercontent.com/Kunzisoft/Github-badge/main/get-it-on-github.png" alt="Get it on GitHub" style="width:200px;height:auto;">
 </a>
 
