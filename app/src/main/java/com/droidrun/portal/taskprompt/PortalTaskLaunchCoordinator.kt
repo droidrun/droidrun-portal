@@ -66,9 +66,7 @@ class PortalTaskLaunchCoordinator(
                         metadata = metadata,
                     )
                     val existingTask = configManager.activePortalTask
-                    val slotAvailable = existingTask == null ||
-                        !PortalTaskTracking.isBlockingStatus(existingTask.lastStatus)
-                    if (slotAvailable) {
+                    if (existingTask == null || !PortalTaskTracking.isBlockingStatus(existingTask.lastStatus)) {
                         configManager.saveActivePortalTask(record)
                         TaskPromptNotificationManager.showActiveTask(appContext, record)
                         PortalTaskStateMonitor.initialize(appContext)
