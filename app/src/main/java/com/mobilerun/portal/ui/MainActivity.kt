@@ -2077,7 +2077,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         val forceLogin = if (configManager.forceLoginOnNextConnect) "&force_login=true" else ""
         configManager.forceLoginOnNextConnect = false
         configManager.markBrowserAuthPending(ttlMs = PortalAuthCallbackValidator.PENDING_WINDOW_MS)
-        val url = "https://cloud.mobilerun.ai/auth/device?deviceId=$deviceId$forceLogin"
+        val url = "https://cloud.mobilerun.ai/auth/device?deviceId=$deviceId&scheme=mobilerun$forceLogin"
         try {
             val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
             startActivity(intent)
