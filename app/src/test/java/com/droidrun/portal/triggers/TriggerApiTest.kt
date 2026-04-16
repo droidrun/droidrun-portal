@@ -239,12 +239,18 @@ class TriggerApiTest {
                 "MATCHED",
                 "LAUNCHED",
                 "SKIPPED_BUSY",
+                "BUFFERED",
+                "DEBOUNCED",
                 "PERMISSION_MISSING",
                 "LAUNCH_FAILED",
                 "RULE_DISABLED",
                 "TEST_LAUNCHED",
             ),
             TriggerRunDisposition.entries.map { it.name },
+        )
+        assertEquals(
+            listOf("SKIP", "QUEUE"),
+            TriggerBusyPolicy.entries.map { it.name },
         )
         assertEquals(
             listOf("CONTAINS", "REGEX"),

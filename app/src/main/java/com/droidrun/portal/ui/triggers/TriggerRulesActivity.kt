@@ -18,9 +18,11 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.RecyclerView
 import com.droidrun.portal.databinding.ActivityTriggerRulesBinding
+import com.droidrun.portal.databinding.ItemTriggerQueueEntryBinding
 import com.droidrun.portal.databinding.ItemTriggerRuleBinding
 import com.droidrun.portal.databinding.ItemTriggerRunRecordBinding
 import com.droidrun.portal.service.DroidrunNotificationListener
+import com.droidrun.portal.triggers.TriggerQueueEntry
 import com.droidrun.portal.triggers.TriggerRule
 import com.droidrun.portal.triggers.TriggerRunRecord
 import com.droidrun.portal.triggers.TriggerRuntime
@@ -40,7 +42,11 @@ class TriggerRulesActivity : AppCompatActivity() {
     private lateinit var binding: ActivityTriggerRulesBinding
     private lateinit var ruleAdapter: RuleAdapter
     private lateinit var runAdapter: RunAdapter
+    private lateinit var queueAdapter: QueueAdapter
     private var lastExactAlarmAvailable: Boolean? = null
+
+    private enum class HistoryView { RUNS, QUEUED }
+    private var currentView: HistoryView = HistoryView.RUNS
 
     private val requestSmsPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -145,6 +151,25 @@ class TriggerRulesActivity : AppCompatActivity() {
                 }
             },
         ).attachToRecyclerView(binding.runsRecyclerView)
+
+        queueAdapter = QueueAdapter(
+            onCancel = { entry ->
+                TriggerRuntime.cancelQueued(entry.id)
+                reloadData()
+            },
+        )
+        binding.queuedRecyclerView.layoutManager = LinearLayoutManager(this)
+        binding.queuedRecyclerView.adapter = queueAdapter
+
+        binding.buttonShowRuns.isChecked = true
+        binding.historyToggleGroup.addOnButtonCheckedListener { _, checkedId, isChecked ->
+            if (!isChecked) return@addOnButtonCheckedListener
+            currentView = when (checkedId) {
+                binding.buttonShowQueued.id -> HistoryView.QUEUED
+                else -> HistoryView.RUNS
+            }
+            reloadData()
+        }
     }
 
     private fun refreshPermissionSummary() {
@@ -174,11 +199,18 @@ class TriggerRulesActivity : AppCompatActivity() {
     private fun reloadData() {
         val rules = TriggerRuntime.listRules()
         val runs = TriggerRuntime.listRuns()
+        val queued = TriggerRuntime.listQueued()
         ruleAdapter.submitList(rules)
         runAdapter.submitList(runs)
+        queueAdapter.submitList(queued)
         binding.emptyRulesText.visibility = if (rules.isEmpty()) View.VISIBLE else View.GONE
-        binding.emptyRunsText.visibility = if (runs.isEmpty()) View.VISIBLE else View.GONE
-        binding.clearRunsButton.visibility = if (runs.isEmpty()) View.GONE else View.VISIBLE
+
+        val showRuns = currentView == HistoryView.RUNS
+        binding.runsRecyclerView.visibility = if (showRuns) View.VISIBLE else View.GONE
+        binding.queuedRecyclerView.visibility = if (showRuns) View.GONE else View.VISIBLE
+        binding.emptyRunsText.visibility = if (showRuns && runs.isEmpty()) View.VISIBLE else View.GONE
+        binding.emptyQueuedText.visibility = if (!showRuns && queued.isEmpty()) View.VISIBLE else View.GONE
+        binding.clearRunsButton.visibility = if (showRuns && runs.isNotEmpty()) View.VISIBLE else View.GONE
     }
 
     private fun handleRunSwiped(position: Int) {
@@ -304,6 +336,52 @@ class TriggerRulesActivity : AppCompatActivity() {
                 }
                 binding.ruleEditButton.setOnClickListener { onOpen(rule) }
                 binding.root.setOnClickListener { onOpen(rule) }
+            }
+        }
+    }
+
+    private class QueueAdapter(
+        private val onCancel: (TriggerQueueEntry) -> Unit,
+    ) : RecyclerView.Adapter<QueueAdapter.QueueViewHolder>() {
+        private val items = mutableListOf<TriggerQueueEntry>()
+
+        fun submitList(entries: List<TriggerQueueEntry>) {
+            items.clear()
+            items.addAll(entries)
+            notifyDataSetChanged()
+        }
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): QueueViewHolder {
+            val binding = ItemTriggerQueueEntryBinding.inflate(
+                LayoutInflater.from(parent.context),
+                parent,
+                false,
+            )
+            return QueueViewHolder(binding)
+        }
+
+        override fun onBindViewHolder(holder: QueueViewHolder, position: Int) {
+            holder.bind(items[position], onCancel)
+        }
+
+        override fun getItemCount(): Int = items.size
+
+        class QueueViewHolder(
+            private val binding: ItemTriggerQueueEntryBinding,
+        ) : RecyclerView.ViewHolder(binding.root) {
+            fun bind(entry: TriggerQueueEntry, onCancel: (TriggerQueueEntry) -> Unit) {
+                binding.queueRuleNameText.text = entry.ruleName
+                binding.queueMetaText.text = buildString {
+                    append(entry.source.name.lowercase().replace('_', ' '))
+                    val sender = entry.signal.payload["title"]
+                    if (!sender.isNullOrBlank()) {
+                        append(" • ")
+                        append(sender)
+                    }
+                    append(" • queued ")
+                    append(TriggerUiSupport.formatTimestamp(entry.enqueuedAtMs))
+                }
+                binding.queueCancelButton.setOnClickListener { onCancel(entry) }
             }
         }
     }

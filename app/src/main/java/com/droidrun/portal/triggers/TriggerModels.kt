@@ -28,6 +28,7 @@ enum class TriggerSource {
 
 enum class TriggerBusyPolicy {
     SKIP,
+    QUEUE,
 }
 
 enum class TriggerStringMatchMode {
@@ -52,6 +53,8 @@ enum class TriggerRunDisposition {
     MATCHED,
     LAUNCHED,
     SKIPPED_BUSY,
+    BUFFERED,
+    DEBOUNCED,
     PERMISSION_MISSING,
     LAUNCH_FAILED,
     RULE_DISABLED,
@@ -84,6 +87,7 @@ data class TriggerRule(
     val maxLaunchCount: Int? = null,
     val successfulLaunchCount: Int = 0,
     val returnToPortal: Boolean = false,
+    val includeNotificationContext: Boolean = false,
     val taskSettingsOverride: PortalTaskSettings? = null,
     val lastMatchedAtMs: Long = 0L,
     val lastLaunchedAtMs: Long = 0L,
@@ -209,6 +213,7 @@ object TriggerJson {
             putOpt("maxLaunchCount", rule.maxLaunchCount)
             put("successfulLaunchCount", rule.successfulLaunchCount)
             put("returnToPortal", rule.returnToPortal)
+            put("includeNotificationContext", rule.includeNotificationContext)
             put("lastMatchedAtMs", rule.lastMatchedAtMs)
             put("lastLaunchedAtMs", rule.lastLaunchedAtMs)
             put("createdAtMs", rule.createdAtMs)
@@ -256,6 +261,7 @@ object TriggerJson {
             maxLaunchCount = json.optNullableInt("maxLaunchCount"),
             successfulLaunchCount = json.optInt("successfulLaunchCount", 0).coerceAtLeast(0),
             returnToPortal = json.optBoolean("returnToPortal", false),
+            includeNotificationContext = json.optBoolean("includeNotificationContext", false),
             taskSettingsOverride = taskSettingsFromJson(json.optJSONObject("taskSettingsOverride")),
             lastMatchedAtMs = json.optLong("lastMatchedAtMs", 0L),
             lastLaunchedAtMs = json.optLong("lastLaunchedAtMs", 0L),

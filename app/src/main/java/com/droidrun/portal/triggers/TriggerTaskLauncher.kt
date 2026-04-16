@@ -21,6 +21,8 @@ class TriggerTaskLauncher(
         settings: PortalTaskSettings,
         triggerRuleId: String?,
         returnToPortalOnTerminal: Boolean,
+        skipBusyCheck: Boolean = false,
+        memoryNamespace: String? = null,
         onComplete: (Result) -> Unit,
     ) {
         taskLaunchCoordinator.launchPrompt(
@@ -31,6 +33,8 @@ class TriggerTaskLauncher(
                 triggerRuleId = triggerRuleId,
                 returnToPortalOnTerminal = returnToPortalOnTerminal,
             ),
+            skipBusyCheck = skipBusyCheck,
+            memoryNamespace = memoryNamespace,
         ) { result ->
             when (result) {
                 is PortalTaskLaunchCoordinator.Result.Success -> onComplete(Result.Success(result.record))

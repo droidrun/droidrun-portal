@@ -239,6 +239,8 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
 
         binding.switchRuleEnabled.isChecked = seed.enabled
         binding.switchReturnToPortal.isChecked = seed.returnToPortal
+        binding.switchEnableQueuing.isChecked = seed.busyPolicy == TriggerBusyPolicy.QUEUE
+        binding.switchIncludeNotificationContext.isChecked = seed.includeNotificationContext
         binding.inputRuleName.setText(seed.name)
         binding.inputPromptTemplate.setText(seed.promptTemplate)
         binding.inputCooldownSeconds.setText(seed.cooldownSeconds.toString())
@@ -629,7 +631,11 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
             source = selectedSource,
             promptTemplate = promptTemplate,
             cooldownSeconds = cooldownSeconds ?: 0,
-            busyPolicy = TriggerBusyPolicy.SKIP,
+            busyPolicy = if (binding.switchEnableQueuing.isChecked) {
+                TriggerBusyPolicy.QUEUE
+            } else {
+                TriggerBusyPolicy.SKIP
+            },
             stringMatchMode = selectedMatchMode(),
             packageName = binding.inputPackageName.text?.toString(),
             titleFilter = binding.inputTitleFilter.text?.toString(),
@@ -660,6 +666,7 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
             maxLaunchCount = maxLaunchCount,
             successfulLaunchCount = originalRule?.successfulLaunchCount ?: 0,
             returnToPortal = binding.switchReturnToPortal.isChecked,
+            includeNotificationContext = binding.switchIncludeNotificationContext.isChecked,
             taskSettingsOverride = overrideSettings,
         )
         val validation = TriggerRuleValidator.validateForSave(candidate)

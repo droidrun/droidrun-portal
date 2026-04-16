@@ -16,7 +16,10 @@ import com.droidrun.portal.events.EventHub
 import com.droidrun.portal.events.model.EventType
 import com.droidrun.portal.events.model.PortalEvent
 import com.droidrun.portal.taskprompt.PortalTaskSettings
+import com.droidrun.portal.taskprompt.PortalTaskTracking
+import com.droidrun.portal.taskprompt.TaskPromptNotificationManager
 import org.json.JSONObject
+import java.util.Locale
 
 object TriggerRuntime {
     private const val BATTERY_LOW_THRESHOLD = 15
@@ -27,10 +30,13 @@ object TriggerRuntime {
     private lateinit var repository: TriggerRepository
     private lateinit var scheduler: TriggerScheduler
     private lateinit var taskLauncher: TriggerTaskLauncher
+    private lateinit var notificationBuffer: NotificationDebounceBuffer
+    private val busyQueue = TriggerBusyQueue()
 
     private var batteryReceiver: BroadcastReceiver? = null
     private var screenReceiver: BroadcastReceiver? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var taskStateReceiver: BroadcastReceiver? = null
 
     private var lastBatteryLevel: Int? = null
     private var lastCharging: Boolean? = null
@@ -52,10 +58,14 @@ object TriggerRuntime {
                 return
             }
 
+            notificationBuffer = NotificationDebounceBuffer(
+                onFlush = ::evaluateBatchedNotification,
+            )
             EventHub.subscribe(eventListener)
             registerBatteryReceiver()
             registerScreenReceiver()
             registerNetworkCallback()
+            registerTaskStateReceiver()
             scheduler.rescheduleAll(repository.listRules())
             initialized = true
         }
@@ -70,6 +80,10 @@ object TriggerRuntime {
         if (!initialized) return emptyList()
         return repository.listRuns(limit)
     }
+
+    fun listQueued(): List<TriggerQueueEntry> = busyQueue.list()
+
+    fun cancelQueued(entryId: String): Boolean = busyQueue.removeById(entryId)
 
     fun restoreRun(record: TriggerRunRecord) {
         initialize(appContext)
@@ -170,8 +184,23 @@ object TriggerRuntime {
             .filter { it.hasLaunchLimitRemaining() }
             .filterNot { isCoolingDown(it, nowMs) }
             .filter { TriggerMatcher.matches(it, signal) }
-            .forEach { evaluateRule(it, signal, isTestRun = false) }
+            .forEach { rule ->
+                if (isNotificationSource(signal.source)) {
+                    logRun(
+                        rule = rule,
+                        disposition = TriggerRunDisposition.DEBOUNCED,
+                        summary = "Buffered message from ${signal.payload["title"] ?: "Unknown"}",
+                        signal = signal,
+                    )
+                    notificationBuffer.add(rule, signal)
+                } else {
+                    evaluateRule(rule, signal, isTestRun = false)
+                }
+            }
     }
+
+    private fun isNotificationSource(source: TriggerSource): Boolean =
+        source == TriggerSource.NOTIFICATION_POSTED
 
     private fun evaluateRule(rule: TriggerRule, signal: TriggerSignal, isTestRun: Boolean) {
         val nowMs = System.currentTimeMillis()
@@ -185,15 +214,83 @@ object TriggerRuntime {
 
         val renderedPrompt = TriggerTemplateRenderer.render(rule.promptTemplate, signal)
         val taskSettings = rule.taskSettingsOverride ?: ConfigManager.getInstance(appContext).taskPromptSettings
+
+        val activeTask = ConfigManager.getInstance(appContext).activePortalTask
+        val deviceBusy = activeTask != null && PortalTaskTracking.isBlockingStatus(activeTask.lastStatus)
+
+        if (!isTestRun && deviceBusy && rule.busyPolicy == TriggerBusyPolicy.SKIP) {
+            logRun(
+                rule = rule,
+                disposition = TriggerRunDisposition.SKIPPED_BUSY,
+                summary = "Skipped because another portal task is active",
+                signal = signal,
+            )
+            finalizeTimeRuleIfNeeded(rule, isTestRun)
+            return
+        }
+
+        val shouldQueue = !isTestRun && deviceBusy && rule.busyPolicy == TriggerBusyPolicy.QUEUE
+
+        if (shouldQueue) {
+            val entry = TriggerQueueEntry(
+                ruleId = rule.id,
+                ruleName = rule.name,
+                source = rule.source,
+                prompt = renderedPrompt,
+                settings = taskSettings,
+                signal = signal,
+                memoryNamespace = null,
+                returnToPortalOnTerminal = rule.returnToPortal,
+            )
+            val enqueued = busyQueue.enqueue(entry)
+            if (enqueued) {
+                logRun(
+                    rule = rule,
+                    disposition = TriggerRunDisposition.BUFFERED,
+                    summary = "Queued because another portal task is active",
+                    signal = signal,
+                )
+            } else {
+                logRun(
+                    rule = rule,
+                    disposition = TriggerRunDisposition.LAUNCH_FAILED,
+                    summary = "Queue is full; trigger dropped",
+                    signal = signal,
+                )
+            }
+            finalizeTimeRuleIfNeeded(rule, isTestRun)
+            return
+        }
+
+        // Reserve a launch slot eagerly for real launches so concurrent events
+        // for the same rule cannot all pass hasLaunchLimitRemaining against
+        // stale state while this launch is still in flight. Test runs skip
+        // reservation so tapping "Test" does not consume the launch budget.
+        if (!isTestRun && !reserveLaunchSlot(rule.id)) {
+            logRun(
+                rule = rule,
+                disposition = TriggerRunDisposition.RULE_DISABLED,
+                summary = "Rule launch limit reached",
+                signal = signal,
+            )
+            finalizeTimeRuleIfNeeded(rule, isTestRun)
+            return
+        }
+
         taskLauncher.launchPrompt(
             prompt = renderedPrompt,
             settings = taskSettings,
             triggerRuleId = rule.id,
             returnToPortalOnTerminal = rule.returnToPortal,
+            skipBusyCheck = false,
         ) { result ->
             when (result) {
                 is TriggerTaskLauncher.Result.Success -> {
-                    val updatedRule = handleLaunchSuccess(rule, nowMs, isTestRun)
+                    val updatedRule = if (isTestRun) {
+                        handleLaunchSuccess(rule, nowMs, isTestRun)
+                    } else {
+                        commitReservedLaunch(rule.id, signal) ?: rule
+                    }
                     logRun(
                         rule = updatedRule,
                         disposition = if (isTestRun) {
@@ -208,6 +305,7 @@ object TriggerRuntime {
                 }
 
                 TriggerTaskLauncher.Result.Busy -> {
+                    if (!isTestRun) releaseLaunchReservation(rule.id)
                     logRun(
                         rule = rule,
                         disposition = TriggerRunDisposition.SKIPPED_BUSY,
@@ -218,6 +316,7 @@ object TriggerRuntime {
                 }
 
                 is TriggerTaskLauncher.Result.Error -> {
+                    if (!isTestRun) releaseLaunchReservation(rule.id)
                     logRun(
                         rule = rule,
                         disposition = TriggerRunDisposition.LAUNCH_FAILED,
@@ -228,6 +327,210 @@ object TriggerRuntime {
                 }
             }
         }
+    }
+
+    private fun evaluateBatchedNotification(
+        rule: TriggerRule,
+        senderName: String,
+        packageName: String,
+        messages: List<BufferedMessage>,
+    ) {
+        val currentRule = repository.getRule(rule.id)
+        if (currentRule == null || !currentRule.enabled) return
+        if (!currentRule.hasLaunchLimitRemaining()) return
+
+        val nowMs = System.currentTimeMillis()
+        if (isCoolingDown(currentRule, nowMs)) return
+
+        // Reserve the match eagerly so concurrent flushes for the same rule see
+        // the updated cooldown state instead of the stale one while this launch
+        // is still in flight, mirroring evaluateRule.
+        repository.updateRuleTimestamps(currentRule.id, matchedAtMs = nowMs, launchedAtMs = null)
+
+        val messageBlock = if (messages.size == 1) {
+            "New message from $senderName: ${messages[0].text}"
+        } else {
+            "New messages from $senderName (${messages.size} messages):\n" +
+                messages.joinToString("\n") { "- ${it.text}" }
+        }
+
+        val combinedText = messages.joinToString("\n") { it.text }
+        val batchSignal = TriggerSignal(
+            source = currentRule.source,
+            payload = mapOf(
+                "package" to packageName,
+                "title" to senderName,
+                "text" to combinedText,
+            ),
+        )
+
+        val renderedPrompt = TriggerTemplateRenderer.render(currentRule.promptTemplate, batchSignal)
+        val finalPrompt = when {
+            "{{trigger.text}}" in currentRule.promptTemplate -> renderedPrompt
+            currentRule.includeNotificationContext -> "$renderedPrompt\n\n$messageBlock"
+            else -> renderedPrompt
+        }
+
+        val memoryNamespace = sanitizeSenderToNamespace(packageName, senderName)
+        val taskSettings = currentRule.taskSettingsOverride
+            ?: ConfigManager.getInstance(appContext).taskPromptSettings
+
+        logRun(
+            rule = currentRule,
+            disposition = TriggerRunDisposition.MATCHED,
+            summary = "Matched ${messages.size} message(s) from $senderName",
+            signal = batchSignal,
+        )
+
+        val activeTask = ConfigManager.getInstance(appContext).activePortalTask
+        val deviceBusy = activeTask != null && PortalTaskTracking.isBlockingStatus(activeTask.lastStatus)
+        val shouldQueue = deviceBusy && currentRule.busyPolicy == TriggerBusyPolicy.QUEUE
+
+        if (shouldQueue) {
+            val entry = TriggerQueueEntry(
+                ruleId = currentRule.id,
+                ruleName = currentRule.name,
+                source = currentRule.source,
+                prompt = finalPrompt,
+                settings = taskSettings,
+                signal = batchSignal,
+                memoryNamespace = memoryNamespace,
+                returnToPortalOnTerminal = currentRule.returnToPortal,
+            )
+            val enqueued = busyQueue.enqueue(entry)
+            if (enqueued) {
+                logRun(
+                    rule = currentRule,
+                    disposition = TriggerRunDisposition.BUFFERED,
+                    summary = "Queued because another portal task is active",
+                    signal = batchSignal,
+                )
+            } else {
+                logRun(
+                    rule = currentRule,
+                    disposition = TriggerRunDisposition.LAUNCH_FAILED,
+                    summary = "Queue is full; trigger dropped",
+                    signal = batchSignal,
+                )
+            }
+            return
+        }
+
+        // Reserve a launch slot eagerly so concurrent flushes for the same rule
+        // cannot all pass hasLaunchLimitRemaining against stale state while this
+        // launch is still in flight.
+        if (!reserveLaunchSlot(currentRule.id)) {
+            logRun(
+                rule = currentRule,
+                disposition = TriggerRunDisposition.RULE_DISABLED,
+                summary = "Rule launch limit reached",
+                signal = batchSignal,
+            )
+            return
+        }
+
+        taskLauncher.launchPrompt(
+            prompt = finalPrompt,
+            settings = taskSettings,
+            triggerRuleId = currentRule.id,
+            returnToPortalOnTerminal = currentRule.returnToPortal,
+            skipBusyCheck = false,
+            memoryNamespace = memoryNamespace,
+        ) { result ->
+            when (result) {
+                is TriggerTaskLauncher.Result.Success -> {
+                    val updatedRule = commitReservedLaunch(currentRule.id, batchSignal)
+                    logRun(
+                        rule = updatedRule ?: currentRule,
+                        disposition = TriggerRunDisposition.LAUNCHED,
+                        summary = "Launched portal task ${result.record.taskId}",
+                        signal = batchSignal,
+                    )
+                    if (updatedRule != null) {
+                        finalizeTimeRuleIfNeeded(updatedRule, isTestRun = false)
+                    }
+                }
+
+                TriggerTaskLauncher.Result.Busy -> {
+                    releaseLaunchReservation(currentRule.id)
+                    logRun(
+                        rule = currentRule,
+                        disposition = TriggerRunDisposition.SKIPPED_BUSY,
+                        summary = "Skipped because another portal task is active",
+                        signal = batchSignal,
+                    )
+                }
+
+                is TriggerTaskLauncher.Result.Error -> {
+                    releaseLaunchReservation(currentRule.id)
+                    logRun(
+                        rule = currentRule,
+                        disposition = TriggerRunDisposition.LAUNCH_FAILED,
+                        summary = result.message,
+                        signal = batchSignal,
+                    )
+                }
+            }
+        }
+    }
+
+    private val reservationLock = Any()
+
+    /**
+     * Atomically reserves a launch slot for the given rule if capacity remains.
+     * Returns true if the slot was reserved, false if the rule was not found or
+     * the launch limit is already exhausted. Reservations must be balanced by
+     * either commitReservedLaunch (on success) or releaseLaunchReservation
+     * (on failure).
+     */
+    private fun reserveLaunchSlot(ruleId: String): Boolean {
+        synchronized(reservationLock) {
+            val rule = repository.getRule(ruleId) ?: return false
+            if (!rule.hasLaunchLimitRemaining()) return false
+            repository.saveRule(rule.copy(successfulLaunchCount = rule.successfulLaunchCount + 1))
+            return true
+        }
+    }
+
+    private fun releaseLaunchReservation(ruleId: String) {
+        synchronized(reservationLock) {
+            val rule = repository.getRule(ruleId) ?: return
+            val newCount = (rule.successfulLaunchCount - 1).coerceAtLeast(0)
+            repository.saveRule(rule.copy(successfulLaunchCount = newCount))
+        }
+    }
+
+    private fun commitReservedLaunch(ruleId: String, signal: TriggerSignal): TriggerRule? {
+        synchronized(reservationLock) {
+            val currentRule = repository.getRule(ruleId) ?: return null
+            val launchedAtMs = System.currentTimeMillis()
+            val limitReached = currentRule.maxLaunchCount != null &&
+                currentRule.successfulLaunchCount >= currentRule.maxLaunchCount
+            val updatedRule = currentRule.copy(
+                lastLaunchedAtMs = launchedAtMs,
+                enabled = if (limitReached) false else currentRule.enabled,
+            )
+            repository.saveRule(updatedRule)
+            if (limitReached && currentRule.enabled) {
+                logRun(
+                    rule = updatedRule,
+                    disposition = TriggerRunDisposition.RULE_DISABLED,
+                    summary = "Rule disabled because the run limit was reached",
+                    signal = signal,
+                )
+            }
+            return updatedRule
+        }
+    }
+
+    private fun sanitizeSenderToNamespace(packageName: String, sender: String): String {
+        val combined = if (packageName.isBlank()) sender else "$packageName $sender"
+        return combined.trim()
+            .lowercase(Locale.US)
+            .replace(Regex("[^a-z0-9]+"), "-")
+            .trim('-')
+            .take(64)
+            .ifEmpty { "unknown" }
     }
 
     private fun handleLaunchSuccess(
@@ -245,6 +548,7 @@ object TriggerRuntime {
         val limitReached = !isTestRun &&
             currentRule.maxLaunchCount != null &&
             successfulLaunchCount >= currentRule.maxLaunchCount
+        val justDisabled = limitReached && currentRule.enabled
         val updatedRule = currentRule.copy(
             lastMatchedAtMs = matchedAtMs,
             lastLaunchedAtMs = launchedAtMs,
@@ -252,7 +556,7 @@ object TriggerRuntime {
             enabled = if (limitReached) false else currentRule.enabled,
         )
         repository.saveRule(updatedRule)
-        if (limitReached) {
+        if (justDisabled) {
             logRun(
                 rule = updatedRule,
                 disposition = TriggerRunDisposition.RULE_DISABLED,
@@ -387,6 +691,118 @@ object TriggerRuntime {
             screenReceiver,
             filter,
             ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+    }
+
+    private fun registerTaskStateReceiver() {
+        if (taskStateReceiver != null) return
+        taskStateReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent?) {
+                if (intent?.action == TaskPromptNotificationManager.ACTION_TASK_STATE_CHANGED) {
+                    maybeDrainQueue()
+                }
+            }
+        }
+        ContextCompat.registerReceiver(
+            appContext,
+            taskStateReceiver,
+            IntentFilter(TaskPromptNotificationManager.ACTION_TASK_STATE_CHANGED),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+    }
+
+    private fun maybeDrainQueue() {
+        val activeTask = ConfigManager.getInstance(appContext).activePortalTask
+        val deviceBusy = activeTask != null && PortalTaskTracking.isBlockingStatus(activeTask.lastStatus)
+        if (deviceBusy) return
+
+        var entry = busyQueue.popNext() ?: return
+        // Skip entries whose rule has become disabled while queued. Atomically
+        // reserve a launch slot so a concurrent direct launch cannot race past
+        // the limit check before this entry actually launches.
+        while (true) {
+            val currentRule = repository.getRule(entry.ruleId)
+            if (currentRule != null && !currentRule.enabled) {
+                logQueueEntry(
+                    entry = entry,
+                    disposition = TriggerRunDisposition.RULE_DISABLED,
+                    summary = "Rule is disabled",
+                )
+                entry = busyQueue.popNext() ?: return
+                continue
+            }
+            // If the rule was deleted entirely we honor the snapshot (Philosophy A)
+            // and skip reservation. Otherwise atomically reserve capacity.
+            val ruleExists = currentRule != null
+            if (ruleExists && !reserveLaunchSlot(entry.ruleId)) {
+                logQueueEntry(
+                    entry = entry,
+                    disposition = TriggerRunDisposition.RULE_DISABLED,
+                    summary = "Rule launch limit reached",
+                )
+                entry = busyQueue.popNext() ?: return
+                continue
+            }
+            break
+        }
+
+        val launchEntry = entry
+        val ruleStillExists = repository.getRule(launchEntry.ruleId) != null
+        taskLauncher.launchPrompt(
+            prompt = launchEntry.prompt,
+            settings = launchEntry.settings,
+            triggerRuleId = launchEntry.ruleId,
+            returnToPortalOnTerminal = launchEntry.returnToPortalOnTerminal,
+            skipBusyCheck = false,
+            memoryNamespace = launchEntry.memoryNamespace,
+        ) { result ->
+            when (result) {
+                is TriggerTaskLauncher.Result.Success -> {
+                    if (ruleStillExists) {
+                        commitReservedLaunch(launchEntry.ruleId, launchEntry.signal)
+                    }
+                    logQueueEntry(
+                        entry = launchEntry,
+                        disposition = TriggerRunDisposition.LAUNCHED,
+                        summary = "Launched portal task ${result.record.taskId}",
+                    )
+                }
+
+                TriggerTaskLauncher.Result.Busy -> {
+                    if (ruleStillExists) releaseLaunchReservation(launchEntry.ruleId)
+                    busyQueue.pushFront(launchEntry)
+                }
+
+                is TriggerTaskLauncher.Result.Error -> {
+                    if (ruleStillExists) releaseLaunchReservation(launchEntry.ruleId)
+                    logQueueEntry(
+                        entry = launchEntry,
+                        disposition = TriggerRunDisposition.LAUNCH_FAILED,
+                        summary = result.message,
+                    )
+                }
+            }
+        }
+    }
+
+    private fun logQueueEntry(
+        entry: TriggerQueueEntry,
+        disposition: TriggerRunDisposition,
+        summary: String,
+    ) {
+        repository.addRun(
+            TriggerRunRecord(
+                ruleId = entry.ruleId,
+                ruleName = entry.ruleName,
+                source = entry.source,
+                disposition = disposition,
+                summary = summary,
+                payloadSnapshot = JSONObject().apply {
+                    entry.signal.payload.toSortedMap().forEach { (key, value) ->
+                        put(key, value)
+                    }
+                }.toString(),
+            ),
         )
     }
 
