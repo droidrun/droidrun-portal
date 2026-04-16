@@ -1,0 +1,664 @@
+package com.mobilerun.portal.service
+
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.app.Service
+import android.content.Context
+import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.content.pm.ServiceInfo
+import android.os.Binder
+import android.os.Handler
+import android.os.IBinder
+import android.os.Looper
+import android.os.SystemClock
+import android.util.Log
+import android.widget.Toast
+import androidx.core.app.NotificationCompat
+import com.mobilerun.portal.R
+import com.mobilerun.portal.api.ApiHandler
+import com.mobilerun.portal.api.ApiResponse
+import com.mobilerun.portal.config.ConfigManager
+import com.mobilerun.portal.core.StateRepository
+import com.mobilerun.portal.events.EventHub
+import com.mobilerun.portal.input.MobilerunKeyboardIME
+import com.mobilerun.portal.state.ConnectionState
+import com.mobilerun.portal.state.ConnectionStateManager
+import com.mobilerun.portal.streaming.WebRtcManager
+import org.java_websocket.client.WebSocketClient
+import org.java_websocket.handshake.ServerHandshake
+import org.json.JSONObject
+import java.net.URI
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
+
+class ReverseConnectionService : Service() {
+
+    companion object {
+        private const val TAG = "ReverseConnService"
+        private const val CHANNEL_ID = "reverse_connection_channel"
+        private const val NOTIFICATION_ID = 2002
+        internal const val RECONNECT_DELAY_MS = 3000L
+        internal const val RECONNECT_GIVE_UP_MS = 30 * 60 * 1000L // 30 minutes
+        private const val TOAST_DEBOUNCE_MS = 60_000L
+        private const val CONNECTION_LOST_TIMEOUT_SEC = 30
+        const val ACTION_DISCONNECT = "com.mobilerun.portal.action.REVERSE_DISCONNECT"
+
+        @Volatile
+        private var instance: ReverseConnectionService? = null
+
+        fun getInstance(): ReverseConnectionService? = instance
+
+        /**
+         * Returns true if the WS close reason indicates a terminal error
+         * where we should tear down media and NOT auto-reconnect.
+         */
+        internal fun isTerminalClose(reason: String?): Boolean {
+            if (reason == null) return false
+            return reason.contains("Unauthorized", ignoreCase = true) ||
+                    reason.contains("Forbidden", ignoreCase = true) ||
+                    reason.contains("Bad Request", ignoreCase = true) ||
+                    reason.startsWith("401") ||
+                    reason.startsWith("403") ||
+                    reason.startsWith("400")
+        }
+
+        /** Returns true if reconnection attempts have exceeded the give-up timeout. */
+        internal fun shouldGiveUpReconnecting(reconnectStartedAtMs: Long, nowMs: Long): Boolean {
+            if (reconnectStartedAtMs <= 0L) return false
+            return nowMs - reconnectStartedAtMs >= RECONNECT_GIVE_UP_MS
+        }
+
+        internal fun shouldNotifyStreamStoppedAfterReconnect(
+            captureActive: Boolean,
+            streamActive: Boolean,
+            requestId: String?,
+        ): Boolean {
+            return captureActive && !streamActive && !requestId.isNullOrBlank()
+        }
+    }
+
+    private val binder = LocalBinder()
+    private lateinit var configManager: ConfigManager
+    private lateinit var actionDispatcher: ActionDispatcher
+    private var headlessActionDispatcher: ActionDispatcher? = null
+    private lateinit var reverseDeviceEventRelay: ReverseDeviceEventRelay
+
+    private var webSocketClient: WebSocketClient? = null
+    private var isServiceRunning = AtomicBoolean(false)
+    private val handler = Handler(Looper.getMainLooper())
+    private val installExecutor = Executors.newSingleThreadExecutor()
+    private var lastReverseToastAtMs = 0L
+    private var isForeground = false
+
+    @Volatile
+    private var foregroundSuppressed = false
+
+    inner class LocalBinder : Binder() {
+        fun getService(): ReverseConnectionService = this@ReverseConnectionService
+    }
+
+    override fun onBind(intent: Intent): IBinder = binder
+
+    override fun onCreate() {
+        super.onCreate()
+        instance = this
+        configManager = ConfigManager.getInstance(this)
+        EventHub.init(configManager)
+        reverseDeviceEventRelay = ReverseDeviceEventRelay(::currentReverseEventSender)
+        reverseDeviceEventRelay.start()
+        createNotificationChannel()
+        Log.d(TAG, "Service Created")
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        Log.d(
+            TAG,
+            "onStartCommand: intent=$intent, action=${intent?.action}, flags=$flags, startId=$startId"
+        )
+        if (intent?.action == ACTION_DISCONNECT) {
+            Log.i(TAG, "onStartCommand: Disconnect requested via notification")
+            disconnectByUser()
+            return START_NOT_STICKY
+        }
+        Log.d(TAG, "onStartCommand: Ensuring foreground...")
+        ensureForeground()
+        val wasRunning = isServiceRunning.getAndSet(true)
+        Log.d(
+            TAG,
+            "onStartCommand: wasRunning=$wasRunning, now isServiceRunning=${isServiceRunning.get()}"
+        )
+        if (!wasRunning) {
+            Log.i(
+                TAG,
+                "onStartCommand: Starting Reverse Connection Service, calling connectToHost()"
+            )
+            connectToHost()
+        } else {
+            Log.d(TAG, "onStartCommand: Service already running, skipping connectToHost()")
+        }
+        return START_STICKY
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        instance = null
+        isServiceRunning.set(false)
+        handler.removeCallbacksAndMessages(null)
+        reverseDeviceEventRelay.stop()
+        disconnect()
+        ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
+        try {
+            installExecutor.shutdownNow()
+        } catch (_: Exception) {
+        }
+        if (isForeground) {
+            @Suppress("DEPRECATION")
+            stopForeground(true)
+            isForeground = false
+        }
+        Log.i(TAG, "Service Destroyed")
+    }
+
+
+    fun sendText(text: String): Boolean {
+        val client = webSocketClient
+        if (client != null && client.isOpen) {
+            client.send(text)
+            return true
+        }
+        return false
+    }
+
+    private fun currentReverseEventSender(): ((String) -> Boolean)? {
+        val client = webSocketClient ?: return null
+        if (!client.isOpen) return null
+        return { text ->
+            try {
+                client.send(text)
+                true
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to send reverse device event", e)
+                false
+            }
+        }
+    }
+
+    fun buildHeaders(): MutableMap<String, String> {
+        val authToken = configManager.reverseConnectionToken
+
+        val headers = mutableMapOf<String, String>()
+        if (authToken.isNotBlank())
+            headers["Authorization"] = "Bearer $authToken"
+
+        headers["X-Device-ID"] = configManager.deviceID
+        headers["X-Device-Name"] = configManager.deviceName
+        headers["X-Device-Country"] = configManager.deviceCountryCode
+
+        val serviceKey = configManager.reverseConnectionServiceKey
+        if (serviceKey.isNotBlank()) {
+            headers["X-Remote-Device-Key"] = serviceKey
+        }
+
+        return headers
+    }
+
+    private fun logConnectionAttempt(uri: URI, headers: Map<String, String>) {
+        val destination = buildString {
+            append(uri.scheme ?: "ws")
+            append("://")
+            append(uri.host ?: "unknown")
+            if (uri.port != -1) {
+                append(":")
+                append(uri.port)
+            }
+            append(uri.path ?: "")
+        }
+        Log.d(
+            TAG,
+            "connectToHost: destination=$destination tokenPresent=${
+                configManager.reverseConnectionToken.isNotBlank()
+            } serviceKeyPresent=${configManager.reverseConnectionServiceKey.isNotBlank()} headerNames=${
+                headers.keys.sorted().joinToString()
+            }",
+        )
+    }
+
+    private fun connectToHost() {
+        Log.d(TAG, "connectToHost: called, isServiceRunning=${isServiceRunning.get()}")
+        if (!isServiceRunning.get()) {
+            Log.w(TAG, "connectToHost: Service not running, aborting")
+            return
+        }
+
+        val hostUrl = configManager.reverseConnectionUrlOrDefault
+        if (hostUrl.isBlank()) {
+            Log.w(TAG, "connectToHost: No host URL configured")
+            ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
+            return
+        }
+
+        try {
+            Log.d(TAG, "connectToHost: Setting state to CONNECTING")
+            ConnectionStateManager.setState(ConnectionState.CONNECTING)
+            disconnect() // Prevent resource leaks from zombie connections
+            val finalUrl = hostUrl.replace("{deviceId}", configManager.deviceID)
+            val uri = URI(finalUrl)
+            val headers = buildHeaders()
+            logConnectionAttempt(uri, headers)
+
+            webSocketClient = object : WebSocketClient(uri, headers) {
+                override fun onOpen(handshakedata: ServerHandshake?) {
+                    Log.i(
+                        TAG,
+                        "onOpen: Connected to Host: $hostUrl, status=${handshakedata?.httpStatus}, message=${handshakedata?.httpStatusMessage}"
+                    )
+                    reconnectStartedAtMs = 0L
+                    ConnectionStateManager.setState(ConnectionState.CONNECTED)
+                    showReverseConnectionToastIfEnoughTimeIsPassed()
+                    WebRtcManager.getExistingInstance()?.let { manager ->
+                        manager.setReverseConnectionService(this@ReverseConnectionService)
+                        manager.onReverseConnectionOpen()
+                        notifyStreamStateAfterReconnect(manager)
+                    }
+                }
+
+                override fun onMessage(message: String?) {
+                    handleMessage(message)
+                }
+
+                override fun onClose(code: Int, reason: String?, remote: Boolean) {
+                    Log.w(TAG, "Disconnected from Host: code=$code reason=$reason remote=$remote")
+                    logNetworkState("onClose")
+
+                    if (isTerminalClose(reason)) {
+                        // Cancel any reconnect scheduled by onError (which fires before onClose)
+                        isReconnecting.set(false)
+                        handler.removeCallbacksAndMessages(null)
+                        val r = reason
+                            ?: return // isTerminalClose(null) is false, so reason is non-null here
+                        val state = when {
+                            r.contains("401") || r.contains("Unauthorized") ->
+                                ConnectionState.UNAUTHORIZED
+
+                            r.contains("403") || r.contains("Forbidden") ->
+                                ConnectionState.LIMIT_EXCEEDED
+
+                            else -> ConnectionState.BAD_REQUEST
+                        }
+                        Log.w(TAG, "onClose: Terminal error ($state), tearing down media")
+                        ConnectionStateManager.setState(state)
+                        handleWsDisconnected()
+                        return
+                    }
+
+                    // Transient disconnect: preserve media pipeline, just reconnect WS
+                    ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
+                    scheduleReconnect()
+                }
+
+                override fun onError(ex: Exception?) {
+                    Log.e(
+                        TAG,
+                        "onError: Connection Error: ${ex?.javaClass?.simpleName}: ${ex?.message}",
+                        ex
+                    )
+                    logNetworkState("onError")
+                    // onClose usually follows; schedule reconnect as safety net
+                    // (isReconnecting guard prevents duplicate scheduling)
+                    scheduleReconnect()
+                }
+            }
+            Log.i(TAG, "connectToHost: Created WebSocketClient, calling connect()...")
+            webSocketClient?.connectionLostTimeout = CONNECTION_LOST_TIMEOUT_SEC
+            webSocketClient?.connect()
+            Log.i(TAG, "connectToHost: connect() called, waiting for callbacks...")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to initiate connection", e)
+            ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
+            scheduleReconnect()
+        }
+    }
+
+    private var isReconnecting = AtomicBoolean(false)
+
+    @Volatile
+    private var reconnectStartedAtMs = 0L
+
+    private fun scheduleReconnect() {
+        if (!isServiceRunning.get()) return
+        if (isReconnecting.getAndSet(true)) return // Already scheduled
+
+        val now = SystemClock.elapsedRealtime()
+        if (reconnectStartedAtMs <= 0L) {
+            reconnectStartedAtMs = now
+        }
+
+        if (shouldGiveUpReconnecting(reconnectStartedAtMs, now)) {
+            Log.w(TAG, "Reconnect attempts exceeded ${RECONNECT_GIVE_UP_MS / 60_000}min, giving up")
+            isReconnecting.set(false)
+            reconnectStartedAtMs = 0L
+            ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
+            handleWsDisconnected()
+            return
+        }
+
+        ConnectionStateManager.setState(ConnectionState.RECONNECTING)
+        Log.d(TAG, "Scheduling reconnect in ${RECONNECT_DELAY_MS}ms")
+        handler.postDelayed({
+            if (isServiceRunning.get()) {
+                isReconnecting.set(false)
+                Log.d(TAG, "Attempting reconnect...")
+                connectToHost()
+            } else {
+                isReconnecting.set(false)
+                ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
+            }
+        }, RECONNECT_DELAY_MS)
+    }
+
+    private fun disconnect() {
+        try {
+            webSocketClient?.close()
+            webSocketClient = null
+        } catch (e: Exception) {
+            Log.e(TAG, "Error closing connection", e)
+        }
+    }
+
+    private fun disconnectByUser() {
+        configManager.reverseConnectionEnabled = false
+        isServiceRunning.set(false)
+        isReconnecting.set(false)
+        reconnectStartedAtMs = 0L
+        handler.removeCallbacksAndMessages(null)
+        ScreenCaptureService.requestStop("user_disconnect")
+        disconnect()
+        ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
+        stopSelf()
+    }
+
+    /** Called only for terminal disconnects (auth errors, user action). Tears down media. */
+    private fun handleWsDisconnected() {
+        val manager = WebRtcManager.getExistingInstance()
+        if (manager != null) {
+            if (manager.isStreamActive()) {
+                manager.notifyStreamStoppedAsync("ws_disconnected")
+            }
+            manager.requestGracefulStop("ws_disconnected")
+        } else {
+            ScreenCaptureService.requestStop("ws_disconnected")
+        }
+    }
+
+    /**
+     * After WS reconnect, check if capture survived but the peer connection died
+     * during the outage. If so, notify the server so it can request a new stream
+     * (which will reuse existing capture via startStreamWithExistingCapture).
+     */
+    private fun notifyStreamStateAfterReconnect(manager: WebRtcManager) {
+        val hasAnySession = manager.getActiveSessionIds().isNotEmpty()
+        if (shouldNotifyStreamStoppedAfterReconnect(
+                manager.isCaptureActive(),
+                manager.isStreamActive(),
+                if (hasAnySession) "active" else null,
+            )
+        ) {
+            // Use async variant — this runs on the WS receive thread
+            manager.notifyStreamStoppedAsync("ws_reconnected")
+        }
+    }
+
+    private fun logNetworkState(prefix: String) {
+        val connectivityManager =
+            getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+        val network = connectivityManager?.activeNetwork
+        val capabilities = connectivityManager?.getNetworkCapabilities(network)
+        if (capabilities == null) {
+            Log.d(TAG, "$prefix network=unknown")
+            return
+        }
+        val transports = mutableListOf<String>()
+        if (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) transports.add("wifi")
+        if (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) transports.add("cellular")
+        if (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) transports.add("ethernet")
+        if (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) transports.add("vpn")
+        val validated = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        Log.d(TAG, "$prefix network=${transports.joinToString(",")} validated=$validated")
+    }
+
+    private fun ensureForeground() {
+        if (isForeground || foregroundSuppressed) return
+        try {
+            val notification = createNotification()
+            startForeground(
+                NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            )
+            isForeground = true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start foreground service", e)
+        }
+    }
+
+    fun suspendForegroundForStreaming() {
+        foregroundSuppressed = true
+        if (!isForeground) return
+        try {
+            @Suppress("DEPRECATION")
+            stopForeground(true)
+            isForeground = false
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to stop foreground service", e)
+        }
+    }
+
+    fun resumeForegroundAfterStreaming() {
+        foregroundSuppressed = false
+        ensureForeground()
+    }
+
+    private fun createNotificationChannel() {
+        val manager = getSystemService(NotificationManager::class.java) ?: return
+        val channel = NotificationChannel(
+            CHANNEL_ID,
+            "Reverse Connection",
+            NotificationManager.IMPORTANCE_LOW
+        )
+        manager.createNotificationChannel(channel)
+    }
+
+    private fun createNotification(): Notification {
+        val intent = Intent(this, com.mobilerun.portal.ui.MainActivity::class.java)
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            0,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val disconnectIntent = Intent(this, ReverseConnectionService::class.java).apply {
+            action = ACTION_DISCONNECT
+        }
+        val disconnectPendingIntent = PendingIntent.getService(
+            this,
+            1,
+            disconnectIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        return NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle(getString(R.string.reverse_connection_service_title))
+            .setContentText(getString(R.string.reverse_connection_service_text))
+            .setSmallIcon(android.R.drawable.stat_notify_sync)
+            .addAction(
+                android.R.drawable.ic_menu_close_clear_cancel,
+                getString(R.string.reverse_connection_disconnect_action),
+                disconnectPendingIntent
+            )
+            .setContentIntent(pendingIntent)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setOngoing(true)
+            .build()
+    }
+
+    private fun showReverseConnectionToastIfEnoughTimeIsPassed() {
+        val now = SystemClock.elapsedRealtime()
+        if (lastReverseToastAtMs == 0L || now - lastReverseToastAtMs >= TOAST_DEBOUNCE_MS) {
+            lastReverseToastAtMs = now
+            handler.post {
+                Toast.makeText(
+                    this@ReverseConnectionService,
+                    getString(R.string.reverse_connection_connected),
+                    Toast.LENGTH_SHORT,
+                ).show()
+            }
+        }
+    }
+
+    private fun handleMessage(message: String?) {
+        if (message == null) return
+        // Truncate log to avoid spamming with large SDP/ICE payloads
+        val logMsg = if (message.length > 200) message.take(200) + "..." else message
+        Log.d(TAG, "Received message: $logMsg")
+
+        var id: Any? = null
+
+        try {
+            // Check if the message is a valid JSON before parsing
+            if (!message.trim().startsWith("{") && !message.trim().startsWith("[")) {
+                Log.w(TAG, "Received non-JSON message: $message")
+                return
+            }
+
+            val json = JSONObject(message)
+            // Support both integer and string IDs (e.g., UUIDs)
+            id = json.opt("id")?.takeIf { it != JSONObject.NULL }
+
+            // Method may be empty for JSON-RPC responses to outgoing messages (e.g., webrtc/offer)
+            val method = json.optString("method", "")
+
+            if (method.isEmpty()) {
+                if (json.has("result")) {
+                    Log.d(TAG, "Received JSON-RPC result for id=$id")
+                } else if (json.has("error")) {
+                    Log.w(TAG, "Received JSON-RPC error for id=$id: ${json.opt("error")}")
+                } else {
+                    Log.w(TAG, "Received message without method, result, or error: $message")
+                }
+                return
+            }
+
+            val params = json.optJSONObject("params") ?: JSONObject()
+
+            // Truncate params log to avoid spamming with large SDP/ICE payloads
+            val paramsLog =
+                params.toString().let { if (it.length > 100) it.take(100) + "..." else it }
+            Log.d(TAG, "Dispatching $method (id=$id, params=$paramsLog)")
+
+            val normalizedMethod =
+                method.removePrefix("/action/").removePrefix("action.").removePrefix("/")
+            val dispatcher = resolveActionDispatcher(normalizedMethod)
+            if (dispatcher == null) {
+                val error =
+                    "Accessibility Service not ready. Only stream/*, webrtc/*, screen/keepAwake/*, global, and triggers/* are available."
+                Log.e(TAG, error)
+                webSocketClient?.send(ApiResponse.Error(error).toJson(id))
+                return
+            }
+
+            // Don't block ws
+            if (normalizedMethod == "install") {
+                val requestId = id
+                installExecutor.submit {
+                    try {
+                        val result = dispatcher.dispatch(
+                            method,
+                            params,
+                            origin = ActionDispatcher.Origin.WEBSOCKET_REVERSE,
+                            requestId = requestId,
+                        )
+                        webSocketClient?.send(result.toJson(requestId))
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Install task failed", e)
+                        try {
+                            webSocketClient?.send(
+                                ApiResponse.Error(e.message ?: "Install failed").toJson(requestId),
+                            )
+                        } catch (_: Exception) {
+                        }
+                    }
+                }
+                return
+            }
+
+            // Execute
+            val result = dispatcher.dispatch(
+                method,
+                params,
+                origin = ActionDispatcher.Origin.WEBSOCKET_REVERSE,
+                requestId = id,
+            )
+            Log.d(TAG, "Command executed. Result type: ${result.javaClass.simpleName}")
+
+            val resp = result.toJson(id)
+            webSocketClient?.send(resp)
+            Log.d(TAG, "Sent response: $resp")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error processing message", e)
+            if (id != null) {
+                try {
+                    webSocketClient?.send(
+                        ApiResponse.Error(e.message ?: "unknown exception").toJson(id)
+                    )
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error responding with an error")
+                }
+            }
+        }
+    }
+
+    private fun buildHeadlessActionDispatcher(): ActionDispatcher {
+        val apiHandler = ApiHandler(
+            stateRepo = StateRepository(service = null),
+            getKeyboardIME = { MobilerunKeyboardIME.getInstance() },
+            getPackageManager = { packageManager },
+            appVersionProvider = {
+                try {
+                    packageManager.getPackageInfo(packageName, 0).versionName ?: "unknown"
+                } catch (e: Exception) {
+                    "unknown"
+                }
+            },
+            context = this,
+        )
+        return ActionDispatcher(apiHandler)
+    }
+
+    private fun resolveActionDispatcher(normalizedMethod: String): ActionDispatcher? {
+        val service = MobilerunAccessibilityService.getInstance()
+        if (service != null) {
+            if (!::actionDispatcher.isInitialized) {
+                synchronized(this) {
+                    if (!::actionDispatcher.isInitialized) {
+                        actionDispatcher = service.getActionDispatcher()
+                    }
+                }
+            }
+            return actionDispatcher
+        }
+
+        if (!HeadlessActionSupport.isAllowed(normalizedMethod)) {
+            return null
+        }
+
+        headlessActionDispatcher?.let { return it }
+        synchronized(this) {
+            headlessActionDispatcher?.let { return it }
+            return buildHeadlessActionDispatcher().also { headlessActionDispatcher = it }
+        }
+    }
+}
