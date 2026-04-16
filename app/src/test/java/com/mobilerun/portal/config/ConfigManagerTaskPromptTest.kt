@@ -288,13 +288,13 @@ class ConfigManagerTaskPromptTest {
 
         every { context.applicationContext } returns context
         every {
-            context.getSharedPreferences("droidrun_config", Context.MODE_PRIVATE)
+            context.getSharedPreferences("mobilerun_config", Context.MODE_PRIVATE)
         } returns sharedPrefs
         every {
-            context.getSharedPreferences("droidrun_device", Context.MODE_PRIVATE)
+            context.getSharedPreferences("mobilerun_device", Context.MODE_PRIVATE)
         } returns devicePrefs
         every {
-            context.getSharedPreferences("droidrun_secrets", Context.MODE_PRIVATE)
+            context.getSharedPreferences("mobilerun_secrets", Context.MODE_PRIVATE)
         } returns secretsPrefs
 
         return context

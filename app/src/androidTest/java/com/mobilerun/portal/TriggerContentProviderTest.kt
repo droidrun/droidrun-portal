@@ -124,7 +124,7 @@ class TriggerContentProviderTest {
     }
 
     private fun clearTriggerPrefs() {
-        context.getSharedPreferences("droidrun_triggers", Context.MODE_PRIVATE)
+        context.getSharedPreferences("mobilerun_triggers", Context.MODE_PRIVATE)
             .edit()
             .clear()
             .commit()

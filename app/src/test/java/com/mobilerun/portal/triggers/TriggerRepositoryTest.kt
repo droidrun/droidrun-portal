@@ -161,7 +161,7 @@ class TriggerRepositoryTest {
 
         every { context.applicationContext } returns context
         every {
-            context.getSharedPreferences("droidrun_triggers", Context.MODE_PRIVATE)
+            context.getSharedPreferences("mobilerun_triggers", Context.MODE_PRIVATE)
         } returns sharedPrefs
 
         return context

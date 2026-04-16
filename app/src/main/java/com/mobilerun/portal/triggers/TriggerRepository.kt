@@ -7,7 +7,7 @@ import androidx.core.content.edit
 class TriggerRepository private constructor(context: Context) {
 
     companion object {
-        private const val PREFS_NAME = "droidrun_triggers"
+        private const val PREFS_NAME = "mobilerun_triggers"
         private const val KEY_SCHEMA_VERSION = "schema_version"
         private const val KEY_RULES_JSON = "rules_json"
         private const val KEY_RUNS_JSON = "runs_json"

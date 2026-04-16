@@ -214,7 +214,7 @@ class ScreenCaptureService : Service() {
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Screen Streaming Active")
-            .setContentText("Droidrun Portal is sharing your screen")
+            .setContentText("Mobilerun Portal is sharing your screen")
             .setSmallIcon(android.R.drawable.ic_menu_camera) // Use a better icon if available
             .addAction(
                 android.R.drawable.ic_menu_close_clear_cancel,

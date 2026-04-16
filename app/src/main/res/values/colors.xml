@@ -8,7 +8,7 @@
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
 
-    <!-- Droidrun Portal brand colors -->
+    <!-- Mobilerun Portal brand colors -->
     <color name="mobilerun_primary">#0D9373</color>
     <color name="mobilerun_primary_dark">#0D9373</color>
     <color name="mobilerun_primary_light">#07C983</color>

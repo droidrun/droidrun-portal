@@ -1663,7 +1663,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
                 Toast.makeText(this, "Please enter a valid number", Toast.LENGTH_SHORT).show()
             }
         } catch (e: Exception) {
-            Log.e("DROIDRUN_MAIN", "Error applying input offset: ${e.message}")
+            Log.e("MOBILERUN_MAIN", "Error applying input offset: ${e.message}")
             Toast.makeText(this, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
@@ -1694,15 +1694,15 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             if (accessibilityService != null) {
                 val success = accessibilityService.setOverlayOffset(offsetValue)
                 if (success) {
-                    Log.d("DROIDRUN_MAIN", "Offset updated successfully: $offsetValue")
+                    Log.d("MOBILERUN_MAIN", "Offset updated successfully: $offsetValue")
                 } else {
-                    Log.e("DROIDRUN_MAIN", "Failed to update offset: $offsetValue")
+                    Log.e("MOBILERUN_MAIN", "Failed to update offset: $offsetValue")
                 }
             } else {
-                Log.e("DROIDRUN_MAIN", "Accessibility service not available for offset update")
+                Log.e("MOBILERUN_MAIN", "Accessibility service not available for offset update")
             }
         } catch (e: Exception) {
-            Log.e("DROIDRUN_MAIN", "Error updating offset: ${e.message}")
+            Log.e("MOBILERUN_MAIN", "Error updating offset: ${e.message}")
         }
     }
 
@@ -1734,7 +1734,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
                         ).show()
 
                         Log.d(
-                            "DROIDRUN_MAIN",
+                            "MOBILERUN_MAIN",
                             "Combined state data received: ${
                                 data.take(100.coerceAtMost(data.length))
                             }...",
@@ -1748,7 +1748,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             }
 
         } catch (e: Exception) {
-            Log.e("DROIDRUN_MAIN", "Error fetching combined state data: ${e.message}")
+            Log.e("MOBILERUN_MAIN", "Error fetching combined state data: ${e.message}")
             Toast.makeText(this, "Error fetching data: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
@@ -1759,15 +1759,15 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             if (accessibilityService != null) {
                 val success = accessibilityService.setOverlayVisible(visible)
                 if (success) {
-                    Log.d("DROIDRUN_MAIN", "Overlay visibility toggled to: $visible")
+                    Log.d("MOBILERUN_MAIN", "Overlay visibility toggled to: $visible")
                 } else {
-                    Log.e("DROIDRUN_MAIN", "Failed to toggle overlay visibility")
+                    Log.e("MOBILERUN_MAIN", "Failed to toggle overlay visibility")
                 }
             } else {
-                Log.e("DROIDRUN_MAIN", "Accessibility service not available for overlay toggle")
+                Log.e("MOBILERUN_MAIN", "Accessibility service not available for overlay toggle")
             }
         } catch (e: Exception) {
-            Log.e("DROIDRUN_MAIN", "Error toggling overlay: ${e.message}")
+            Log.e("MOBILERUN_MAIN", "Error toggling overlay: ${e.message}")
         }
     }
 
@@ -1797,7 +1797,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         val oneDp = (resources.displayMetrics.density + 0.5f).toInt()
 
         // Keep keyboard switching accessible from the main screen whenever the app is
-        // functional via accessibility or Droidrun Keyboard is currently selected.
+        // functional via accessibility or Mobilerun Keyboard is currently selected.
         if (isAccessibilityEnabled || isKeyboardSelected) {
             val bannerBackgroundColor = ContextCompat.getColor(
                 this,
@@ -1955,11 +1955,11 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             startActivity(intent)
             Toast.makeText(
                 this,
-                "Please enable Droidrun Portal in Accessibility Services",
+                "Please enable Mobilerun Portal in Accessibility Services",
                 Toast.LENGTH_LONG
             ).show()
         } catch (e: Exception) {
-            Log.e("DROIDRUN_MAIN", "Error opening accessibility settings: ${e.message}")
+            Log.e("MOBILERUN_MAIN", "Error opening accessibility settings: ${e.message}")
             Toast.makeText(
                 this,
                 "Error opening accessibility settings",
@@ -1979,7 +1979,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
                 binding.socketServerStatus.text = "Service not available"
             }
         } catch (e: Exception) {
-            Log.e("DROIDRUN_MAIN", "Error updating socket server status: ${e.message}")
+            Log.e("MOBILERUN_MAIN", "Error updating socket server status: ${e.message}")
             binding.socketServerStatus.text = "Error"
         }
     }
@@ -1996,7 +1996,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
                 binding.adbForwardCommand.text = "adb forward tcp:$port tcp:$port"
             }
         } catch (e: Exception) {
-            Log.e("DROIDRUN_MAIN", "Error updating ADB forward command: ${e.message}")
+            Log.e("MOBILERUN_MAIN", "Error updating ADB forward command: ${e.message}")
             binding.adbForwardCommand.text = "Error"
         }
     }
@@ -2021,7 +2021,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             val version = packageInfo.versionName
             binding.versionText.text = "Version: $version"
         } catch (e: Exception) {
-            Log.e("DROIDRUN_MAIN", "Error getting app version: ${e.message}")
+            Log.e("MOBILERUN_MAIN", "Error getting app version: ${e.message}")
             binding.versionText.text = "Version: N/A"
         }
     }
@@ -2057,7 +2057,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
                 }
                 .show()
         } catch (e: Exception) {
-            Log.e("DROIDRUN_MAIN", "Error showing logs dialog: ${e.message}")
+            Log.e("MOBILERUN_MAIN", "Error showing logs dialog: ${e.message}")
             Toast.makeText(this, "Error showing logs: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
@@ -2090,7 +2090,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
     private fun handleDeepLink(intent: Intent?) {
         try {
             val data: Uri? = intent?.data
-            if (data != null && data.scheme == "droidrun" && data.host == "auth-callback") {
+            if (data != null && data.scheme == "mobilerun" && data.host == "auth-callback") {
                 val configManager = ConfigManager.getInstance(this)
                 val validationResult = PortalAuthCallbackValidator.validate(
                     token = data.getQueryParameter("token"),
@@ -2111,11 +2111,11 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
                     val message =
                         (validationResult as PortalAuthCallbackValidator.Result.Rejected).message
                     Toast.makeText(this, message, Toast.LENGTH_LONG).show()
-                    Log.w("DROIDRUN_MAIN", "Rejected auth callback: $message")
+                    Log.w("MOBILERUN_MAIN", "Rejected auth callback: $message")
                 }
             }
         } catch (e: Exception) {
-            Log.e("DROIDRUN_MAIN", "Error handling deep link: ${e.message}")
+            Log.e("MOBILERUN_MAIN", "Error handling deep link: ${e.message}")
         }
     }
 }

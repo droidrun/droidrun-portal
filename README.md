@@ -1,7 +1,7 @@
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="./static/droidrun-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="./static/droidrun.png">
-  <img src="./static/droidrun.png"  width="full">
+  <source media="(prefers-color-scheme: dark)" srcset="./static/mobilerun-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="./static/mobilerun.png">
+  <img src="./static/mobilerun.png"  width="full">
 </picture>
 
 [![GitHub stars](https://img.shields.io/github/stars/droidrun/droidrun-portal?style=social)](https://github.com/droidrun/droidrun-portal/stargazers)
@@ -14,7 +14,7 @@
 </a>
 
 ## 👁️ Overview
-Droidrun Portal is an Android accessibility service that provides real-time visual feedback and data collection for UI elements on the screen. It creates an interactive overlay that highlights clickable, checkable, editable, scrollable, and focusable elements, making it an invaluable tool for UI testing, automation development, and accessibility assessment.
+Mobilerun Portal is an Android accessibility service that provides real-time visual feedback and data collection for UI elements on the screen. It creates an interactive overlay that highlights clickable, checkable, editable, scrollable, and focusable elements, making it an invaluable tool for UI testing, automation development, and accessibility assessment.
 
 ## ✨ Features
 
@@ -29,23 +29,23 @@ Droidrun Portal is an Android accessibility service that provides real-time visu
 
 ### ⚙️ Setup
 1. Install the app on your Android device
-2. Enable the accessibility service in Android Settings → Accessibility → Droidrun Portal
+2. Enable the accessibility service in Android Settings → Accessibility → Mobilerun Portal
 3. Grant overlay permission when prompted
 4. (Optional) Open **Settings** in the app to enable local servers or reverse connection
 
 ### 🔐 Auth Token (Local APIs)
 
-Droidrun Portal generates a local auth token for HTTP and WebSocket access.
+Mobilerun Portal generates a local auth token for HTTP and WebSocket access.
 
 - In the app: copy the token from the main screen
 - Via ADB:
   ```bash
-  adb shell content query --uri content://com.droidrun.portal/auth_token
+  adb shell content query --uri content://com.mobilerun.portal/auth_token
   ```
 
 ### 🧩 Local APIs
 
-Droidrun Portal exposes three local interfaces:
+Mobilerun Portal exposes three local interfaces:
 
 - HTTP socket server (default port 8080)
 - WebSocket server (default port 8081)
@@ -56,7 +56,7 @@ See [Triggers and Events](docs/triggers.md) for trigger management methods, even
 
 ### 📡 WebSocket Events
 
-Droidrun Portal streams notification events over WebSocket when enabled in Settings.
+Mobilerun Portal streams notification events over WebSocket when enabled in Settings.
 
 See the [WebSocket Events documentation](docs/websocket-events.md) for setup, permissions, and event formats.
 See [Triggers and Events](docs/triggers.md) for the complete `EventType` and `TriggerSource` contract.
@@ -71,86 +71,86 @@ The operator-facing screen-awake watchdog can also be enabled from **Settings** 
 
 ### 💻 ADB Commands (ContentProvider)
 
-All commands use the ContentProvider authority `content://com.droidrun.portal/`.
+All commands use the ContentProvider authority `content://com.mobilerun.portal/`.
 
 #### Query Commands (Reading Data)
 
 ```bash
 # Test connection (ping)
-adb shell content query --uri content://com.droidrun.portal/ping
+adb shell content query --uri content://com.mobilerun.portal/ping
 
 # Get app version
-adb shell content query --uri content://com.droidrun.portal/version
+adb shell content query --uri content://com.mobilerun.portal/version
 
 # Get accessibility tree as JSON (visible elements with overlay indices)
-adb shell content query --uri content://com.droidrun.portal/a11y_tree
+adb shell content query --uri content://com.mobilerun.portal/a11y_tree
 
 # Get full accessibility tree with ALL properties (complete node info)
-adb shell content query --uri content://com.droidrun.portal/a11y_tree_full
+adb shell content query --uri content://com.mobilerun.portal/a11y_tree_full
 
 # Get full tree without filtering small elements (< 1% visibility)
-adb shell content query --uri 'content://com.droidrun.portal/a11y_tree_full?filter=false'
+adb shell content query --uri 'content://com.mobilerun.portal/a11y_tree_full?filter=false'
 
 # Get phone state as JSON (current app, focused element, keyboard visibility)
-adb shell content query --uri content://com.droidrun.portal/phone_state
+adb shell content query --uri content://com.mobilerun.portal/phone_state
 
 # Get combined state (accessibility tree + phone state)
-adb shell content query --uri content://com.droidrun.portal/state
+adb shell content query --uri content://com.mobilerun.portal/state
 
 # Get full combined state (full tree + phone state + device context)
-adb shell content query --uri content://com.droidrun.portal/state_full
+adb shell content query --uri content://com.mobilerun.portal/state_full
 
 # Get full state without filtering
-adb shell content query --uri 'content://com.droidrun.portal/state_full?filter=false'
+adb shell content query --uri 'content://com.mobilerun.portal/state_full?filter=false'
 
 # Get list of installed launchable apps
-adb shell content query --uri content://com.droidrun.portal/packages
+adb shell content query --uri content://com.mobilerun.portal/packages
 
 # Get local auth token for HTTP/WS access
-adb shell content query --uri content://com.droidrun.portal/auth_token
+adb shell content query --uri content://com.mobilerun.portal/auth_token
 
 # Get keep-screen-awake watchdog status
-adb shell content query --uri content://com.droidrun.portal/screen_keep_awake_status
+adb shell content query --uri content://com.mobilerun.portal/screen_keep_awake_status
 ```
 
 #### Insert Commands (Actions & Configuration)
 
 ```bash
 # Keyboard text input (base64 encoded, clears field first by default)
-adb shell content insert --uri content://com.droidrun.portal/keyboard/input --bind base64_text:s:"SGVsbG8gV29ybGQ="
+adb shell content insert --uri content://com.mobilerun.portal/keyboard/input --bind base64_text:s:"SGVsbG8gV29ybGQ="
 
 # Keyboard text input without clearing the field first
-adb shell content insert --uri content://com.droidrun.portal/keyboard/input --bind base64_text:s:"SGVsbG8=" --bind clear:b:false
+adb shell content insert --uri content://com.mobilerun.portal/keyboard/input --bind base64_text:s:"SGVsbG8=" --bind clear:b:false
 
 # Clear text in focused input field
-adb shell content insert --uri content://com.droidrun.portal/keyboard/clear
+adb shell content insert --uri content://com.mobilerun.portal/keyboard/clear
 
 # Send key event via keyboard (e.g., Enter key = 66, Backspace = 67)
-adb shell content insert --uri content://com.droidrun.portal/keyboard/key --bind key_code:i:66
+adb shell content insert --uri content://com.mobilerun.portal/keyboard/key --bind key_code:i:66
 
 # Set overlay vertical offset (in pixels)
-adb shell content insert --uri content://com.droidrun.portal/overlay_offset --bind offset:i:100
+adb shell content insert --uri content://com.mobilerun.portal/overlay_offset --bind offset:i:100
 
 # Toggle overlay visibility (show/hide)
-adb shell content insert --uri content://com.droidrun.portal/overlay_visible --bind visible:b:true
-adb shell content insert --uri content://com.droidrun.portal/overlay_visible --bind visible:b:false
+adb shell content insert --uri content://com.mobilerun.portal/overlay_visible --bind visible:b:true
+adb shell content insert --uri content://com.mobilerun.portal/overlay_visible --bind visible:b:false
 
 # Configure REST API socket server port (default: 8080)
-adb shell content insert --uri content://com.droidrun.portal/socket_port --bind port:i:8090
+adb shell content insert --uri content://com.mobilerun.portal/socket_port --bind port:i:8090
 
 # Enable/disable local WebSocket server (default port: 8081)
-adb shell content insert --uri content://com.droidrun.portal/toggle_websocket_server --bind enabled:b:true --bind port:i:8081
+adb shell content insert --uri content://com.mobilerun.portal/toggle_websocket_server --bind enabled:b:true --bind port:i:8081
 
 # Enable or disable the keep-screen-awake watchdog
-adb shell content insert --uri content://com.droidrun.portal/toggle_screen_keep_awake --bind enabled:b:true
-adb shell content insert --uri content://com.droidrun.portal/toggle_screen_keep_awake --bind enabled:b:false
+adb shell content insert --uri content://com.mobilerun.portal/toggle_screen_keep_awake --bind enabled:b:true
+adb shell content insert --uri content://com.mobilerun.portal/toggle_screen_keep_awake --bind enabled:b:false
 
 # Configure reverse connection (host URL + optional token/service key)
-adb shell content insert --uri content://com.droidrun.portal/configure_reverse_connection --bind url_base64:s:"d3NzOi8vYXBpLm1vYmlsZXJ1bi5haS92MS9wcm92aWRlcnMvcGVyc29uYWwvam9pbg==" --bind token_base64:s:"WU9VUl9UT0tFTg==" --bind enabled:b:true
-adb shell content insert --uri content://com.droidrun.portal/configure_reverse_connection --bind service_key_base64:s:"WU9VUl9LRVk="
+adb shell content insert --uri content://com.mobilerun.portal/configure_reverse_connection --bind url_base64:s:"d3NzOi8vYXBpLm1vYmlsZXJ1bi5haS92MS9wcm92aWRlcnMvcGVyc29uYWwvam9pbg==" --bind token_base64:s:"WU9VUl9UT0tFTg==" --bind enabled:b:true
+adb shell content insert --uri content://com.mobilerun.portal/configure_reverse_connection --bind service_key_base64:s:"WU9VUl9LRVk="
 
 # Toggle production mode UI
-adb shell content insert --uri content://com.droidrun.portal/toggle_production_mode --bind enabled:b:true
+adb shell content insert --uri content://com.mobilerun.portal/toggle_production_mode --bind enabled:b:true
 ```
 
 #### Common Key Codes

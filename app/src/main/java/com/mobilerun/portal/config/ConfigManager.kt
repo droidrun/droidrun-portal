@@ -13,15 +13,15 @@ import com.mobilerun.portal.taskprompt.PortalTaskTracking
 import com.mobilerun.portal.taskprompt.TaskPromptSettingsConstraints
 
 /**
- * Centralized configuration manager for Droidrun Portal
+ * Centralized configuration manager for Mobilerun Portal
  * Handles SharedPreferences operations and provides a clean API for configuration management
  */
 class ConfigManager private constructor(private val context: Context) {
 
     companion object {
-        private const val PREFS_NAME = "droidrun_config"
-        private const val DEVICE_PREFS_NAME = "droidrun_device"
-        private const val SECRET_PREFS_NAME = "droidrun_secrets"
+        private const val PREFS_NAME = "mobilerun_config"
+        private const val DEVICE_PREFS_NAME = "mobilerun_device"
+        private const val SECRET_PREFS_NAME = "mobilerun_secrets"
         private const val KEY_OVERLAY_VISIBLE = "overlay_visible"
         private const val KEY_OVERLAY_OFFSET = "overlay_offset"
         private const val KEY_AUTO_OFFSET_ENABLED = "auto_offset_enabled"

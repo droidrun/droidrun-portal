@@ -243,7 +243,7 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
                 startActivity(intent)
                 android.widget.Toast.makeText(
                     this,
-                    "Please grant Notification Access to Droidrun Portal",
+                    "Please grant Notification Access to Mobilerun Portal",
                     android.widget.Toast.LENGTH_LONG
                 ).show()
             } catch (e: Exception) {

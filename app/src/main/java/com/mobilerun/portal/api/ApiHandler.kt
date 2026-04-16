@@ -529,7 +529,7 @@ class ApiHandler(
             return ApiResponse.Error("Missing required param: 'package'")
         }
         if (packageName == context.packageName) {
-            return ApiResponse.Error("Refusing to stop Droidrun Portal")
+            return ApiResponse.Error("Refusing to stop Mobilerun Portal")
         }
 
         val pm = getPackageManager()
@@ -1227,7 +1227,7 @@ class ApiHandler(
                 )
                 // Show permission dialog to guide the user
                 showInstallPermissionDialog()
-                return ApiResponse.Error("Install permission denied. Please enable 'Install unknown apps' for Droidrun Portal in Settings.")
+                return ApiResponse.Error("Install permission denied. Please enable 'Install unknown apps' for Mobilerun Portal in Settings.")
             }
 
             if (expectedSizeBytes > MAX_APK_BYTES) {
@@ -1581,7 +1581,7 @@ class ApiHandler(
             // Show permission dialog to guide the user
             showInstallPermissionDialog()
             return ApiResponse.Error(
-                "Install permission denied. Please enable 'Install unknown apps' for Droidrun Portal in Settings.",
+                "Install permission denied. Please enable 'Install unknown apps' for Mobilerun Portal in Settings.",
             )
         }
 

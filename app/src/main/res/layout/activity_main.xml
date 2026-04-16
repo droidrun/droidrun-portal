@@ -241,7 +241,7 @@
                         android:layout_weight="1"
                         android:layout_gravity="center_vertical"
                         android:layout_marginStart="8dp"
-                        android:text="Droidrun Portal"
+                        android:text="Mobilerun Portal"
                         android:textColor="@color/text_white"
                         android:textSize="22sp"
                         android:textStyle="bold"

@@ -202,7 +202,7 @@
                 <category android:name="android.intent.category.BROWSABLE" />
 
                 <data
-                    android:scheme="droidrun"
+                    android:scheme="mobilerun"
                     android:host="auth-callback" />
             </intent-filter>
         </activity>
