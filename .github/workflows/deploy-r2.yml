@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       file-prefix:
-        description: "Filename prefix for the APK (e.g. com.mobilerun.portal)"
+        description: "Filename prefix for the APK (e.g. com.mobilerun.portal or mobilerun-portal-internal)"
         required: true
         type: string
       tag:
