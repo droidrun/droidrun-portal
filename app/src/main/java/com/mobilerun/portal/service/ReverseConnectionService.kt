@@ -92,6 +92,12 @@ class ReverseConnectionService : Service() {
     private var isServiceRunning = AtomicBoolean(false)
     private val handler = Handler(Looper.getMainLooper())
     private val installExecutor = Executors.newSingleThreadExecutor()
+    // Handlers like stream/start, webrtc/rtcConfiguration, screenshot, or state can block
+    // the calling thread for seconds (native WebRTC calls, MediaProjection, a11y traversal).
+    // The java-websocket reader thread that invokes handleMessage must stay free to read
+    // PONG frames; otherwise the server kills the socket with code=1006 after the 30s PONG
+    // timeout. Offload dispatch to a single-threaded executor so the reader is never blocked.
+    private val dispatchExecutor = Executors.newSingleThreadExecutor()
     private var lastReverseToastAtMs = 0L
     private var isForeground = false
 
@@ -154,6 +160,10 @@ class ReverseConnectionService : Service() {
         ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
         try {
             installExecutor.shutdownNow()
+        } catch (_: Exception) {
+        }
+        try {
+            dispatchExecutor.shutdownNow()
         } catch (_: Exception) {
         }
         if (isForeground) {
@@ -600,18 +610,35 @@ class ReverseConnectionService : Service() {
                 return
             }
 
-            // Execute
-            val result = dispatcher.dispatch(
-                method,
-                params,
-                origin = ActionDispatcher.Origin.WEBSOCKET_REVERSE,
-                requestId = id,
-            )
-            Log.d(TAG, "Command executed. Result type: ${result.javaClass.simpleName}")
+            // Execute off the reader thread — see dispatchExecutor comment.
+            val requestId = id
+            dispatchExecutor.submit {
+                try {
+                    val result = dispatcher.dispatch(
+                        method,
+                        params,
+                        origin = ActionDispatcher.Origin.WEBSOCKET_REVERSE,
+                        requestId = requestId,
+                    )
+                    Log.d(TAG, "Command executed. Result type: ${result.javaClass.simpleName}")
 
-            val resp = result.toJson(id)
-            webSocketClient?.send(resp)
-            Log.d(TAG, "Sent response: $resp")
+                    val resp = result.toJson(requestId)
+                    webSocketClient?.send(resp)
+                    Log.d(TAG, "Sent response: $resp")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error dispatching $method (id=$requestId)", e)
+                    if (requestId != null) {
+                        try {
+                            webSocketClient?.send(
+                                ApiResponse.Error(e.message ?: "unknown exception")
+                                    .toJson(requestId),
+                            )
+                        } catch (sendErr: Exception) {
+                            Log.e(TAG, "Error responding with an error", sendErr)
+                        }
+                    }
+                }
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Error processing message", e)
             if (id != null) {
