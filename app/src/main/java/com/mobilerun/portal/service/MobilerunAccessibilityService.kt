@@ -1244,6 +1244,12 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
     }
 
     // Screenshot functionality
+    //
+    // Dispatch by API level:
+    //   API 30+: AccessibilityService.takeScreenshot() (fast path)
+    //   API 26-29: MediaProjectionScreenshotter — which in turn delegates to
+    //     WebRtcManager.captureStreamFrame() if a stream is already active
+    //     (a second MediaProjection cannot run concurrently with the streamer's).
     fun takeScreenshotBase64(hideOverlay: Boolean = true): CompletableFuture<String> {
         val future = CompletableFuture<String>()
 

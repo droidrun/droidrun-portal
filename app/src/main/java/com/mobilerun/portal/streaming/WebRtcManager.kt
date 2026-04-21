@@ -1,6 +1,12 @@
 package com.mobilerun.portal.streaming
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.ImageFormat
+import android.graphics.Matrix
+import android.graphics.Rect
+import android.graphics.YuvImage
 import android.media.projection.MediaProjection
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
@@ -8,8 +14,12 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
 import android.os.SystemClock
+import android.util.Base64
 import android.util.Log
 import android.widget.Toast
+import java.io.ByteArrayOutputStream
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.atomic.AtomicBoolean
 import com.mobilerun.portal.service.ReverseConnectionService
 import com.mobilerun.portal.service.ScreenCaptureService
 import java.util.Locale
@@ -36,6 +46,7 @@ class WebRtcManager private constructor(private val context: Context) {
         private const val MAX_OUTGOING_ICE_CANDIDATES = 50
         private const val MAX_ICE_RESTARTS = 1
         private const val MAX_CONCURRENT_SESSIONS = 3
+        private const val FRAME_TAP_TIMEOUT_MS = 2_000L
 
         @Volatile
         private var instance: WebRtcManager? = null
@@ -305,6 +316,139 @@ class WebRtcManager private constructor(private val context: Context) {
 
     fun isStreamActive(): Boolean =
         synchronized(streamLock) { peerConnection != null || secondarySessions.isNotEmpty() }
+
+    /**
+     * Tap the next frame from the active screen-capture VideoTrack and return it
+     * as a base64-encoded PNG. Used as the screenshot source on pre-API-30 devices
+     * while a WebRTC stream is already running (ScreenCapturerAndroid owns the
+     * only MediaProjection, so we cannot spin up a second capture session).
+     */
+    fun captureStreamFrame(): CompletableFuture<String> {
+        val future = CompletableFuture<String>()
+        val track = synchronized(streamLock) { videoTrack }
+        if (track == null || !isStreamActive()) {
+            future.complete("error: no_active_stream")
+            return future
+        }
+
+        val timeoutHandler = Handler(Looper.getMainLooper())
+        val done = AtomicBoolean(false)
+        val sinkHolder = arrayOfNulls<VideoSink>(1)
+
+        val timeoutRunnable = Runnable {
+            if (done.compareAndSet(false, true)) {
+                sinkHolder[0]?.let {
+                    try { track.removeSink(it) } catch (_: Exception) {}
+                }
+                future.complete("error: frame_timeout")
+            }
+        }
+
+        val sink = VideoSink { frame ->
+            if (!done.compareAndSet(false, true)) {
+                frame.release()
+                return@VideoSink
+            }
+            timeoutHandler.removeCallbacks(timeoutRunnable)
+            sinkHolder[0]?.let {
+                try { track.removeSink(it) } catch (_: Exception) {}
+            }
+            try {
+                future.complete(encodeVideoFrame(frame))
+            } catch (e: Exception) {
+                Log.e(TAG, "frame encode failed", e)
+                future.complete("error: ${e.message}")
+            } finally {
+                try { frame.release() } catch (_: Exception) {}
+            }
+        }
+        sinkHolder[0] = sink
+
+        try {
+            track.addSink(sink)
+        } catch (e: Exception) {
+            done.set(true)
+            future.complete("error: ${e.message}")
+            return future
+        }
+        timeoutHandler.postDelayed(timeoutRunnable, FRAME_TAP_TIMEOUT_MS)
+        return future
+    }
+
+    private fun encodeVideoFrame(frame: VideoFrame): String {
+        frame.retain()
+        val i420 = try {
+            frame.buffer.toI420() ?: return "error: i420_unavailable"
+        } finally {
+            frame.release()
+        }
+        try {
+            val w = i420.width
+            val h = i420.height
+            val nv21 = i420ToNv21(i420, w, h)
+            val yuv = YuvImage(nv21, ImageFormat.NV21, w, h, null)
+            val jpeg = ByteArrayOutputStream()
+            if (!yuv.compressToJpeg(Rect(0, 0, w, h), 92, jpeg)) {
+                jpeg.close()
+                return "error: jpeg_encode_failed"
+            }
+            val jpegBytes = jpeg.toByteArray()
+            jpeg.close()
+
+            val decoded = BitmapFactory.decodeByteArray(jpegBytes, 0, jpegBytes.size)
+                ?: return "error: jpeg_decode_failed"
+            val rotation = frame.rotation
+            val oriented = if (rotation == 0) decoded else {
+                val m = Matrix().apply { postRotate(rotation.toFloat()) }
+                val rot = Bitmap.createBitmap(decoded, 0, 0, decoded.width, decoded.height, m, false)
+                if (rot !== decoded) decoded.recycle()
+                rot
+            }
+
+            val png = ByteArrayOutputStream()
+            val ok = oriented.compress(Bitmap.CompressFormat.PNG, 100, png)
+            oriented.recycle()
+            if (!ok) { png.close(); return "error: png_encode_failed" }
+            val bytes = png.toByteArray()
+            png.close()
+            return Base64.encodeToString(bytes, Base64.NO_WRAP)
+        } finally {
+            i420.release()
+        }
+    }
+
+    private fun i420ToNv21(
+        i420: VideoFrame.I420Buffer,
+        width: Int,
+        height: Int,
+    ): ByteArray {
+        val nv21 = ByteArray(width * height * 3 / 2)
+
+        val yBuf = i420.dataY
+        val strideY = i420.strideY
+        for (row in 0 until height) {
+            yBuf.position(row * strideY)
+            yBuf.get(nv21, row * width, width)
+        }
+
+        val uBuf = i420.dataU
+        val vBuf = i420.dataV
+        val strideU = i420.strideU
+        val strideV = i420.strideV
+        val chromaH = height / 2
+        val chromaW = width / 2
+        val uvStart = width * height
+        for (row in 0 until chromaH) {
+            val dstBase = uvStart + row * width
+            val srcBaseU = row * strideU
+            val srcBaseV = row * strideV
+            for (col in 0 until chromaW) {
+                nv21[dstBase + col * 2] = vBuf.get(srcBaseV + col)
+                nv21[dstBase + col * 2 + 1] = uBuf.get(srcBaseU + col)
+            }
+        }
+        return nv21
+    }
 
     fun isCurrentSession(sessionId: String?): Boolean {
         if (sessionId.isNullOrBlank()) return false

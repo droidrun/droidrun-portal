@@ -28,8 +28,9 @@ import java.util.concurrent.atomic.AtomicBoolean
  * Single-frame MediaProjection-based screenshot path, used on API 26-29 where
  * AccessibilityService.takeScreenshot() (API 30+) is unavailable.
  *
- * Owns its own MediaProjection lifecycle; cannot piggyback on an active WebRTC
- * stream because ScreenCapturerAndroid does not expose a frame tap.
+ * When a WebRTC stream is already active, delegates to
+ * [WebRtcManager.captureStreamFrame] which taps the live VideoTrack — a fresh
+ * MediaProjection cannot run concurrently with the streamer's projection.
  */
 class MediaProjectionScreenshotter private constructor(context: Context) {
 
@@ -50,13 +51,12 @@ class MediaProjectionScreenshotter private constructor(context: Context) {
     )
 
     fun capture(): CompletableFuture<String> {
-        val future = CompletableFuture<String>()
-
-        if (WebRtcManager.getInstance(appContext).isStreamActive()) {
-            future.complete("error: screenshot_unavailable_during_stream")
-            return future
+        val webRtc = WebRtcManager.getInstance(appContext)
+        if (webRtc.isStreamActive()) {
+            return webRtc.captureStreamFrame()
         }
 
+        val future = CompletableFuture<String>()
         val metrics = resolveDisplayMetrics()
         val timeoutRunnable = Runnable {
             completePending("error: screenshot_timeout")
