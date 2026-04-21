@@ -11,6 +11,7 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.content.pm.ServiceInfo
 import android.os.Binder
+import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -90,6 +91,7 @@ class ReverseConnectionService : Service() {
     private var webSocketClient: WebSocketClient? = null
     private var isServiceRunning = AtomicBoolean(false)
     private val handler = Handler(Looper.getMainLooper())
+    private val commandExecutor = Executors.newSingleThreadExecutor()
     private val installExecutor = Executors.newSingleThreadExecutor()
     private var lastReverseToastAtMs = 0L
     private var isForeground = false
@@ -151,6 +153,10 @@ class ReverseConnectionService : Service() {
         reverseDeviceEventRelay.stop()
         disconnect()
         ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
+        try {
+            commandExecutor.shutdownNow()
+        } catch (_: Exception) {
+        }
         try {
             installExecutor.shutdownNow()
         } catch (_: Exception) {
@@ -267,7 +273,7 @@ class ReverseConnectionService : Service() {
                 }
 
                 override fun onMessage(message: String?) {
-                    handleMessage(message)
+                    handleMessage(this, message)
                 }
 
                 override fun onClose(code: Int, reason: String?, remote: Boolean) {
@@ -434,11 +440,15 @@ class ReverseConnectionService : Service() {
         if (isForeground || foregroundSuppressed) return
         try {
             val notification = createNotification()
-            startForeground(
-                NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-            )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                )
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
             isForeground = true
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start foreground service", e)
@@ -519,7 +529,7 @@ class ReverseConnectionService : Service() {
         }
     }
 
-    private fun handleMessage(message: String?) {
+    private fun handleMessage(client: WebSocketClient, message: String?) {
         if (message == null) return
         // Truncate log to avoid spamming with large SDP/ICE payloads
         val logMsg = if (message.length > 200) message.take(200) + "..." else message
@@ -566,59 +576,69 @@ class ReverseConnectionService : Service() {
                 val error =
                     "Accessibility Service not ready. Only stream/*, webrtc/*, screen/keepAwake/*, global, and triggers/* are available."
                 Log.e(TAG, error)
-                webSocketClient?.send(ApiResponse.Error(error).toJson(id))
+                sendErrorResponse(client, id, error)
                 return
             }
 
-            // Don't block ws
-            if (normalizedMethod == "install") {
-                val requestId = id
-                installExecutor.submit {
-                    try {
-                        val result = dispatcher.dispatch(
-                            method,
-                            params,
-                            origin = ActionDispatcher.Origin.WEBSOCKET_REVERSE,
-                            requestId = requestId,
-                        )
-                        webSocketClient?.send(result.toJson(requestId))
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Install task failed", e)
-                        try {
-                            webSocketClient?.send(
-                                ApiResponse.Error(e.message ?: "Install failed").toJson(requestId),
-                            )
-                        } catch (_: Exception) {
-                        }
-                    }
-                }
-                return
+            val requestId = id
+            val executor = if (normalizedMethod == "install") installExecutor else commandExecutor
+            executor.submit {
+                dispatchAndRespond(
+                    client = client,
+                    dispatcher = dispatcher,
+                    method = method,
+                    params = params,
+                    origin = ActionDispatcher.Origin.WEBSOCKET_REVERSE,
+                    requestId = requestId,
+                )
             }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error processing message", e)
+            sendErrorResponse(client, id, e.message ?: "unknown exception")
+        }
+    }
 
-            // Execute
+    private fun dispatchAndRespond(
+        client: WebSocketClient,
+        dispatcher: ActionDispatcher,
+        method: String,
+        params: JSONObject,
+        origin: ActionDispatcher.Origin,
+        requestId: Any?,
+    ) {
+        try {
             val result = dispatcher.dispatch(
                 method,
                 params,
-                origin = ActionDispatcher.Origin.WEBSOCKET_REVERSE,
-                requestId = id,
+                origin = origin,
+                requestId = requestId,
             )
             Log.d(TAG, "Command executed. Result type: ${result.javaClass.simpleName}")
-
-            val resp = result.toJson(id)
-            webSocketClient?.send(resp)
-            Log.d(TAG, "Sent response: $resp")
+            sendResponse(client, result, requestId)
         } catch (e: Exception) {
-            Log.e(TAG, "Error processing message", e)
-            if (id != null) {
-                try {
-                    webSocketClient?.send(
-                        ApiResponse.Error(e.message ?: "unknown exception").toJson(id)
-                    )
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error responding with an error")
-                }
-            }
+            Log.e(TAG, "Command execution failed for $method", e)
+            sendErrorResponse(client, requestId, e.message ?: "unknown exception")
         }
+    }
+
+    private fun sendResponse(client: WebSocketClient, response: ApiResponse, requestId: Any?) {
+        if (!client.isOpen) {
+            Log.w(TAG, "Skipping response for closed reverse socket (id=$requestId)")
+            return
+        }
+        try {
+            val payload = response.toJson(requestId)
+            client.send(payload)
+            val logPayload = if (payload.length > 200) payload.take(200) + "..." else payload
+            Log.d(TAG, "Sent response: $logPayload")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to send response for id=$requestId", e)
+        }
+    }
+
+    private fun sendErrorResponse(client: WebSocketClient, requestId: Any?, message: String) {
+        if (requestId == null) return
+        sendResponse(client, ApiResponse.Error(message), requestId)
     }
 
     private fun buildHeadlessActionDispatcher(): ActionDispatcher {

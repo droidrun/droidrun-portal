@@ -77,6 +77,19 @@ See [Reverse Connection](docs/reverse-connection.md) for configuration details a
 Trigger JSON-RPC methods are documented in [Triggers and Events](docs/triggers.md).
 The operator-facing screen-awake watchdog can also be enabled from **Settings** with **Keep Screen Awake**, or over WebSocket with `screen/keepAwake/set` and `screen/keepAwake/status`.
 
+### 🧭 Transport Matrix
+
+| Capability | ADB ContentProvider | Local HTTP | Local WebSocket | Reverse WebSocket |
+| --- | --- | --- | --- | --- |
+| Tree/state/version/packages | Yes | Yes | Yes | Yes when Accessibility is ready; headless subset otherwise |
+| Keyboard/overlay/config actions | Yes | Yes | Yes | Yes when Accessibility is ready |
+| Screenshot | No direct endpoint | Yes | Yes | Yes when Accessibility is ready |
+| APK install | No | No | Yes | Yes |
+| WebRTC streaming + signaling | No | No | No | Yes |
+| `files/*` | No | Yes on Android 11+ | Yes on Android 11+ | Yes on Android 11+ |
+
+Android 8 support is a compatibility tier. Core control, screenshots, and reverse streaming are supported on API 26+, but file operations remain Android 11+ only in the current build. Advanced scrcpy-only features such as audio forwarding, camera mirroring, and newer display-specific features are not part of the Android-8 tier.
+
 ### 💻 ADB Commands (ContentProvider)
 
 All commands use the ContentProvider authority `content://com.mobilerun.portal/`.
@@ -190,7 +203,8 @@ For error responses:
 ```
 
 ## 🔧 Technical Details
-- Minimum Android API level: 30 (Android 11.0)
+- Minimum Android API level: 26 (Android 8.0) for the core compatibility tier
+- File operations (`files/*`) require Android 11 or newer in the current build
 - Uses Android Accessibility Service API
 - Implements custom drawing overlay using Window Manager
 - Supports multi-window environments

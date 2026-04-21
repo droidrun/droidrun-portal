@@ -16,6 +16,19 @@ Response example:
 {"status":"success","result":"YOUR_TOKEN"}
 ```
 
+## Transport matrix
+
+| Capability | ADB ContentProvider | Local HTTP | Local WebSocket | Reverse WebSocket |
+| --- | --- | --- | --- | --- |
+| Tree/state/version/packages | Yes | Yes | Yes | Yes when Accessibility is ready; headless subset otherwise |
+| Keyboard/overlay/config actions | Yes | Yes | Yes | Yes when Accessibility is ready |
+| Screenshot | No direct endpoint | Yes | Yes | Yes when Accessibility is ready |
+| APK install | No | No | Yes | Yes |
+| WebRTC streaming + signaling | No | No | No | Yes |
+| `files/*` | No | Yes on Android 11+ | Yes on Android 11+ | Yes on Android 11+ |
+
+Android 8-10 support is a compatibility tier. Core control, screenshots, install flows, and reverse streaming are supported where the transport exposes them. `files/*` remains disabled below Android 11 in the current build.
+
 ## WebSocket (JSON-RPC-style)
 
 Enable **WebSocket Server** in Settings. Default port is `8081`.
@@ -65,13 +78,20 @@ Response format:
 | `state` | `filter` | Full state; `filter=false` keeps small elements |
 | `version` | - | App version |
 | `time` | - | Unix ms timestamp |
-| `install` | `urls`, `hideOverlay` | WebSocket only; supports split APKs |
+| `files/list` | `path` | Android 11+ only in the current compatibility tier |
+| `files/download` | `path` | Android 11+ only in the current compatibility tier |
+| `files/upload` | `path`, `data` | Android 11+ only in the current compatibility tier |
+| `files/delete` | `path` | Android 11+ only in the current compatibility tier |
+| `files/fetch` | `url`, `path` | Android 11+ only in the current compatibility tier |
+| `files/push` | `url`, `path` | Android 11+ only in the current compatibility tier |
+| `install` | `urls`, `hideOverlay` | Local and reverse WebSocket only; supports split APKs |
 | `screen/keepAwake/set` | `enabled` | WebSocket only; local and reverse; toggles the screen-awake watchdog and returns the requested target status |
 | `screen/keepAwake/status` | - | WebSocket only; local and reverse; returns live watchdog status |
 
 Streaming methods (`stream/start`, `stream/stop`, `webrtc/*`) are only available over reverse connection.
 Screen-awake methods (`screen/keepAwake/*`) are available over local and reverse WebSocket. They are not available over HTTP.
 Trigger management methods (`triggers/*`) are available over the local WebSocket API and reverse connection. See [Triggers and Events](triggers.md) for the exact method list, params, validation rules, and response shape.
+Install is available over local and reverse WebSocket. It is not available over HTTP or the ContentProvider.
 Local WebSocket sends unsolicited device events as raw
 `{ "type": "...", "timestamp": ..., "payload": { ... } }` by default. Add
 `?eventFormat=rpc` to request the same
@@ -139,6 +159,8 @@ curl -X POST \
 ## ContentProvider (ADB)
 
 All commands use `content://com.mobilerun.portal/`.
+
+The ContentProvider covers core tree/state/keyboard/overlay/config flows. It does not expose direct screenshot, install, or WebRTC streaming endpoints.
 
 Trigger queries and mutations are also available through the same `ContentProvider`, including `triggers/catalog`, `triggers/status`, rule CRUD, enable/disable, test runs, and run history management. See [Triggers and Events](triggers.md) for the full URI list and `rule_json_base64` examples.
 

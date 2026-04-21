@@ -25,8 +25,10 @@ import com.mobilerun.portal.core.StateRepository
 import com.mobilerun.portal.config.ConfigManager
 import com.mobilerun.portal.input.MobilerunKeyboardIME
 import com.mobilerun.portal.ui.overlay.OverlayManager
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import androidx.annotation.RequiresApi
 import java.util.concurrent.atomic.AtomicBoolean
 import android.graphics.Bitmap
 import android.util.Base64
@@ -170,10 +172,15 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
         super.onCreate()
         overlayManager = OverlayManager(this)
         val windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-        // TODO increase SDK version to 30
-        val windowMetrics = windowManager.currentWindowMetrics
-        val bounds = windowMetrics.bounds
-        screenBounds.set(0, 0, bounds.width(), bounds.height())
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val bounds = windowManager.currentWindowMetrics.bounds
+            screenBounds.set(0, 0, bounds.width(), bounds.height())
+        } else {
+            val metrics = android.util.DisplayMetrics()
+            @Suppress("DEPRECATION")
+            windowManager.defaultDisplay.getRealMetrics(metrics)
+            screenBounds.set(0, 0, metrics.widthPixels, metrics.heightPixels)
+        }
 
         // Initialize ConfigManager
         configManager = ConfigManager.getInstance(this)
@@ -652,8 +659,14 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
 
                 val id = ElementNode.createId(rect, className.substringAfterLast('.'), displayText)
 
+                val nodeCopy = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    AccessibilityNodeInfo(node)
+                } else {
+                    @Suppress("DEPRECATION")
+                    AccessibilityNodeInfo.obtain(node)
+                }
                 currentElement = ElementNode(
-                    AccessibilityNodeInfo(node),
+                    nodeCopy,
                     Rect(rect),
                     displayText,
                     className.substringAfterLast('.'),
@@ -1231,6 +1244,12 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
     }
 
     // Screenshot functionality
+    //
+    // Dispatch by API level:
+    //   API 30+: AccessibilityService.takeScreenshot() (fast path)
+    //   API 26-29: MediaProjectionScreenshotter — which in turn delegates to
+    //     WebRtcManager.captureStreamFrame() if a stream is already active
+    //     (a second MediaProjection cannot run concurrently with the streamer's).
     fun takeScreenshotBase64(hideOverlay: Boolean = true): CompletableFuture<String> {
         val future = CompletableFuture<String>()
 
@@ -1270,89 +1289,71 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
         wasOverlayDrawingEnabled: Boolean,
         hideOverlay: Boolean,
     ) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            performAccessibilityScreenshot(future, wasOverlayDrawingEnabled, hideOverlay)
+        } else {
+            performMediaProjectionScreenshot(future, wasOverlayDrawingEnabled, hideOverlay)
+        }
+    }
+
+    private fun performMediaProjectionScreenshot(
+        future: CompletableFuture<String>,
+        wasOverlayDrawingEnabled: Boolean,
+        hideOverlay: Boolean,
+    ) {
         try {
-            takeScreenshot(
-                Display.DEFAULT_DISPLAY,
-                mainHandler.looper.thread.contextClassLoader?.let {
-                    java.util.concurrent.Executors.newSingleThreadExecutor()
-                } ?: java.util.concurrent.Executors.newSingleThreadExecutor(),
-                object : TakeScreenshotCallback {
-                    override fun onSuccess(screenshotResult: ScreenshotResult) {
-                        try {
-                            val bitmap = Bitmap.wrapHardwareBuffer(
-                                screenshotResult.hardwareBuffer,
-                                screenshotResult.colorSpace
-                            )
-
-                            if (bitmap == null) {
-                                Log.e(TAG, "Failed to create bitmap from hardware buffer")
-                                screenshotResult.hardwareBuffer.close()
-                                future.complete("error: Failed to create bitmap from screenshot data")
-                                return
-                            }
-
-                            val byteArrayOutputStream = ByteArrayOutputStream()
-                            val compressionSuccess = bitmap.compress(
-                                Bitmap.CompressFormat.PNG,
-                                100,
-                                byteArrayOutputStream,
-                            )
-
-                            if (!compressionSuccess) {
-                                Log.e(TAG, "Failed to compress bitmap to PNG")
-                                bitmap.recycle()
-                                screenshotResult.hardwareBuffer.close()
-                                byteArrayOutputStream.close()
-                                future.complete("error: Failed to compress screenshot to PNG format")
-                                return
-                            }
-
-                            val byteArray = byteArrayOutputStream.toByteArray()
-                            val base64String = Base64.encodeToString(byteArray, Base64.NO_WRAP)
-
-                            bitmap.recycle()
-                            screenshotResult.hardwareBuffer.close()
-                            byteArrayOutputStream.close()
-
-                            future.complete(base64String)
-                            Log.d(
-                                TAG,
-                                "Screenshot captured successfully, size: ${byteArray.size} bytes",
-                            )
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Error processing screenshot", e)
-                            try {
-                                screenshotResult.hardwareBuffer.close()
-                            } catch (closeException: Exception) {
-                                Log.e(TAG, "Error closing hardware buffer", closeException)
-                            }
-                            future.complete("error: Failed to process screenshot: ${e.message}")
-                        } finally {
-                            // Restore overlay drawing state
-                            if (hideOverlay) {
-                                overlayManager.setDrawingEnabled(wasOverlayDrawingEnabled)
-                            }
-                        }
+            val fallback = MediaProjectionScreenshotter.getInstance(this).capture()
+            fallback.whenComplete { result, error ->
+                try {
+                    val value = when {
+                        error != null -> "error: ${error.message}"
+                        result != null -> result
+                        else -> "error: empty_result"
                     }
+                    future.complete(value)
+                } finally {
+                    if (hideOverlay) {
+                        overlayManager.setDrawingEnabled(wasOverlayDrawingEnabled)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error starting MediaProjection screenshot", e)
+            future.complete("error: Failed to take screenshot: ${e.message}")
+            if (hideOverlay) {
+                overlayManager.setDrawingEnabled(wasOverlayDrawingEnabled)
+            }
+        }
+    }
 
-                    override fun onFailure(errorCode: Int) {
-                        val errorMessage = when (errorCode) {
-                            ERROR_TAKE_SCREENSHOT_INTERNAL_ERROR -> "Internal error occurred"
-                            ERROR_TAKE_SCREENSHOT_INTERVAL_TIME_SHORT -> "Screenshot interval too short"
-                            ERROR_TAKE_SCREENSHOT_INVALID_DISPLAY -> "Invalid display"
-                            ERROR_TAKE_SCREENSHOT_NO_ACCESSIBILITY_ACCESS -> "No accessibility access"
-                            ERROR_TAKE_SCREENSHOT_SECURE_WINDOW -> "Secure window cannot be captured"
-                            else -> "Unknown error (code: $errorCode)"
-                        }
-                        Log.e(TAG, "Screenshot failed: $errorMessage")
-                        future.complete("error: Screenshot failed: $errorMessage")
-
-                        // Restore overlay drawing state
+    @RequiresApi(Build.VERSION_CODES.R)
+    private fun performAccessibilityScreenshot(
+        future: CompletableFuture<String>,
+        wasOverlayDrawingEnabled: Boolean,
+        hideOverlay: Boolean,
+    ) {
+        try {
+            AccessibilityScreenshotApi30.takeScreenshot(
+                service = this,
+                tag = TAG,
+                onSuccess = { base64 ->
+                    try {
+                        future.complete(base64)
+                    } finally {
                         if (hideOverlay) {
                             overlayManager.setDrawingEnabled(wasOverlayDrawingEnabled)
                         }
                     }
-                }
+                },
+                onFailure = { message ->
+                    try {
+                        future.complete("error: $message")
+                    } finally {
+                        if (hideOverlay) {
+                            overlayManager.setDrawingEnabled(wasOverlayDrawingEnabled)
+                        }
+                    }
+                },
             )
         } catch (e: Exception) {
             Log.e(TAG, "Error taking screenshot", e)

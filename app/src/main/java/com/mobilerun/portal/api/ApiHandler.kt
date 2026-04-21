@@ -215,7 +215,13 @@ class ApiHandler(
                     obj.put("label", label)
                     obj.put("versionName", pkgInfo.versionName ?: JSONObject.NULL)
 
-                    val versionCode = pkgInfo.longVersionCode
+                    val versionCode =
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                            pkgInfo.longVersionCode
+                        } else {
+                            @Suppress("DEPRECATION")
+                            pkgInfo.versionCode.toLong()
+                        }
                     obj.put("versionCode", versionCode)
 
                     val isSystem = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
@@ -311,7 +317,9 @@ class ApiHandler(
             val focusedNode = state.focusedElement
 
             try {
-                if (focusedNode != null) {
+                if (focusedNode != null &&
+                    android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R
+                ) {
                     if (focusedNode.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)) {
                         return ApiResponse.Success("Enter performed via Accessibility")
                     }
@@ -2018,7 +2026,15 @@ class ApiHandler(
     fun getScreenKeepAwakeStatus(): ApiResponse =
         ApiResponse.RawObject(KeepAliveController.getStatusJson(context))
 
+    private fun fileOperationsUnavailableResponse(): ApiResponse? {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) return null
+        return ApiResponse.Error(
+            "File operations are only supported on Android 11+ in this compatibility tier"
+        )
+    }
+
     fun listFiles(path: String): ApiResponse {
+        fileOperationsUnavailableResponse()?.let { return it }
         return fileOperations.listFiles(path).fold(
             onSuccess = { response ->
                 ApiResponse.RawObject(response.toJson())
@@ -2036,6 +2052,7 @@ class ApiHandler(
     }
 
     fun downloadFile(path: String): ApiResponse {
+        fileOperationsUnavailableResponse()?.let { return it }
         if (path.isEmpty()) {
             return ApiResponse.Error("Missing required param: 'path'")
         }
@@ -2057,6 +2074,7 @@ class ApiHandler(
     }
 
     fun uploadFile(path: String, data: ByteArray): ApiResponse {
+        fileOperationsUnavailableResponse()?.let { return it }
         if (path.isEmpty()) {
             return ApiResponse.Error("Missing required param: 'path'")
         }
@@ -2076,6 +2094,7 @@ class ApiHandler(
     }
 
     fun deleteFile(path: String): ApiResponse {
+        fileOperationsUnavailableResponse()?.let { return it }
         if (path.isEmpty()) {
             return ApiResponse.Error("Missing required param: 'path'")
         }
@@ -2096,6 +2115,7 @@ class ApiHandler(
     }
 
     fun fetchFile(url: String, path: String): ApiResponse {
+        fileOperationsUnavailableResponse()?.let { return it }
         if (url.isEmpty()) {
             return ApiResponse.Error("Missing required param: 'url'")
         }
@@ -2118,6 +2138,7 @@ class ApiHandler(
     }
 
     fun pushFile(url: String, path: String): ApiResponse {
+        fileOperationsUnavailableResponse()?.let { return it }
         if (url.isEmpty()) {
             return ApiResponse.Error("Missing required param: 'url'")
         }

@@ -257,6 +257,7 @@
 
     <!-- File Access Warning -->
     <string name="file_access_not_granted">All Files Access not granted. File upload/download will not work.</string>
+    <string name="file_access_requires_android_11">File upload/download requires Android 11 or newer in this compatibility tier.</string>
 
     <!-- Credits -->
     <string name="credits_section_header">Credits</string>
