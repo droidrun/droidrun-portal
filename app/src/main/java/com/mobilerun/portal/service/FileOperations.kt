@@ -46,6 +46,11 @@ class FileOperations(
         }
 
         private fun checkWritePermission(): SecurityException? {
+            if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.R) {
+                // MANAGE_EXTERNAL_STORAGE doesn't exist pre-API 30; rely on
+                // WRITE_EXTERNAL_STORAGE declared for maxSdk=29 in the manifest.
+                return null
+            }
             if (!Environment.isExternalStorageManager()) {
                 return SecurityException(
                     "MANAGE_EXTERNAL_STORAGE not granted. " +

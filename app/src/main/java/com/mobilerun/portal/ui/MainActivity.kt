@@ -1852,7 +1852,9 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
     }
 
     private fun updateFileAccessBanner() {
-        val needsPermission = !android.os.Environment.isExternalStorageManager()
+        val needsPermission =
+            android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R &&
+                !android.os.Environment.isExternalStorageManager()
         binding.fileAccessBanner.visibility = if (needsPermission) View.VISIBLE else View.GONE
     }
 

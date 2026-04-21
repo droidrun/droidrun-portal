@@ -215,7 +215,13 @@ class ApiHandler(
                     obj.put("label", label)
                     obj.put("versionName", pkgInfo.versionName ?: JSONObject.NULL)
 
-                    val versionCode = pkgInfo.longVersionCode
+                    val versionCode =
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                            pkgInfo.longVersionCode
+                        } else {
+                            @Suppress("DEPRECATION")
+                            pkgInfo.versionCode.toLong()
+                        }
                     obj.put("versionCode", versionCode)
 
                     val isSystem = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
@@ -311,7 +317,9 @@ class ApiHandler(
             val focusedNode = state.focusedElement
 
             try {
-                if (focusedNode != null) {
+                if (focusedNode != null &&
+                    android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R
+                ) {
                     if (focusedNode.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)) {
                         return ApiResponse.Success("Enter performed via Accessibility")
                     }

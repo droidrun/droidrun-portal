@@ -25,8 +25,10 @@ import com.mobilerun.portal.core.StateRepository
 import com.mobilerun.portal.config.ConfigManager
 import com.mobilerun.portal.input.MobilerunKeyboardIME
 import com.mobilerun.portal.ui.overlay.OverlayManager
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import androidx.annotation.RequiresApi
 import java.util.concurrent.atomic.AtomicBoolean
 import android.graphics.Bitmap
 import android.util.Base64
@@ -170,10 +172,15 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
         super.onCreate()
         overlayManager = OverlayManager(this)
         val windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-        // TODO increase SDK version to 30
-        val windowMetrics = windowManager.currentWindowMetrics
-        val bounds = windowMetrics.bounds
-        screenBounds.set(0, 0, bounds.width(), bounds.height())
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val bounds = windowManager.currentWindowMetrics.bounds
+            screenBounds.set(0, 0, bounds.width(), bounds.height())
+        } else {
+            val metrics = android.util.DisplayMetrics()
+            @Suppress("DEPRECATION")
+            windowManager.defaultDisplay.getRealMetrics(metrics)
+            screenBounds.set(0, 0, metrics.widthPixels, metrics.heightPixels)
+        }
 
         // Initialize ConfigManager
         configManager = ConfigManager.getInstance(this)
@@ -652,8 +659,14 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
 
                 val id = ElementNode.createId(rect, className.substringAfterLast('.'), displayText)
 
+                val nodeCopy = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    AccessibilityNodeInfo(node)
+                } else {
+                    @Suppress("DEPRECATION")
+                    AccessibilityNodeInfo.obtain(node)
+                }
                 currentElement = ElementNode(
-                    AccessibilityNodeInfo(node),
+                    nodeCopy,
                     Rect(rect),
                     displayText,
                     className.substringAfterLast('.'),
@@ -1266,6 +1279,49 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
     }
 
     private fun performScreenshotCapture(
+        future: CompletableFuture<String>,
+        wasOverlayDrawingEnabled: Boolean,
+        hideOverlay: Boolean,
+    ) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            performAccessibilityScreenshot(future, wasOverlayDrawingEnabled, hideOverlay)
+        } else {
+            performMediaProjectionScreenshot(future, wasOverlayDrawingEnabled, hideOverlay)
+        }
+    }
+
+    private fun performMediaProjectionScreenshot(
+        future: CompletableFuture<String>,
+        wasOverlayDrawingEnabled: Boolean,
+        hideOverlay: Boolean,
+    ) {
+        try {
+            val fallback = MediaProjectionScreenshotter.getInstance(this).capture()
+            fallback.whenComplete { result, error ->
+                try {
+                    val value = when {
+                        error != null -> "error: ${error.message}"
+                        result != null -> result
+                        else -> "error: empty_result"
+                    }
+                    future.complete(value)
+                } finally {
+                    if (hideOverlay) {
+                        overlayManager.setDrawingEnabled(wasOverlayDrawingEnabled)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error starting MediaProjection screenshot", e)
+            future.complete("error: Failed to take screenshot: ${e.message}")
+            if (hideOverlay) {
+                overlayManager.setDrawingEnabled(wasOverlayDrawingEnabled)
+            }
+        }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.R)
+    private fun performAccessibilityScreenshot(
         future: CompletableFuture<String>,
         wasOverlayDrawingEnabled: Boolean,
         hideOverlay: Boolean,
