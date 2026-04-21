@@ -165,6 +165,12 @@ class WebRtcManager private constructor(private val context: Context) {
         val controlChannel: DataChannel?
     )
 
+    private data class PrimaryPeerResources(
+        val peerConnection: PeerConnection,
+        val controlChannel: DataChannel?,
+        val scrcpyControlHandler: ScrcpyControlChannel?,
+    )
+
     private data class StreamResources(
         val screenCapturer: VideoCapturer?,
         val videoSource: VideoSource?,
@@ -577,7 +583,22 @@ class WebRtcManager private constructor(private val context: Context) {
             waitingForOffer = waitForOffer
             iceRestartAttempts = 0
             primePrimarySessionLivenessLocked(sessionId, SystemClock.elapsedRealtime())
-            createPeerConnection(effectiveIceServers, streamId, sessionId)
+        }
+        // Blocking native call must run outside streamLock (see matching comment
+        // in startStreamWithExistingCapture).
+        val newResources = createPeerConnection(effectiveIceServers, streamId, sessionId)
+        val sendReadyFor: String?
+        val shouldCreateOffer: Boolean
+        synchronized(streamLock) {
+            if (streamGeneration.get() != streamId) {
+                newResources?.let {
+                    cleanupPeerResources(PeerResources(it.peerConnection, it.controlChannel))
+                }
+                return
+            }
+            peerConnection = newResources?.peerConnection
+            controlChannel = newResources?.controlChannel
+            scrcpyControlHandler = newResources?.scrcpyControlHandler
             createVideoTrack(permissionResultData, width, height, fps, streamId)
 
             videoTrack?.let { track ->
@@ -586,11 +607,15 @@ class WebRtcManager private constructor(private val context: Context) {
             }
 
             startStatsLogging(streamId)
-            if (!waitForOffer) createOffer(streamId)
-            else {
+            if (!waitForOffer) {
+                shouldCreateOffer = true
+                sendReadyFor = null
+            } else {
+                shouldCreateOffer = false
                 if (!hasQueuedPrimaryOfferLocked(sessionId)) {
-                    sendStreamReady(sessionId)
+                    sendReadyFor = sessionId
                 } else {
+                    sendReadyFor = null
                     Log.i(
                         TAG,
                         "Skipping stream/ready because a primary offer is already queued (sessionId=$sessionId)",
@@ -598,6 +623,8 @@ class WebRtcManager private constructor(private val context: Context) {
                 }
             }
         }
+        if (shouldCreateOffer) createOffer(streamId)
+        sendReadyFor?.let { sendStreamReady(it) }
         takeoverPrimarySessionId?.let { notifyStreamStoppedAsync(sessionId = it) }
         flushPendingPrimarySignaling(sessionId)
     }
@@ -679,16 +706,35 @@ class WebRtcManager private constructor(private val context: Context) {
             if (videoTrack == null) {
                 throw IllegalStateException("No active capture to reuse")
             }
-            createPeerConnection(effectiveIceServers, streamId, sessionId)
+        }
+        // Blocking native call must run outside streamLock — nativeCreatePeerConnection
+        // can take seconds, and holding the lock across it ANRs the main thread when
+        // it tries to read session state (e.g. getActiveSessionIds) while we're here.
+        val newResources = createPeerConnection(effectiveIceServers, streamId, sessionId)
+        val sendReadyFor: String?
+        val shouldCreateOffer: Boolean
+        synchronized(streamLock) {
+            if (streamGeneration.get() != streamId) {
+                newResources?.let {
+                    cleanupPeerResources(PeerResources(it.peerConnection, it.controlChannel))
+                }
+                return
+            }
+            peerConnection = newResources?.peerConnection
+            controlChannel = newResources?.controlChannel
+            scrcpyControlHandler = newResources?.scrcpyControlHandler
             val sender = peerConnection?.addTrack(videoTrack, listOf(VIDEO_TRACK_ID))
             configureVideoSender(sender, width, height, fps)
             startStatsLogging(streamId)
             if (!waitForOffer) {
-                createOffer(streamId)
+                shouldCreateOffer = true
+                sendReadyFor = null
             } else {
+                shouldCreateOffer = false
                 if (!hasQueuedPrimaryOfferLocked(sessionId)) {
-                    sendStreamReady(sessionId)
+                    sendReadyFor = sessionId
                 } else {
+                    sendReadyFor = null
                     Log.i(
                         TAG,
                         "Skipping stream/ready because a primary offer is already queued (sessionId=$sessionId)",
@@ -696,6 +742,8 @@ class WebRtcManager private constructor(private val context: Context) {
                 }
             }
         }
+        if (shouldCreateOffer) createOffer(streamId)
+        sendReadyFor?.let { sendStreamReady(it) }
         takeoverPrimarySessionId?.let { notifyStreamStoppedAsync(sessionId = it) }
         flushPendingPrimarySignaling(sessionId)
     }
@@ -1920,7 +1968,7 @@ class WebRtcManager private constructor(private val context: Context) {
         customIceServers: List<PeerConnection.IceServer>?,
         streamId: Int,
         sessionId: String,
-    ) {
+    ): PrimaryPeerResources? {
         val iceServers = ArrayList<PeerConnection.IceServer>()
         if (customIceServers != null && customIceServers.isNotEmpty()) {
             iceServers.addAll(customIceServers)
@@ -1951,7 +1999,7 @@ class WebRtcManager private constructor(private val context: Context) {
             Log.w(TAG, "Cellular network without TURN - ICE may fail")
         }
 
-        peerConnection =
+        val newPeerConnection =
             peerConnectionFactory?.createPeerConnection(
                 rtcConfig,
                 object : CustomPeerConnectionObserver() {
@@ -2048,20 +2096,22 @@ class WebRtcManager private constructor(private val context: Context) {
                 }
             )
 
+        if (newPeerConnection == null) return null
+
         val dcInit =
             DataChannel.Init().apply {
                 ordered = true
                 negotiated = true
                 id = 1
             }
-        controlChannel = peerConnection?.createDataChannel("control", dcInit)
-        controlChannel?.let { dc ->
-            scrcpyControlHandler = ScrcpyControlChannel()
+        val newControlChannel = newPeerConnection.createDataChannel("control", dcInit)
+        val newScrcpyHandler = newControlChannel?.let { dc ->
+            val handler = ScrcpyControlChannel()
             dc.registerObserver(
                 LoggingDataChannelObserver(
                     channel = dc,
                     label = "primary:$streamId",
-                    delegate = scrcpyControlHandler,
+                    delegate = handler,
                     onStateChanged = { state ->
                         synchronized(streamLock) {
                             updateSessionControlStateLocked(sessionId, state)
@@ -2069,7 +2119,13 @@ class WebRtcManager private constructor(private val context: Context) {
                     },
                 ),
             )
+            handler
         }
+        return PrimaryPeerResources(
+            peerConnection = newPeerConnection,
+            controlChannel = newControlChannel,
+            scrcpyControlHandler = newScrcpyHandler,
+        )
     }
 
     private fun createVideoTrack(
