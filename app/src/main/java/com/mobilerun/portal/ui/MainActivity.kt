@@ -10,6 +10,7 @@ import android.view.inputmethod.InputMethodManager
 
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.widget.TextView
@@ -1852,11 +1853,30 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
     }
 
     private fun updateFileAccessBanner() {
-        val needsPermission = !android.os.Environment.isExternalStorageManager()
-        binding.fileAccessBanner.visibility = if (needsPermission) View.VISIBLE else View.GONE
+        when {
+            android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.R -> {
+                binding.fileAccessBannerText.setText(R.string.file_access_requires_android_11)
+                binding.enableFileAccessButton.visibility = View.GONE
+                binding.fileAccessBanner.visibility = View.VISIBLE
+            }
+
+            !android.os.Environment.isExternalStorageManager() -> {
+                binding.fileAccessBannerText.setText(R.string.file_access_not_granted)
+                binding.enableFileAccessButton.visibility = View.VISIBLE
+                binding.fileAccessBanner.visibility = View.VISIBLE
+            }
+
+            else -> {
+                binding.fileAccessBanner.visibility = View.GONE
+            }
+        }
     }
 
     private fun openFileAccessSettings() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            Toast.makeText(this, R.string.file_access_requires_android_11, Toast.LENGTH_SHORT).show()
+            return
+        }
         try {
             val intent = Intent(
                 Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,

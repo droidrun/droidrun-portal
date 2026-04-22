@@ -31,6 +31,7 @@ data class ListFilesCommandResult(
  */
 class FileOperations(
     private val listFilesCommandRunner: (String) -> ListFilesCommandResult = ::defaultListFilesCommandRunner,
+    private val fileAccessErrorProvider: () -> SecurityException? = ::checkFileAccessPermission,
 ) {
 
     companion object {
@@ -45,7 +46,12 @@ class FileOperations(
             return ListFilesCommandResult(exitCode = exitCode, stdout = stdout, stderr = stderr)
         }
 
-        private fun checkWritePermission(): SecurityException? {
+        private fun checkFileAccessPermission(): SecurityException? {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+                return SecurityException(
+                    "File operations are only supported on Android 11+ in this compatibility tier"
+                )
+            }
             if (!Environment.isExternalStorageManager()) {
                 return SecurityException(
                     "MANAGE_EXTERNAL_STORAGE not granted. " +
@@ -86,6 +92,7 @@ class FileOperations(
     }
 
     fun listFiles(relativePath: String): Result<FileListResponse> {
+        fileAccessErrorProvider()?.let { return Result.failure(it) }
         return try {
             val resolvedPath = resolvePath(relativePath)
             val file = File(resolvedPath)
@@ -133,6 +140,7 @@ class FileOperations(
     }
 
     fun readFile(relativePath: String): Result<ByteArray> {
+        fileAccessErrorProvider()?.let { return Result.failure(it) }
         return try {
             val resolvedPath = resolvePath(relativePath)
             val file = File(resolvedPath)
@@ -161,7 +169,7 @@ class FileOperations(
     }
 
     fun writeFile(relativePath: String, data: ByteArray): Result<Unit> {
-        checkWritePermission()?.let { return Result.failure(it) }
+        fileAccessErrorProvider()?.let { return Result.failure(it) }
         return try {
             if (data.size > MAX_FILE_SIZE) {
                 return Result.failure(
@@ -183,7 +191,7 @@ class FileOperations(
     }
 
     fun deleteFile(relativePath: String): Result<Unit> {
-        checkWritePermission()?.let { return Result.failure(it) }
+        fileAccessErrorProvider()?.let { return Result.failure(it) }
         return try {
             val resolvedPath = resolvePath(relativePath)
             val file = File(resolvedPath)
@@ -206,7 +214,7 @@ class FileOperations(
     }
 
     fun fetchFile(url: String, relativePath: String): Result<Unit> {
-        checkWritePermission()?.let { return Result.failure(it) }
+        fileAccessErrorProvider()?.let { return Result.failure(it) }
         return try {
             val resolvedPath = resolvePath(relativePath)
             val connection = URL(url).openConnection() as HttpURLConnection
@@ -287,6 +295,7 @@ class FileOperations(
     }
 
     fun pushFile(url: String, relativePath: String): Result<Unit> {
+        fileAccessErrorProvider()?.let { return Result.failure(it) }
         return try {
             val resolvedPath = resolvePath(relativePath)
             val file = File(resolvedPath)

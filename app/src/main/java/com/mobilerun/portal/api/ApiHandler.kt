@@ -43,6 +43,7 @@ import org.webrtc.IceCandidate
 import org.webrtc.PeerConnection
 import com.mobilerun.portal.service.AutoAcceptGate
 import com.mobilerun.portal.service.FileOperations
+import com.mobilerun.portal.service.ReverseConnectionService
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import androidx.core.app.NotificationCompat
@@ -215,7 +216,13 @@ class ApiHandler(
                     obj.put("label", label)
                     obj.put("versionName", pkgInfo.versionName ?: JSONObject.NULL)
 
-                    val versionCode = pkgInfo.longVersionCode
+                    val versionCode =
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                            pkgInfo.longVersionCode
+                        } else {
+                            @Suppress("DEPRECATION")
+                            pkgInfo.versionCode.toLong()
+                        }
                     obj.put("versionCode", versionCode)
 
                     val isSystem = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
@@ -311,7 +318,9 @@ class ApiHandler(
             val focusedNode = state.focusedElement
 
             try {
-                if (focusedNode != null) {
+                if (focusedNode != null &&
+                    android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R
+                ) {
                     if (focusedNode.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)) {
                         return ApiResponse.Success("Enter performed via Accessibility")
                     }
@@ -1758,6 +1767,7 @@ class ApiHandler(
         val waitForOffer = params.optBoolean("waitForOffer", false)
         val manager = WebRtcManager.getInstance(context)
         manager.setStreamRequestId(sessionId)
+        ReverseConnectionService.getInstance()?.let { manager.setReverseConnectionService(it) }
         params.optJSONArray("iceServers")?.let {
             manager.setPendingIceServers(parseIceServers(it))
         }
@@ -1781,6 +1791,7 @@ class ApiHandler(
         val intent =
             Intent(context, com.mobilerun.portal.ui.ScreenCaptureActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                putExtra(com.mobilerun.portal.ui.ScreenCaptureActivity.EXTRA_MODE, com.mobilerun.portal.ui.ScreenCaptureActivity.MODE_STREAM)
                 putExtra(ScreenCaptureService.EXTRA_WIDTH, width)
                 putExtra(ScreenCaptureService.EXTRA_HEIGHT, height)
                 putExtra(ScreenCaptureService.EXTRA_FPS, fps)
@@ -1884,6 +1895,7 @@ class ApiHandler(
 
         val manager = WebRtcManager.getInstance(context)
         manager.setStreamRequestId(sessionId)
+        ReverseConnectionService.getInstance()?.let { manager.setReverseConnectionService(it) }
         params.optJSONArray("iceServers")?.let { iceArray ->
             try {
                 manager.setPendingIceServers(parseIceServers(iceArray))
@@ -2018,7 +2030,15 @@ class ApiHandler(
     fun getScreenKeepAwakeStatus(): ApiResponse =
         ApiResponse.RawObject(KeepAliveController.getStatusJson(context))
 
+    private fun fileOperationsUnavailableResponse(): ApiResponse? {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) return null
+        return ApiResponse.Error(
+            "File operations are only supported on Android 11+ in this compatibility tier"
+        )
+    }
+
     fun listFiles(path: String): ApiResponse {
+        fileOperationsUnavailableResponse()?.let { return it }
         return fileOperations.listFiles(path).fold(
             onSuccess = { response ->
                 ApiResponse.RawObject(response.toJson())
@@ -2036,6 +2056,7 @@ class ApiHandler(
     }
 
     fun downloadFile(path: String): ApiResponse {
+        fileOperationsUnavailableResponse()?.let { return it }
         if (path.isEmpty()) {
             return ApiResponse.Error("Missing required param: 'path'")
         }
@@ -2057,6 +2078,7 @@ class ApiHandler(
     }
 
     fun uploadFile(path: String, data: ByteArray): ApiResponse {
+        fileOperationsUnavailableResponse()?.let { return it }
         if (path.isEmpty()) {
             return ApiResponse.Error("Missing required param: 'path'")
         }
@@ -2076,6 +2098,7 @@ class ApiHandler(
     }
 
     fun deleteFile(path: String): ApiResponse {
+        fileOperationsUnavailableResponse()?.let { return it }
         if (path.isEmpty()) {
             return ApiResponse.Error("Missing required param: 'path'")
         }
@@ -2096,6 +2119,7 @@ class ApiHandler(
     }
 
     fun fetchFile(url: String, path: String): ApiResponse {
+        fileOperationsUnavailableResponse()?.let { return it }
         if (url.isEmpty()) {
             return ApiResponse.Error("Missing required param: 'url'")
         }
@@ -2118,6 +2142,7 @@ class ApiHandler(
     }
 
     fun pushFile(url: String, path: String): ApiResponse {
+        fileOperationsUnavailableResponse()?.let { return it }
         if (url.isEmpty()) {
             return ApiResponse.Error("Missing required param: 'url'")
         }

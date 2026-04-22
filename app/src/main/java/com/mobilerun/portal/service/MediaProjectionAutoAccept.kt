@@ -949,7 +949,9 @@ object MediaProjectionAutoAccept {
     private fun isInlineOptionSelected(node: AccessibilityNodeInfo): Boolean {
         if (node.collectionItemInfo?.isSelected == true) return true
         if (node.isSelected || node.isChecked) return true
-        if (isPositiveSelectionDescription(node.stateDescription?.toString())) return true
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R &&
+            isPositiveSelectionDescription(node.stateDescription?.toString())
+        ) return true
 
         val checkedIndicator = findCheckedIndicator(node)
         if (checkedIndicator != null) {
@@ -964,7 +966,10 @@ object MediaProjectionAutoAccept {
         if (node.collectionItemInfo?.isSelected == true) {
             return AccessibilityNodeInfo.obtain(node)
         }
-        if (node.isChecked || isPositiveSelectionDescription(node.stateDescription?.toString())) {
+        val checkedByState =
+            android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R &&
+                isPositiveSelectionDescription(node.stateDescription?.toString())
+        if (node.isChecked || checkedByState) {
             return AccessibilityNodeInfo.obtain(node)
         }
 

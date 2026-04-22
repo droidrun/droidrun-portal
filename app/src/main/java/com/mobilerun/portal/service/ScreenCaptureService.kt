@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -28,11 +29,15 @@ class ScreenCaptureService : Service() {
 
         const val EXTRA_RESULT_CODE = "result_code"
         const val EXTRA_RESULT_DATA = "result_data"
+        const val EXTRA_CAPTURE_MODE = "capture_mode"
 
         const val EXTRA_WIDTH = "width"
         const val EXTRA_HEIGHT = "height"
         const val EXTRA_FPS = "fps"
         const val EXTRA_WAIT_FOR_OFFER = "wait_for_offer"
+
+        const val CAPTURE_MODE_STREAM = "stream"
+        const val CAPTURE_MODE_SCREENSHOT = "screenshot"
 
         @Volatile
         private var instance: ScreenCaptureService? = null
@@ -68,6 +73,7 @@ class ScreenCaptureService : Service() {
             ACTION_PERMISSION_RESULT -> {
                 val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, 0)
                 val resultData = intent.getParcelableExtra<Intent>(EXTRA_RESULT_DATA)
+                val captureMode = intent.getStringExtra(EXTRA_CAPTURE_MODE) ?: CAPTURE_MODE_STREAM
                 val width = intent.getIntExtra(EXTRA_WIDTH, 720)
                 val height = intent.getIntExtra(EXTRA_HEIGHT, 1280)
                 val fps = intent.getIntExtra(EXTRA_FPS, 30)
@@ -75,12 +81,35 @@ class ScreenCaptureService : Service() {
 
                 if (resultCode == -1 && resultData != null) {
                     stopRequested = false
+                    stopFinalized = false
                     val rcs = ReverseConnectionService.getInstance()
                     rcs?.suspendForegroundForStreaming()
-                    startForeground(
-                        NOTIFICATION_ID, createNotification(),
-                        ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
-                    )
+                    startCaptureForeground()
+
+                    if (captureMode == CAPTURE_MODE_SCREENSHOT) {
+                        rcs?.let { webRtcManager.setReverseConnectionService(it) }
+                        try {
+                            webRtcManager.startSharedCapture(
+                                permissionResultData = resultData,
+                                width = width,
+                                height = height,
+                                fps = fps,
+                            )
+                            MediaProjectionScreenshotter.getInstance(this).onSharedCaptureReady()
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed to start shared screenshot capture", e)
+                            MediaProjectionScreenshotter
+                                .getInstance(this)
+                                .onSharedCaptureFailed(
+                                    e.message ?: "Failed to start shared screenshot capture",
+                                )
+                            @Suppress("DEPRECATION")
+                            stopForeground(true)
+                            stopSelf()
+                            return START_NOT_STICKY
+                        }
+                        return START_NOT_STICKY
+                    }
 
                     if (rcs == null) {
                         Log.e(
@@ -134,6 +163,11 @@ class ScreenCaptureService : Service() {
                     }
                 } else {
                     Log.e(TAG, "Invalid permission result")
+                    if (captureMode == CAPTURE_MODE_SCREENSHOT) {
+                        MediaProjectionScreenshotter
+                            .getInstance(this)
+                            .onSharedCaptureFailed("Invalid permission result")
+                    }
                     webRtcManager.setStreamRequestId(null)
                     stopSelf()
                 }
@@ -189,6 +223,18 @@ class ScreenCaptureService : Service() {
         stopForeground(true)
         ReverseConnectionService.getInstance()?.resumeForegroundAfterStreaming()
         stopSelf()
+    }
+
+    private fun startCaptureForeground() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(
+                NOTIFICATION_ID,
+                createNotification(),
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION,
+            )
+        } else {
+            startForeground(NOTIFICATION_ID, createNotification())
+        }
     }
 
     private fun createNotificationChannel() {

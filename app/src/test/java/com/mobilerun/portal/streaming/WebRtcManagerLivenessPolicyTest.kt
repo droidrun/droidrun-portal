@@ -6,6 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.webrtc.DataChannel
 import org.webrtc.PeerConnection
+import java.util.concurrent.CompletableFuture
 
 class WebRtcManagerLivenessPolicyTest {
     @Test
@@ -106,6 +107,106 @@ class WebRtcManagerLivenessPolicyTest {
     }
 
     @Test
+    fun shouldArmCaptureOnlyIdleStop_whenSharedScreenshotBootstrapsCaptureOnlySession() {
+        assertTrue(
+            WebRtcManager.shouldArmCaptureOnlyIdleStop(
+                usedSharedCaptureSession = true,
+                captureSessionMode = WebRtcManager.CaptureSessionMode.CAPTURE_ONLY,
+                captureActive = true,
+                streamActive = false,
+            ),
+        )
+    }
+
+    @Test
+    fun shouldArmCaptureOnlyIdleStop_whenScreenshotReusesActiveStreamCapture() {
+        assertFalse(
+            WebRtcManager.shouldArmCaptureOnlyIdleStop(
+                usedSharedCaptureSession = true,
+                captureSessionMode = WebRtcManager.CaptureSessionMode.STREAM,
+                captureActive = true,
+                streamActive = true,
+            ),
+        )
+    }
+
+    @Test
+    fun shouldArmCaptureOnlyIdleStop_whenSharedScreenshotFailsAfterBootstrap() {
+        assertTrue(
+            WebRtcManager.shouldArmCaptureOnlyIdleStop(
+                usedSharedCaptureSession = true,
+                captureSessionMode = WebRtcManager.CaptureSessionMode.CAPTURE_ONLY,
+                captureActive = true,
+                streamActive = false,
+            ),
+        )
+    }
+
+    @Test
+    fun buildCaptureFastState_marksReusableSharedCaptureWithoutSessionLockState() {
+        val state =
+            WebRtcManager.buildCaptureFastState(
+                captureActive = true,
+                videoTrackReady = true,
+                captureSessionMode = WebRtcManager.CaptureSessionMode.STREAM,
+                generation = 42,
+            )
+
+        assertTrue(state.captureActive)
+        assertTrue(state.reusableFrameSource)
+        assertEquals(WebRtcManager.CaptureSessionMode.STREAM, state.captureSessionMode)
+        assertEquals(42, state.generation)
+    }
+
+    @Test
+    fun buildCaptureFastState_clearsReusableStateWhenCaptureIsReset() {
+        val state =
+            WebRtcManager.buildCaptureFastState(
+                captureActive = false,
+                videoTrackReady = true,
+                captureSessionMode = WebRtcManager.CaptureSessionMode.STREAM,
+                generation = 42,
+            )
+
+        assertFalse(state.captureActive)
+        assertFalse(state.reusableFrameSource)
+        assertEquals(WebRtcManager.CaptureSessionMode.NONE, state.captureSessionMode)
+        assertEquals(0, state.generation)
+    }
+
+    @Test
+    fun planCaptureFrameRequest_reusesFastCaptureStateWithoutNeedingStreamLock() {
+        val requestPlan =
+            WebRtcManager.planCaptureFrameRequest(
+                WebRtcManager.buildCaptureFastState(
+                    captureActive = true,
+                    videoTrackReady = true,
+                    captureSessionMode = WebRtcManager.CaptureSessionMode.STREAM,
+                    generation = 7,
+                ),
+            )
+
+        assertTrue(requestPlan.reusableCaptureAvailable)
+        assertFalse(requestPlan.shouldCancelIdleStop)
+    }
+
+    @Test
+    fun planCaptureFrameRequest_captureOnlyReuseCancelsIdleStop() {
+        val requestPlan =
+            WebRtcManager.planCaptureFrameRequest(
+                WebRtcManager.buildCaptureFastState(
+                    captureActive = true,
+                    videoTrackReady = true,
+                    captureSessionMode = WebRtcManager.CaptureSessionMode.CAPTURE_ONLY,
+                    generation = 7,
+                ),
+            )
+
+        assertTrue(requestPlan.reusableCaptureAvailable)
+        assertTrue(requestPlan.shouldCancelIdleStop)
+    }
+
+    @Test
     fun resolveIncomingSessionRoute_takesOverWhenLivenessIsStale() {
         assertEquals(
             WebRtcManager.IncomingSessionRoute.TAKEOVER_STALE_PRIMARY,
@@ -167,5 +268,77 @@ class WebRtcManagerLivenessPolicyTest {
                 livenessStaleAfterMs = 300_000L,
             ),
         )
+    }
+
+    @Test
+    fun completeFrameCaptureWaiters_completesAllConcurrentRequestsWithSameSnapshotResult() {
+        val waiterOne = CompletableFuture<String>()
+        val waiterTwo = CompletableFuture<String>()
+
+        val completed =
+            WebRtcManager.completeFrameCaptureWaiters(
+                listOf(waiterOne, waiterTwo),
+                "snapshot-base64",
+            )
+
+        assertEquals(2, completed)
+        assertEquals("snapshot-base64", waiterOne.get())
+        assertEquals("snapshot-base64", waiterTwo.get())
+    }
+
+    @Test
+    fun failFrameCaptureWaiters_failsAllPendingRequestsOnCaptureCleanup() {
+        val waiterOne = CompletableFuture<String>()
+        val waiterTwo = CompletableFuture<String>()
+
+        val completed =
+            WebRtcManager.failFrameCaptureWaiters(
+                listOf(waiterOne, waiterTwo),
+                "capture_stopped",
+            )
+
+        assertEquals(2, completed)
+        assertEquals("error: capture_stopped", waiterOne.get())
+        assertEquals("error: capture_stopped", waiterTwo.get())
+    }
+
+    @Test
+    fun nextZeroSentStatsIntervalCount_warnsAfterTwoConnectedZeroFrameIntervals() {
+        val first =
+            WebRtcManager.nextZeroSentStatsIntervalCount(
+                currentCount = 0,
+                iceState = PeerConnection.IceConnectionState.CONNECTED,
+                framesSent = 0L,
+            )
+        val second =
+            WebRtcManager.nextZeroSentStatsIntervalCount(
+                currentCount = first,
+                iceState = PeerConnection.IceConnectionState.CONNECTED,
+                framesSent = 0L,
+            )
+
+        assertEquals(1, first)
+        assertEquals(2, second)
+        assertTrue(WebRtcManager.shouldWarnForZeroSentStats(second))
+    }
+
+    @Test
+    fun nextZeroSentStatsIntervalCount_resetsWhenFramesFlowAgain() {
+        val connectedSilence =
+            WebRtcManager.nextZeroSentStatsIntervalCount(
+                currentCount = 1,
+                iceState = PeerConnection.IceConnectionState.CONNECTED,
+                framesSent = 0L,
+            )
+        val withFrames =
+            WebRtcManager.nextZeroSentStatsIntervalCount(
+                currentCount = connectedSilence,
+                iceState = PeerConnection.IceConnectionState.CONNECTED,
+                framesSent = 3L,
+            )
+
+        assertEquals(2, connectedSilence)
+        assertEquals(0, withFrames)
+        assertFalse(WebRtcManager.shouldWarnForZeroSentStats(withFrames))
     }
 }

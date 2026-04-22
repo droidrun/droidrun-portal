@@ -1,6 +1,12 @@
 package com.mobilerun.portal.streaming
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.ImageFormat
+import android.graphics.Matrix
+import android.graphics.Rect
+import android.graphics.YuvImage
 import android.media.projection.MediaProjection
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
@@ -8,8 +14,11 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
 import android.os.SystemClock
+import android.util.Base64
 import android.util.Log
 import android.widget.Toast
+import java.io.ByteArrayOutputStream
+import java.util.concurrent.CompletableFuture
 import com.mobilerun.portal.service.ReverseConnectionService
 import com.mobilerun.portal.service.ScreenCaptureService
 import java.util.Locale
@@ -31,11 +40,13 @@ class WebRtcManager private constructor(private val context: Context) {
         private const val H264_CODEC_NAME = "H264/90000"
         private const val STATS_INTERVAL_MS = 5000L
         private const val IDLE_TIMEOUT_MS = 10 * 60 * 1000L
+        private const val SCREENSHOT_CAPTURE_IDLE_TIMEOUT_MS = 60_000L
         private const val KEEP_ALIVE_TIMEOUT_MS = 30_000L
         private const val KEEP_ALIVE_HEALTHY_GRACE_MS = 30 * 60 * 1000L
         private const val MAX_OUTGOING_ICE_CANDIDATES = 50
         private const val MAX_ICE_RESTARTS = 1
         private const val MAX_CONCURRENT_SESSIONS = 3
+        private const val FRAME_TAP_TIMEOUT_MS = 2_000L
 
         @Volatile
         private var instance: WebRtcManager? = null
@@ -86,8 +97,8 @@ class WebRtcManager private constructor(private val context: Context) {
             controlState: DataChannel.State?,
         ): Boolean {
             return iceState == PeerConnection.IceConnectionState.CONNECTED ||
-                iceState == PeerConnection.IceConnectionState.COMPLETED ||
-                controlState == DataChannel.State.OPEN
+                    iceState == PeerConnection.IceConnectionState.COMPLETED ||
+                    controlState == DataChannel.State.OPEN
         }
 
         internal fun evaluateSessionLivenessTimeout(
@@ -147,11 +158,153 @@ class WebRtcManager private constructor(private val context: Context) {
             }
             return IncomingSessionRoute.SECONDARY
         }
+
+        internal fun buildCpuFrameSnapshot(frame: VideoFrame): CapturedFrameSnapshot? {
+            val i420 = frame.buffer.toI420() ?: return null
+            return try {
+                CapturedFrameSnapshot(
+                    width = i420.width,
+                    height = i420.height,
+                    rotation = frame.rotation,
+                    nv21 = copyI420ToNv21(i420, i420.width, i420.height),
+                )
+            } finally {
+                i420.release()
+            }
+        }
+
+        internal fun completeFrameCaptureWaiters(
+            waiters: List<CompletableFuture<String>>,
+            result: String,
+        ): Int {
+            var completed = 0
+            waiters.forEach { waiter ->
+                if (waiter.complete(result)) {
+                    completed += 1
+                }
+            }
+            return completed
+        }
+
+        internal fun failFrameCaptureWaiters(
+            waiters: List<CompletableFuture<String>>,
+            reason: String,
+        ): Int = completeFrameCaptureWaiters(waiters, "error: $reason")
+
+        internal fun nextZeroSentStatsIntervalCount(
+            currentCount: Int,
+            iceState: PeerConnection.IceConnectionState?,
+            framesSent: Long?,
+        ): Int {
+            val connected =
+                iceState == PeerConnection.IceConnectionState.CONNECTED ||
+                        iceState == PeerConnection.IceConnectionState.COMPLETED
+            if (!connected || framesSent != 0L) return 0
+            return currentCount + 1
+        }
+
+        internal fun shouldWarnForZeroSentStats(intervalCount: Int): Boolean = intervalCount == 2
+
+        internal fun shouldArmCaptureOnlyIdleStop(
+            usedSharedCaptureSession: Boolean,
+            captureSessionMode: CaptureSessionMode,
+            captureActive: Boolean,
+            streamActive: Boolean,
+        ): Boolean {
+            return usedSharedCaptureSession &&
+                    captureSessionMode == CaptureSessionMode.CAPTURE_ONLY &&
+                    captureActive &&
+                    !streamActive
+        }
+
+        internal data class CaptureFastState(
+            val captureActive: Boolean,
+            val reusableFrameSource: Boolean,
+            val captureSessionMode: CaptureSessionMode,
+            val generation: Int,
+        )
+
+        internal data class CaptureFrameRequestPlan(
+            val reusableCaptureAvailable: Boolean,
+            val shouldCancelIdleStop: Boolean,
+        )
+
+        internal fun buildCaptureFastState(
+            captureActive: Boolean,
+            videoTrackReady: Boolean,
+            captureSessionMode: CaptureSessionMode,
+            generation: Int,
+        ): CaptureFastState {
+            if (!captureActive) {
+                return CaptureFastState(
+                    captureActive = false,
+                    reusableFrameSource = false,
+                    captureSessionMode = CaptureSessionMode.NONE,
+                    generation = 0,
+                )
+            }
+            return CaptureFastState(
+                captureActive = true,
+                reusableFrameSource = videoTrackReady,
+                captureSessionMode = captureSessionMode,
+                generation = generation,
+            )
+        }
+
+        internal fun planCaptureFrameRequest(
+            captureFastState: CaptureFastState,
+        ): CaptureFrameRequestPlan {
+            return CaptureFrameRequestPlan(
+                reusableCaptureAvailable = captureFastState.reusableFrameSource,
+                shouldCancelIdleStop =
+                    captureFastState.reusableFrameSource &&
+                            captureFastState.captureSessionMode == CaptureSessionMode.CAPTURE_ONLY,
+            )
+        }
+
+        private fun copyI420ToNv21(
+            i420: VideoFrame.I420Buffer,
+            width: Int,
+            height: Int,
+        ): ByteArray {
+            val nv21 = ByteArray(width * height * 3 / 2)
+
+            val yBuf = i420.dataY
+            val strideY = i420.strideY
+            for (row in 0 until height) {
+                yBuf.position(row * strideY)
+                yBuf.get(nv21, row * width, width)
+            }
+
+            val uBuf = i420.dataU
+            val vBuf = i420.dataV
+            val strideU = i420.strideU
+            val strideV = i420.strideV
+            val chromaH = height / 2
+            val chromaW = width / 2
+            val uvStart = width * height
+            for (row in 0 until chromaH) {
+                val dstBase = uvStart + row * width
+                val srcBaseU = row * strideU
+                val srcBaseV = row * strideV
+                for (col in 0 until chromaW) {
+                    nv21[dstBase + col * 2] = vBuf.get(srcBaseV + col)
+                    nv21[dstBase + col * 2 + 1] = uBuf.get(srcBaseU + col)
+                }
+            }
+            return nv21
+        }
     }
 
     private data class PeerResources(
         val peerConnection: PeerConnection?,
         val controlChannel: DataChannel?
+    )
+
+    private data class PrimaryPeerResources(
+        val peerConnection: PeerConnection,
+        val controlChannel: DataChannel?,
+        val scrcpyControlHandler: ScrcpyControlChannel?,
     )
 
     private data class StreamResources(
@@ -166,6 +319,18 @@ class WebRtcManager private constructor(private val context: Context) {
     private data class PendingStreamStop(
         val reason: String?,
         val sessionId: Any?,
+    )
+
+    private data class PendingFrameCapture(
+        val future: CompletableFuture<String>,
+        val timeoutRunnable: Runnable,
+    )
+
+    internal data class CapturedFrameSnapshot(
+        val width: Int,
+        val height: Int,
+        val rotation: Int,
+        val nv21: ByteArray,
     )
 
     internal data class SessionLivenessTimeoutDecision(
@@ -196,6 +361,12 @@ class WebRtcManager private constructor(private val context: Context) {
         PRIMARY,
         SECONDARY,
         TAKEOVER_STALE_PRIMARY,
+    }
+
+    internal enum class CaptureSessionMode {
+        NONE,
+        STREAM,
+        CAPTURE_ONLY,
     }
 
     private data class SecondarySession(
@@ -246,8 +417,11 @@ class WebRtcManager private constructor(private val context: Context) {
     private val stopHandler = Handler(stopThread.looper)
     private val statsThread = HandlerThread("WebRtcStats").apply { start() }
     private val statsHandler = Handler(statsThread.looper)
+    private val frameTapThread = HandlerThread("WebRtcFrameTap").apply { start() }
+    private val frameTapHandler = Handler(frameTapThread.looper)
     private val mainHandler = Handler(Looper.getMainLooper())
     private val streamGeneration = AtomicInteger(0)
+    private val frameTapLock = Any()
 
     @Volatile
     private var streamRequestId: String? = null
@@ -265,6 +439,18 @@ class WebRtcManager private constructor(private val context: Context) {
     private var statsRunnable: Runnable? = null
     private var lastStatsBytesSent: Long? = null
     private var lastStatsTimestampMs: Long? = null
+    private var consecutiveZeroSentStatsIntervals = 0
+    private var captureLogStreamId = 0
+    private var firstCaptureFrameLoggedStreamId = 0
+    private var captureSessionMode = CaptureSessionMode.NONE
+    @Volatile
+    private var captureFastState =
+        buildCaptureFastState(
+            captureActive = false,
+            videoTrackReady = false,
+            captureSessionMode = CaptureSessionMode.NONE,
+            generation = 0,
+        )
 
     @Volatile
     private var controlChannel: DataChannel? = null
@@ -274,6 +460,7 @@ class WebRtcManager private constructor(private val context: Context) {
     @Volatile
     private var pendingStreamStop: PendingStreamStop? = null
     private val sessionLivenessStates = mutableMapOf<String, SessionLivenessState>()
+    private val pendingFrameCaptures = mutableListOf<PendingFrameCapture>()
 
     init {
         initializePeerConnectionFactory()
@@ -306,12 +493,248 @@ class WebRtcManager private constructor(private val context: Context) {
     fun isStreamActive(): Boolean =
         synchronized(streamLock) { peerConnection != null || secondarySessions.isNotEmpty() }
 
+    fun hasReusableCaptureFrameSource(): Boolean = captureFastState.reusableFrameSource
+
+    internal fun getCaptureFastStateSnapshot(): CaptureFastState = captureFastState
+
+    /**
+     * Tap the next frame from the active screen-capture VideoTrack and return it
+     * as a base64-encoded PNG. Used as the screenshot source on pre-API-30 devices
+     * while an existing MediaProjection capture is already running. This covers
+     * both actively streaming sessions and reconnect windows where capture is
+     * still alive but the peer connection has already dropped.
+     */
+    fun captureStreamFrame(): CompletableFuture<String> {
+        val future = CompletableFuture<String>()
+        val captureState = getCaptureFastStateSnapshot()
+        val requestPlan = planCaptureFrameRequest(captureState)
+        Log.d(
+            TAG,
+            "captureStreamFrame: reusable=${requestPlan.reusableCaptureAvailable} mode=${captureState.captureSessionMode} gen=${captureState.generation}",
+        )
+        if (!requestPlan.reusableCaptureAvailable) {
+            Log.w(TAG, "captureStreamFrame: no reusable shared capture is available")
+            future.complete("error: no_active_capture")
+            return future
+        }
+        if (requestPlan.shouldCancelIdleStop) {
+            cancelIdleStop()
+        }
+
+        val pending =
+            PendingFrameCapture(
+                future = future,
+                timeoutRunnable = Runnable {
+                    val removed =
+                        synchronized(frameTapLock) {
+                            pendingFrameCaptures.removeAll { it.future === future }
+                        }
+                    if (removed) {
+                        val timeoutState = getCaptureFastStateSnapshot()
+                        Log.w(
+                            TAG,
+                            "Screenshot waiter timed out waiting for next shared capture frame (reusable=${timeoutState.reusableFrameSource}, mode=${timeoutState.captureSessionMode}, gen=${timeoutState.generation})",
+                        )
+                        future.complete("error: frame_timeout")
+                    }
+                },
+            )
+        val pendingCount =
+            synchronized(frameTapLock) {
+                pendingFrameCaptures.add(pending)
+                pendingFrameCaptures.size
+            }
+        Log.d(TAG, "Armed screenshot waiter for next shared capture frame (pending=$pendingCount)")
+        frameTapHandler.postDelayed(pending.timeoutRunnable, FRAME_TAP_TIMEOUT_MS)
+        return future
+    }
+
+    private fun encodeSnapshotAsync(
+        snapshot: CapturedFrameSnapshot,
+        waiters: List<PendingFrameCapture>,
+    ) {
+        frameTapHandler.post {
+            val waiterFutures = waiters.map { it.future }
+            try {
+                val result = encodeFrameSnapshot(snapshot)
+                val completed = completeFrameCaptureWaiters(waiterFutures, result)
+                if (result.startsWith("error:")) {
+                    Log.w(
+                        TAG,
+                        "Failed completing $completed screenshot waiters from shared capture: ${
+                            result.removePrefix(
+                                "error: "
+                            )
+                        }",
+                    )
+                } else {
+                    Log.d(
+                        TAG,
+                        "Completed $completed screenshot waiters from next shared capture frame"
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "frame snapshot encode failed", e)
+                val completed =
+                    failFrameCaptureWaiters(
+                        waiterFutures,
+                        e.message ?: "frame_encode_failed",
+                    )
+                Log.w(
+                    TAG,
+                    "Failed $completed screenshot waiters due to frame snapshot encode error"
+                )
+            }
+        }
+    }
+
+    private fun onCaptureFrameObserved(frame: VideoFrame) {
+        logFirstCaptureFrameIfNeeded()
+
+        val waiters =
+            synchronized(frameTapLock) {
+                if (pendingFrameCaptures.isEmpty()) {
+                    emptyList()
+                } else {
+                    ArrayList(pendingFrameCaptures).also { pendingFrameCaptures.clear() }
+                }
+            }
+        if (waiters.isEmpty()) {
+            return
+        }
+        waiters.forEach { pending ->
+            frameTapHandler.removeCallbacks(pending.timeoutRunnable)
+        }
+
+        val snapshot =
+            try {
+                buildCpuFrameSnapshot(frame)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to build CPU-owned frame snapshot", e)
+                null
+            }
+        if (snapshot == null) {
+            val failed = failFrameCaptureWaiters(waiters.map { it.future }, "frame_snapshot_failed")
+            Log.w(
+                TAG,
+                "Failed $failed screenshot waiters because the capture frame could not be cloned"
+            )
+            return
+        }
+
+        Log.d(TAG, "Cloned next shared capture frame for ${waiters.size} screenshot waiters")
+        encodeSnapshotAsync(snapshot, waiters)
+    }
+
+    private fun clearCaptureFrameTapState(reason: String) {
+        val waiters: List<PendingFrameCapture>
+        synchronized(frameTapLock) {
+            waiters = ArrayList(pendingFrameCaptures)
+            pendingFrameCaptures.clear()
+        }
+        waiters.forEach { pending ->
+            frameTapHandler.removeCallbacks(pending.timeoutRunnable)
+        }
+        val failed = failFrameCaptureWaiters(waiters.map { it.future }, reason)
+        Log.d(TAG, "Capture cleanup: reason=$reason failedWaiters=$failed")
+    }
+
+    private fun logFirstCaptureFrameIfNeeded() {
+        val streamId =
+            synchronized(streamLock) {
+                captureLogStreamId
+            }
+        if (streamId == 0) return
+        val shouldLog =
+            synchronized(streamLock) {
+                if (firstCaptureFrameLoggedStreamId == streamId) {
+                    false
+                } else {
+                    firstCaptureFrameLoggedStreamId = streamId
+                    true
+                }
+            }
+        if (shouldLog) {
+            Log.i(TAG, "First capture frame observed for streamId=$streamId")
+        }
+    }
+
+    private fun createCaptureFrameObserver(delegate: CapturerObserver): CapturerObserver {
+        return object : CapturerObserver {
+            override fun onCapturerStarted(success: Boolean) {
+                delegate.onCapturerStarted(success)
+            }
+
+            override fun onCapturerStopped() {
+                clearCaptureFrameTapState("capture_stopped")
+                delegate.onCapturerStopped()
+            }
+
+            override fun onFrameCaptured(frame: VideoFrame) {
+                delegate.onFrameCaptured(frame)
+                onCaptureFrameObserved(frame)
+            }
+        }
+    }
+
+    private fun encodeFrameSnapshot(snapshot: CapturedFrameSnapshot): String {
+        val yuv =
+            YuvImage(
+                snapshot.nv21,
+                ImageFormat.NV21,
+                snapshot.width,
+                snapshot.height,
+                null,
+            )
+        val jpeg = ByteArrayOutputStream()
+        if (!yuv.compressToJpeg(Rect(0, 0, snapshot.width, snapshot.height), 92, jpeg)) {
+            jpeg.close()
+            return "error: jpeg_encode_failed"
+        }
+        val jpegBytes = jpeg.toByteArray()
+        jpeg.close()
+
+        val decoded = BitmapFactory.decodeByteArray(jpegBytes, 0, jpegBytes.size)
+            ?: return "error: jpeg_decode_failed"
+        val oriented =
+            if (snapshot.rotation == 0) {
+                decoded
+            } else {
+                val matrix = Matrix().apply { postRotate(snapshot.rotation.toFloat()) }
+                val rotated =
+                    Bitmap.createBitmap(
+                        decoded,
+                        0,
+                        0,
+                        decoded.width,
+                        decoded.height,
+                        matrix,
+                        false,
+                    )
+                if (rotated !== decoded) {
+                    decoded.recycle()
+                }
+                rotated
+            }
+
+        val png = ByteArrayOutputStream()
+        val ok = oriented.compress(Bitmap.CompressFormat.PNG, 100, png)
+        oriented.recycle()
+        if (!ok) {
+            png.close()
+            return "error: png_encode_failed"
+        }
+        val bytes = png.toByteArray()
+        png.close()
+        return Base64.encodeToString(bytes, Base64.NO_WRAP)
+    }
+
     fun isCurrentSession(sessionId: String?): Boolean {
         if (sessionId.isNullOrBlank()) return false
         return synchronized(streamLock) {
             primarySessionId == sessionId ||
-                streamRequestId == sessionId ||
-                secondarySessions.containsKey(sessionId)
+                    streamRequestId == sessionId ||
+                    secondarySessions.containsKey(sessionId)
         }
     }
 
@@ -323,7 +746,7 @@ class WebRtcManager private constructor(private val context: Context) {
             }
         }
 
-    fun isCaptureActive(): Boolean = synchronized(streamLock) { screenCapturer != null }
+    fun isCaptureActive(): Boolean = captureFastState.captureActive
 
     private fun initializePeerConnectionFactory() {
         PeerConnectionFactory.initialize(
@@ -397,6 +820,7 @@ class WebRtcManager private constructor(private val context: Context) {
                         takeoverPrimarySessionId = clearPrimarySessionForTakeoverLocked()
                         IncomingSessionRoute.PRIMARY
                     }
+
                     else -> resolvedRoute
                 }
             }
@@ -432,21 +856,36 @@ class WebRtcManager private constructor(private val context: Context) {
             streamRequestId = sessionId
             waitingForOffer = waitForOffer
             iceRestartAttempts = 0
+            captureSessionMode = CaptureSessionMode.STREAM
+            refreshCaptureFastStateLocked()
             primePrimarySessionLivenessLocked(sessionId, SystemClock.elapsedRealtime())
-            createPeerConnection(effectiveIceServers, streamId, sessionId)
-            createVideoTrack(permissionResultData, width, height, fps, streamId)
-
-            videoTrack?.let { track ->
-                val sender = peerConnection?.addTrack(track, listOf(VIDEO_TRACK_ID))
-                configureVideoSender(sender, width, height, fps)
+        }
+        val newResources = createPeerConnection(effectiveIceServers, streamId, sessionId)
+        val activeTrack =
+            createVideoTrack(permissionResultData, width, height, fps, streamId) ?: return
+        val sendReadyFor: String?
+        val shouldCreateOffer: Boolean
+        val connectionForSender: PeerConnection?
+        synchronized(streamLock) {
+            if (streamGeneration.get() != streamId) {
+                newResources?.let {
+                    cleanupPeerResources(PeerResources(it.peerConnection, it.controlChannel))
+                }
+                return
             }
-
-            startStatsLogging(streamId)
-            if (!waitForOffer) createOffer(streamId)
-            else {
+            peerConnection = newResources?.peerConnection
+            controlChannel = newResources?.controlChannel
+            scrcpyControlHandler = newResources?.scrcpyControlHandler
+            connectionForSender = peerConnection
+            if (!waitForOffer) {
+                shouldCreateOffer = true
+                sendReadyFor = null
+            } else {
+                shouldCreateOffer = false
                 if (!hasQueuedPrimaryOfferLocked(sessionId)) {
-                    sendStreamReady(sessionId)
+                    sendReadyFor = sessionId
                 } else {
+                    sendReadyFor = null
                     Log.i(
                         TAG,
                         "Skipping stream/ready because a primary offer is already queued (sessionId=$sessionId)",
@@ -454,8 +893,43 @@ class WebRtcManager private constructor(private val context: Context) {
                 }
             }
         }
+        try {
+            if (isCurrentStream(streamId)) {
+                val sender = connectionForSender?.addTrack(activeTrack, listOf(VIDEO_TRACK_ID))
+                configureVideoSender(sender, width, height, fps)
+                startStatsLogging(streamId)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed attaching primary video sender", e)
+            stopStream()
+            throw e
+        }
+        if (shouldCreateOffer) createOffer(streamId)
+        sendReadyFor?.let { sendStreamReady(it) }
         takeoverPrimarySessionId?.let { notifyStreamStoppedAsync(sessionId = it) }
         flushPendingPrimarySignaling(sessionId)
+    }
+
+    fun startSharedCapture(
+        permissionResultData: android.content.Intent,
+        width: Int,
+        height: Int,
+        fps: Int,
+    ) {
+        cancelIdleStop()
+        if (hasReusableCaptureFrameSource()) {
+            updateCaptureFormat(width, height, fps)
+            return
+        }
+
+        val streamId = streamGeneration.incrementAndGet()
+        val staleResources = synchronized(streamLock) { detachStreamResourcesLocked() }
+        cleanupStreamResources(staleResources)
+        synchronized(streamLock) {
+            captureSessionMode = CaptureSessionMode.CAPTURE_ONLY
+            refreshCaptureFastStateLocked()
+        }
+        createVideoTrack(permissionResultData, width, height, fps, streamId)
     }
 
     fun startStreamWithExistingCapture(
@@ -495,6 +969,7 @@ class WebRtcManager private constructor(private val context: Context) {
                         takeoverPrimarySessionId = clearPrimarySessionForTakeoverLocked()
                         IncomingSessionRoute.PRIMARY
                     }
+
                     else -> resolvedRoute
                 }
             }
@@ -531,20 +1006,40 @@ class WebRtcManager private constructor(private val context: Context) {
             streamRequestId = sessionId
             waitingForOffer = waitForOffer
             iceRestartAttempts = 0
+            captureLogStreamId = streamId
+            captureSessionMode = CaptureSessionMode.STREAM
+            refreshCaptureFastStateLocked()
             primePrimarySessionLivenessLocked(sessionId, SystemClock.elapsedRealtime())
             if (videoTrack == null) {
                 throw IllegalStateException("No active capture to reuse")
             }
-            createPeerConnection(effectiveIceServers, streamId, sessionId)
-            val sender = peerConnection?.addTrack(videoTrack, listOf(VIDEO_TRACK_ID))
-            configureVideoSender(sender, width, height, fps)
-            startStatsLogging(streamId)
+        }
+        val newResources = createPeerConnection(effectiveIceServers, streamId, sessionId)
+        val sendReadyFor: String?
+        val shouldCreateOffer: Boolean
+        val activeTrack: VideoTrack
+        val connectionForSender: PeerConnection?
+        synchronized(streamLock) {
+            if (streamGeneration.get() != streamId) {
+                newResources?.let {
+                    cleanupPeerResources(PeerResources(it.peerConnection, it.controlChannel))
+                }
+                return
+            }
+            peerConnection = newResources?.peerConnection
+            controlChannel = newResources?.controlChannel
+            scrcpyControlHandler = newResources?.scrcpyControlHandler
+            activeTrack = videoTrack ?: throw IllegalStateException("No active capture to reuse")
+            connectionForSender = peerConnection
             if (!waitForOffer) {
-                createOffer(streamId)
+                shouldCreateOffer = true
+                sendReadyFor = null
             } else {
+                shouldCreateOffer = false
                 if (!hasQueuedPrimaryOfferLocked(sessionId)) {
-                    sendStreamReady(sessionId)
+                    sendReadyFor = sessionId
                 } else {
+                    sendReadyFor = null
                     Log.i(
                         TAG,
                         "Skipping stream/ready because a primary offer is already queued (sessionId=$sessionId)",
@@ -552,6 +1047,19 @@ class WebRtcManager private constructor(private val context: Context) {
                 }
             }
         }
+        try {
+            if (isCurrentStream(streamId)) {
+                val sender = connectionForSender?.addTrack(activeTrack, listOf(VIDEO_TRACK_ID))
+                configureVideoSender(sender, width, height, fps)
+                startStatsLogging(streamId)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed attaching reused-capture video sender", e)
+            stopStream()
+            throw e
+        }
+        if (shouldCreateOffer) createOffer(streamId)
+        sendReadyFor?.let { sendStreamReady(it) }
         takeoverPrimarySessionId?.let { notifyStreamStoppedAsync(sessionId = it) }
         flushPendingPrimarySignaling(sessionId)
     }
@@ -928,7 +1436,7 @@ class WebRtcManager private constructor(private val context: Context) {
                     secondaryResources = secondarySessions.remove(sessionId)
                 }
                 peerConnection != null || secondarySessions.isNotEmpty()
-        }
+            }
         primaryResources?.let { cleanupPeerResources(it) }
         secondaryResources?.let { cleanupSecondarySession(it) }
         if (reason == "keep_alive_timeout") {
@@ -964,6 +1472,29 @@ class WebRtcManager private constructor(private val context: Context) {
         stopAllSessions(reason)
     }
 
+    internal fun onSharedCaptureScreenshotCompleted(usedSharedCaptureSession: Boolean) {
+        val captureState = getCaptureFastStateSnapshot()
+        val streamActive = isStreamActive()
+        if (
+            !shouldArmCaptureOnlyIdleStop(
+                usedSharedCaptureSession = usedSharedCaptureSession,
+                captureSessionMode = captureState.captureSessionMode,
+                captureActive = captureState.captureActive,
+                streamActive = streamActive,
+            )
+        ) {
+            return
+        }
+        Log.i(
+            TAG,
+            "Arming capture-only idle stop for shared screenshot reuse (${SCREENSHOT_CAPTURE_IDLE_TIMEOUT_MS}ms)",
+        )
+        scheduleIdleStop(
+            reason = "screenshot_capture_only",
+            timeoutMs = SCREENSHOT_CAPTURE_IDLE_TIMEOUT_MS,
+        )
+    }
+
     fun stopStreamAsync(onStopped: (() -> Unit)? = null) {
         cancelIdleStop()
         cancelAllKeepAlives()
@@ -997,7 +1528,7 @@ class WebRtcManager private constructor(private val context: Context) {
         }
     }
 
-    private fun scheduleIdleStop(reason: String) {
+    private fun scheduleIdleStop(reason: String, timeoutMs: Long = IDLE_TIMEOUT_MS) {
         if (!isCaptureActive()) return
         idleStopRunnable?.let { stopHandler.removeCallbacks(it) }
         val runnable = Runnable {
@@ -1008,7 +1539,7 @@ class WebRtcManager private constructor(private val context: Context) {
             }
         }
         idleStopRunnable = runnable
-        stopHandler.postDelayed(runnable, IDLE_TIMEOUT_MS)
+        stopHandler.postDelayed(runnable, timeoutMs)
     }
 
     private fun cancelIdleStop() {
@@ -1037,8 +1568,8 @@ class WebRtcManager private constructor(private val context: Context) {
     private fun isTrackedSessionLocked(sessionId: String): Boolean {
         if (sessionId.isBlank()) return false
         return primarySessionId == sessionId ||
-            streamRequestId == sessionId ||
-            secondarySessions.containsKey(sessionId)
+                streamRequestId == sessionId ||
+                secondarySessions.containsKey(sessionId)
     }
 
     private fun ensureSessionLivenessStateLocked(sessionId: String): SessionLivenessState {
@@ -1114,9 +1645,12 @@ class WebRtcManager private constructor(private val context: Context) {
         videoSource = null
         videoTrack = null
         surfaceTextureHelper = null
+        captureLogStreamId = 0
         captureWidth = 0
         captureHeight = 0
         captureFps = 0
+        captureSessionMode = CaptureSessionMode.NONE
+        refreshCaptureFastStateLocked()
         return resources
     }
 
@@ -1186,6 +1720,7 @@ class WebRtcManager private constructor(private val context: Context) {
     }
 
     private fun cleanupStreamResources(resources: StreamResources) {
+        clearCaptureFrameTapState("capture_stopped")
         try {
             resources.screenCapturer?.stopCapture()
         } catch (e: Exception) {
@@ -1306,7 +1841,7 @@ class WebRtcManager private constructor(private val context: Context) {
         val isPrimary =
             synchronized(streamLock) {
                 primarySessionId == sessionId ||
-                    (primarySessionId == null && streamRequestId == sessionId)
+                        (primarySessionId == null && streamRequestId == sessionId)
             }
         if (!isPrimary) {
             handleOfferForSecondary(sdp, sessionId)
@@ -1321,12 +1856,18 @@ class WebRtcManager private constructor(private val context: Context) {
                     pendingSessionId == null -> {
                         pendingPrimaryOfferSessionId = sessionId
                         pendingPrimaryOffer = SessionDescription(SessionDescription.Type.OFFER, sdp)
-                        Log.i(TAG, "Queued primary offer until peer is ready (sessionId=$sessionId)")
+                        Log.i(
+                            TAG,
+                            "Queued primary offer until peer is ready (sessionId=$sessionId)"
+                        )
                     }
 
                     pendingSessionId == sessionId -> {
                         pendingPrimaryOffer = SessionDescription(SessionDescription.Type.OFFER, sdp)
-                        Log.i(TAG, "Replaced queued primary offer until peer is ready (sessionId=$sessionId)")
+                        Log.i(
+                            TAG,
+                            "Replaced queued primary offer until peer is ready (sessionId=$sessionId)"
+                        )
                     }
 
                     else -> {
@@ -1489,7 +2030,10 @@ class WebRtcManager private constructor(private val context: Context) {
                     }
                 )
             }
-        Log.i(TAG, "Sending primary answer: session=$sessionId sdpLength=${desc.description.length}")
+        Log.i(
+            TAG,
+            "Sending primary answer: session=$sessionId sdpLength=${desc.description.length}"
+        )
         reverseConnectionService?.sendText(json.toString())
     }
 
@@ -1510,7 +2054,7 @@ class WebRtcManager private constructor(private val context: Context) {
         val isPrimary =
             synchronized(streamLock) {
                 primarySessionId == sessionId ||
-                    (primarySessionId == null && streamRequestId == sessionId)
+                        (primarySessionId == null && streamRequestId == sessionId)
             }
         if (!isPrimary) {
             handleIceCandidateForSecondary(candidate, sessionId)
@@ -1776,7 +2320,7 @@ class WebRtcManager private constructor(private val context: Context) {
         customIceServers: List<PeerConnection.IceServer>?,
         streamId: Int,
         sessionId: String,
-    ) {
+    ): PrimaryPeerResources? {
         val iceServers = ArrayList<PeerConnection.IceServer>()
         if (customIceServers != null && customIceServers.isNotEmpty()) {
             iceServers.addAll(customIceServers)
@@ -1807,7 +2351,7 @@ class WebRtcManager private constructor(private val context: Context) {
             Log.w(TAG, "Cellular network without TURN - ICE may fail")
         }
 
-        peerConnection =
+        val newPeerConnection =
             peerConnectionFactory?.createPeerConnection(
                 rtcConfig,
                 object : CustomPeerConnectionObserver() {
@@ -1904,20 +2448,22 @@ class WebRtcManager private constructor(private val context: Context) {
                 }
             )
 
+        if (newPeerConnection == null) return null
+
         val dcInit =
             DataChannel.Init().apply {
                 ordered = true
                 negotiated = true
                 id = 1
             }
-        controlChannel = peerConnection?.createDataChannel("control", dcInit)
-        controlChannel?.let { dc ->
-            scrcpyControlHandler = ScrcpyControlChannel()
+        val newControlChannel = newPeerConnection.createDataChannel("control", dcInit)
+        val newScrcpyControlHandler = newControlChannel?.let { dc ->
+            val handler = ScrcpyControlChannel()
             dc.registerObserver(
                 LoggingDataChannelObserver(
                     channel = dc,
                     label = "primary:$streamId",
-                    delegate = scrcpyControlHandler,
+                    delegate = handler,
                     onStateChanged = { state ->
                         synchronized(streamLock) {
                             updateSessionControlStateLocked(sessionId, state)
@@ -1925,7 +2471,13 @@ class WebRtcManager private constructor(private val context: Context) {
                     },
                 ),
             )
+            handler
         }
+        return PrimaryPeerResources(
+            peerConnection = newPeerConnection,
+            controlChannel = newControlChannel,
+            scrcpyControlHandler = newScrcpyControlHandler,
+        )
     }
 
     private fun createVideoTrack(
@@ -1934,8 +2486,8 @@ class WebRtcManager private constructor(private val context: Context) {
         height: Int,
         fps: Int,
         streamId: Int,
-    ) {
-        screenCapturer =
+    ): VideoTrack? {
+        val capturer =
             ScreenCapturerAndroid(
                 permissionResultData,
                 object : MediaProjection.Callback() {
@@ -1943,29 +2495,81 @@ class WebRtcManager private constructor(private val context: Context) {
                         postStopStreamIfCurrent(streamId)
                         ScreenCaptureService.requestStop("projection_stopped")
                     }
-                }
+                },
             )
 
-        videoSource = peerConnectionFactory?.createVideoSource(screenCapturer!!.isScreencast)
+        val source =
+            peerConnectionFactory?.createVideoSource(capturer.isScreencast)
+                ?: throw IllegalStateException("PeerConnectionFactory unavailable")
+        val captureObserver = createCaptureFrameObserver(source.capturerObserver)
+        val textureHelper = SurfaceTextureHelper.create("CaptureThread", eglBase.eglBaseContext)
 
         // Start Capture
-        surfaceTextureHelper = SurfaceTextureHelper.create("CaptureThread", eglBase.eglBaseContext)
-        screenCapturer?.initialize(surfaceTextureHelper, context, videoSource?.capturerObserver)
+        capturer.initialize(textureHelper, context, captureObserver)
         try {
-            screenCapturer?.startCapture(width, height, fps)
+            capturer.startCapture(width, height, fps)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start capture", e)
+            cleanupStreamResources(
+                StreamResources(
+                    screenCapturer = capturer,
+                    videoSource = source,
+                    videoTrack = null,
+                    surfaceTextureHelper = textureHelper,
+                    peerConnection = null,
+                    controlChannel = null,
+                ),
+            )
             stopStream()
             throw RuntimeException("Failed to start screen capture: ${e.message}", e)
         }
 
-        synchronized(streamLock) {
-            captureWidth = width
-            captureHeight = height
-            captureFps = fps
-        }
+        val track =
+            peerConnectionFactory?.createVideoTrack(VIDEO_TRACK_ID, source)
+                ?: run {
+                    cleanupStreamResources(
+                        StreamResources(
+                            screenCapturer = capturer,
+                            videoSource = source,
+                            videoTrack = null,
+                            surfaceTextureHelper = textureHelper,
+                            peerConnection = null,
+                            controlChannel = null,
+                        ),
+                    )
+                    throw IllegalStateException("Failed to create video track")
+                }
 
-        videoTrack = peerConnectionFactory?.createVideoTrack(VIDEO_TRACK_ID, videoSource)
+        var published = false
+        synchronized(streamLock) {
+            if (streamGeneration.get() == streamId) {
+                screenCapturer = capturer
+                videoSource = source
+                surfaceTextureHelper = textureHelper
+                captureLogStreamId = streamId
+                captureWidth = width
+                captureHeight = height
+                captureFps = fps
+                videoTrack = track
+                refreshCaptureFastStateLocked()
+                published = true
+            }
+        }
+        if (!published) {
+            Log.w(TAG, "Discarding stale capture resources for streamId=$streamId")
+            cleanupStreamResources(
+                StreamResources(
+                    screenCapturer = capturer,
+                    videoSource = source,
+                    videoTrack = track,
+                    surfaceTextureHelper = textureHelper,
+                    peerConnection = null,
+                    controlChannel = null,
+                ),
+            )
+            return null
+        }
+        return track
     }
 
     private fun createOffer(streamId: Int) {
@@ -2236,6 +2840,7 @@ class WebRtcManager private constructor(private val context: Context) {
         statsRunnable = null
         lastStatsBytesSent = null
         lastStatsTimestampMs = null
+        consecutiveZeroSentStatsIntervals = 0
     }
 
     private fun logStats(report: RTCStatsReport) {
@@ -2308,6 +2913,26 @@ class WebRtcManager private constructor(private val context: Context) {
         if (parts.isNotEmpty()) {
             Log.d(TAG, "Stats: ${parts.joinToString(" | ")}")
         }
+
+        val primarySessionIdSnapshot: String?
+        val primaryIceState: PeerConnection.IceConnectionState?
+        synchronized(streamLock) {
+            primarySessionIdSnapshot = primarySessionId
+            primaryIceState = primarySessionIdSnapshot?.let { sessionLivenessStates[it]?.iceState }
+        }
+        val nextZeroSentStatsIntervals =
+            nextZeroSentStatsIntervalCount(
+                currentCount = consecutiveZeroSentStatsIntervals,
+                iceState = primaryIceState,
+                framesSent = framesSent,
+            )
+        if (shouldWarnForZeroSentStats(nextZeroSentStatsIntervals)) {
+            Log.w(
+                TAG,
+                "Stream is connected but no video frames have been sent for two stats intervals (session=$primarySessionIdSnapshot iceState=$primaryIceState sent=${framesSent ?: "null"} bitrateKbps=${bitrateKbps ?: "null"})",
+            )
+        }
+        consecutiveZeroSentStatsIntervals = nextZeroSentStatsIntervals
     }
 
     private fun isVideoStats(members: Map<String, Any>): Boolean {
@@ -2769,6 +3394,22 @@ class WebRtcManager private constructor(private val context: Context) {
             Log.e(TAG, "Error quitting statsThread", e)
         }
 
+        try {
+            frameTapThread.quitSafely()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error quitting frameTapThread", e)
+        }
+
         Log.i(TAG, "WebRtcManager resources released")
+    }
+
+    private fun refreshCaptureFastStateLocked() {
+        captureFastState =
+            buildCaptureFastState(
+                captureActive = screenCapturer != null,
+                videoTrackReady = videoTrack != null,
+                captureSessionMode = captureSessionMode,
+                generation = captureLogStreamId,
+            )
     }
 }

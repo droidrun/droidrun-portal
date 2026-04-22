@@ -47,7 +47,7 @@ class FileOperationsTest {
     @Before
     fun setUp() {
         externalStorageDir = Files.createTempDirectory("file-operations-test").toFile().canonicalFile
-        fileOperations = FileOperations()
+        fileOperations = FileOperations(fileAccessErrorProvider = { null })
 
         mockkStatic(Environment::class)
         every { Environment.getExternalStorageDirectory() } returns externalStorageDir
@@ -91,6 +91,7 @@ class FileOperationsTest {
                         stderr = "Permission denied",
                     )
                 },
+                fileAccessErrorProvider = { null },
             )
 
         val result = fileOperations.listFiles(relativePath)
@@ -112,6 +113,7 @@ class FileOperationsTest {
                         stderr = "",
                     )
                 },
+                fileAccessErrorProvider = { null },
             )
 
         val result = fileOperations.listFiles(relativePath)

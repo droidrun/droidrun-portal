@@ -339,6 +339,7 @@
                             android:layout_marginEnd="12dp" />
 
                         <TextView
+                            android:id="@+id/file_access_banner_text"
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"

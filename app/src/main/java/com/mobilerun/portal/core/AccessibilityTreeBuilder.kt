@@ -71,8 +71,10 @@ object AccessibilityTreeBuilder {
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
                 put("stateDescription", node.stateDescription?.toString() ?: "")
             }
-            put("tooltipText", node.tooltipText?.toString() ?: "")
-            put("paneTitle", node.paneTitle?.toString() ?: "")
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                put("tooltipText", node.tooltipText?.toString() ?: "")
+                put("paneTitle", node.paneTitle?.toString() ?: "")
+            }
             put("error", node.error?.toString() ?: "")
 
             // Bounds (reuse rect we already computed)
@@ -131,8 +133,10 @@ object AccessibilityTreeBuilder {
             put("isImportantForAccessibility", node.isImportantForAccessibility)
 
             // Boolean states - Screen reader
-            put("isScreenReaderFocusable", node.isScreenReaderFocusable)
-            put("isHeading", node.isHeading)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                put("isScreenReaderFocusable", node.isScreenReaderFocusable)
+                put("isHeading", node.isHeading)
+            }
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
                 put("isTextSelectable", node.isTextSelectable)
             }

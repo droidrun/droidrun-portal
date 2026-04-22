@@ -7,6 +7,7 @@ import android.media.projection.MediaProjectionManager
 import android.os.Bundle
 import android.util.Log
 import com.mobilerun.portal.service.AutoAcceptGate
+import com.mobilerun.portal.service.MediaProjectionScreenshotter
 import com.mobilerun.portal.service.ReverseConnectionService
 import com.mobilerun.portal.service.ScreenCaptureService
 import com.mobilerun.portal.streaming.WebRtcManager
@@ -21,6 +22,10 @@ class ScreenCaptureActivity : Activity() {
     companion object {
         private const val REQUEST_CODE_CAPTURE_PERM = 1001
         private const val TAG = "ScreenCaptureActivity"
+
+        const val EXTRA_MODE = "mode"
+        const val MODE_STREAM = "stream"
+        const val MODE_SCREENSHOT = "screenshot"
     }
 
     private lateinit var mediaProjectionManager: MediaProjectionManager
@@ -35,10 +40,15 @@ class ScreenCaptureActivity : Activity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         if (requestCode == REQUEST_CODE_CAPTURE_PERM) {
             AutoAcceptGate.disarmMediaProjection()
-            if (resultCode == Activity.RESULT_OK && data != null) {
+            val mode = intent.getStringExtra(EXTRA_MODE) ?: MODE_STREAM
+            if (mode == MODE_SCREENSHOT) {
+                MediaProjectionScreenshotter.getInstance(this)
+                    .onPermissionResult(resultCode, data)
+            } else if (resultCode == Activity.RESULT_OK && data != null) {
                 // Pass the permission result to the service
                 val serviceIntent = Intent(this, ScreenCaptureService::class.java).apply {
                     action = ScreenCaptureService.ACTION_PERMISSION_RESULT
+                    putExtra(ScreenCaptureService.EXTRA_CAPTURE_MODE, ScreenCaptureService.CAPTURE_MODE_STREAM)
                     putExtra(ScreenCaptureService.EXTRA_RESULT_CODE, resultCode)
                     putExtra(ScreenCaptureService.EXTRA_RESULT_DATA, data)
                     // Forward stream config from launching intent
@@ -53,7 +63,7 @@ class ScreenCaptureActivity : Activity() {
                 // Notify cloud of permission denial
                 notifyPermissionDenied()
             }
-            
+
             finish()
         } else {
             super.onActivityResult(requestCode, resultCode, data)
