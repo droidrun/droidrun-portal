@@ -10,6 +10,8 @@ import java.net.InetSocketAddress
 import java.nio.ByteBuffer
 import com.mobilerun.portal.service.ActionDispatcher
 import com.mobilerun.portal.config.ConfigManager
+import com.mobilerun.portal.service.WebSocketDispatchBucket
+import com.mobilerun.portal.service.WebSocketDispatchPolicy
 import org.json.JSONObject
 import java.util.concurrent.Executors
 
@@ -29,6 +31,7 @@ class PortalWebSocketServer(
         private const val UNAUTHORIZED = "Unauthorized"
     }
 
+    private val signalingExecutor = Executors.newSingleThreadExecutor()
     private val commandExecutor = Executors.newSingleThreadExecutor()
     private val installExecutor = Executors.newSingleThreadExecutor()
     private val localDeviceEventRelay = LocalDeviceEventRelay(
@@ -103,7 +106,12 @@ class PortalWebSocketServer(
                 val normalizedMethod =
                     method.removePrefix("/action/").removePrefix("action.").removePrefix("/")
 
-                val executor = if (normalizedMethod == "install") installExecutor else commandExecutor
+                val executor =
+                    when (WebSocketDispatchPolicy.bucketForNormalizedMethod(normalizedMethod)) {
+                        WebSocketDispatchBucket.SIGNALING -> signalingExecutor
+                        WebSocketDispatchBucket.COMMAND -> commandExecutor
+                        WebSocketDispatchBucket.INSTALL -> installExecutor
+                    }
                 executor.submit {
                     dispatchAndRespond(
                         conn = conn,
@@ -219,6 +227,11 @@ class PortalWebSocketServer(
         } catch (e: Exception) {
             Log.e(TAG, "Error stopping server", e)
         } finally {
+            try {
+                signalingExecutor.shutdownNow()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error stopping signaling executor", e)
+            }
             try {
                 commandExecutor.shutdownNow()
             } catch (e: Exception) {

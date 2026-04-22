@@ -92,7 +92,7 @@ class MediaProjectionScreenshotter private constructor(context: Context) {
         }
         if (cachedGrant != null) {
             Log.d(TAG, "capture: reusing cached MediaProjection permission")
-            runCapture(
+            startSharedCapture(
                 p = pendingCapture,
                 resultCode = cachedGrant.resultCode,
                 data = cachedGrant.data,
@@ -118,7 +118,82 @@ class MediaProjectionScreenshotter private constructor(context: Context) {
             return
         }
         cachePermission(resultCode, data)
-        runCapture(p, resultCode, Intent(data))
+        if (WebRtcManager.getInstance(appContext).hasReusableCaptureFrameSource()) {
+            completeFromReusableCapture()
+            return
+        }
+        startSharedCapture(p, resultCode, Intent(data))
+    }
+
+    fun onSharedCaptureReady() {
+        completeFromReusableCapture()
+    }
+
+    fun onSharedCaptureFailed(message: String) {
+        val p = synchronized(lock) { pending }
+        if (p == null) {
+            Log.w(TAG, "onSharedCaptureFailed with no pending capture")
+            return
+        }
+        val cachedGrant = synchronized(lock) {
+            cachedPermission?.let { CachedPermission(it.resultCode, Intent(it.data)) }
+        }
+        if (cachedGrant != null) {
+            Log.w(TAG, "Shared capture bootstrap failed ($message); falling back to raw projection capture")
+            runCapture(
+                p = p,
+                resultCode = cachedGrant.resultCode,
+                data = cachedGrant.data,
+                allowPromptRetry = true,
+            )
+            return
+        }
+        completePending("error: $message")
+    }
+
+    private fun startSharedCapture(
+        p: PendingCapture,
+        resultCode: Int,
+        data: Intent,
+        allowPromptRetry: Boolean = false,
+    ) {
+        try {
+            val intent = Intent(appContext, ScreenCaptureService::class.java).apply {
+                action = ScreenCaptureService.ACTION_PERMISSION_RESULT
+                putExtra(ScreenCaptureService.EXTRA_CAPTURE_MODE, ScreenCaptureService.CAPTURE_MODE_SCREENSHOT)
+                putExtra(ScreenCaptureService.EXTRA_RESULT_CODE, resultCode)
+                putExtra(ScreenCaptureService.EXTRA_RESULT_DATA, data)
+                putExtra(ScreenCaptureService.EXTRA_WIDTH, p.width)
+                putExtra(ScreenCaptureService.EXTRA_HEIGHT, p.height)
+                putExtra(ScreenCaptureService.EXTRA_FPS, SCREENSHOT_CAPTURE_FPS)
+            }
+            appContext.startForegroundService(intent)
+            Log.d(TAG, "capture: starting shared capture owner")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start shared capture owner", e)
+            runCapture(
+                p = p,
+                resultCode = resultCode,
+                data = data,
+                allowPromptRetry = allowPromptRetry,
+            )
+        }
+    }
+
+    private fun completeFromReusableCapture() {
+        val p = synchronized(lock) { pending } ?: return
+        WebRtcManager.getInstance(appContext).captureStreamFrame().whenComplete { result, error ->
+            if (synchronized(lock) { pending } !== p) {
+                return@whenComplete
+            }
+            val value =
+                when {
+                    error != null -> "error: ${error.message}"
+                    result != null -> result
+                    else -> "error: empty_result"
+                }
+            completePending(value)
+        }
     }
 
     private fun runCapture(
@@ -299,6 +374,7 @@ class MediaProjectionScreenshotter private constructor(context: Context) {
     companion object {
         private const val TAG = "MediaProjScreenshot"
         private const val CAPTURE_TIMEOUT_MS = 15_000L
+        private const val SCREENSHOT_CAPTURE_FPS = 10
 
         @Volatile
         private var instance: MediaProjectionScreenshotter? = null

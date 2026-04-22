@@ -48,6 +48,7 @@ class ScreenCaptureActivity : Activity() {
                 // Pass the permission result to the service
                 val serviceIntent = Intent(this, ScreenCaptureService::class.java).apply {
                     action = ScreenCaptureService.ACTION_PERMISSION_RESULT
+                    putExtra(ScreenCaptureService.EXTRA_CAPTURE_MODE, ScreenCaptureService.CAPTURE_MODE_STREAM)
                     putExtra(ScreenCaptureService.EXTRA_RESULT_CODE, resultCode)
                     putExtra(ScreenCaptureService.EXTRA_RESULT_DATA, data)
                     // Forward stream config from launching intent

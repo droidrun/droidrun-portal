@@ -91,6 +91,7 @@ class ReverseConnectionService : Service() {
     private var webSocketClient: WebSocketClient? = null
     private var isServiceRunning = AtomicBoolean(false)
     private val handler = Handler(Looper.getMainLooper())
+    private val signalingExecutor = Executors.newSingleThreadExecutor()
     private val commandExecutor = Executors.newSingleThreadExecutor()
     private val installExecutor = Executors.newSingleThreadExecutor()
     private var lastReverseToastAtMs = 0L
@@ -153,6 +154,10 @@ class ReverseConnectionService : Service() {
         reverseDeviceEventRelay.stop()
         disconnect()
         ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
+        try {
+            signalingExecutor.shutdownNow()
+        } catch (_: Exception) {
+        }
         try {
             commandExecutor.shutdownNow()
         } catch (_: Exception) {
@@ -581,7 +586,12 @@ class ReverseConnectionService : Service() {
             }
 
             val requestId = id
-            val executor = if (normalizedMethod == "install") installExecutor else commandExecutor
+            val executor =
+                when (WebSocketDispatchPolicy.bucketForNormalizedMethod(normalizedMethod)) {
+                    WebSocketDispatchBucket.SIGNALING -> signalingExecutor
+                    WebSocketDispatchBucket.COMMAND -> commandExecutor
+                    WebSocketDispatchBucket.INSTALL -> installExecutor
+                }
             executor.submit {
                 dispatchAndRespond(
                     client = client,

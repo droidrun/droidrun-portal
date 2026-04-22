@@ -9,6 +9,7 @@ import com.mobilerun.portal.keepalive.KeepAliveController
 import com.mobilerun.portal.keepalive.KeepAliveStartupException
 import com.mobilerun.portal.model.PhoneState
 import com.mobilerun.portal.service.MobilerunAccessibilityService
+import com.mobilerun.portal.service.ReverseConnectionService
 import com.mobilerun.portal.streaming.WebRtcManager
 import io.mockk.Runs
 import io.mockk.every
@@ -200,9 +201,12 @@ class ApiHandlerTest {
         every { context.applicationContext } returns context
         val handler = createHandler(stateRepo = stateRepo, ime = null, context = context)
         val manager = mockk<WebRtcManager>(relaxed = true)
+        val reverseService = mockk<ReverseConnectionService>(relaxed = true)
 
         mockkObject(WebRtcManager.Companion)
+        mockkObject(ReverseConnectionService.Companion)
         every { WebRtcManager.getInstance(context) } returns manager
+        every { ReverseConnectionService.getInstance() } returns reverseService
         every { manager.isCaptureActive() } returns true
         every {
             manager.startStreamWithExistingCapture(720, 1280, 30, "session-1", true)
@@ -218,9 +222,45 @@ class ApiHandlerTest {
 
         assertEquals(ApiResponse.Success("reusing_capture"), response)
         verify(exactly = 1) { manager.setStreamRequestId("session-1") }
+        verify(exactly = 1) { manager.setReverseConnectionService(reverseService) }
         verify(exactly = 1) { manager.setPendingIceServers(any()) }
         verify(exactly = 1) {
             manager.startStreamWithExistingCapture(720, 1280, 30, "session-1", true)
+        }
+    }
+
+    @Test
+    fun startStream_reusesActiveCaptureAndBindsReverseService() {
+        val stateRepo = mockk<StateRepository>(relaxed = true)
+        val context = mockk<Context>(relaxed = true)
+        every { context.applicationContext } returns context
+        val handler = createHandler(stateRepo = stateRepo, ime = null, context = context)
+        val manager = mockk<WebRtcManager>(relaxed = true)
+        val reverseService = mockk<ReverseConnectionService>(relaxed = true)
+
+        mockkObject(WebRtcManager.Companion)
+        mockkObject(ReverseConnectionService.Companion)
+        every { WebRtcManager.getInstance(context) } returns manager
+        every { ReverseConnectionService.getInstance() } returns reverseService
+        every { manager.isCaptureActive() } returns true
+        every {
+            manager.startStreamWithExistingCapture(720, 1280, 30, "session-1", false)
+        } just Runs
+
+        val response =
+            handler.startStream(
+                JSONObject().apply {
+                    put("sessionId", "session-1")
+                    put("iceServers", JSONArray())
+                },
+            )
+
+        assertEquals(ApiResponse.Success("reusing_capture"), response)
+        verify(exactly = 1) { manager.setStreamRequestId("session-1") }
+        verify(exactly = 1) { manager.setReverseConnectionService(reverseService) }
+        verify(exactly = 1) { manager.setPendingIceServers(any()) }
+        verify(exactly = 1) {
+            manager.startStreamWithExistingCapture(720, 1280, 30, "session-1", false)
         }
     }
 

@@ -43,6 +43,7 @@ import org.webrtc.IceCandidate
 import org.webrtc.PeerConnection
 import com.mobilerun.portal.service.AutoAcceptGate
 import com.mobilerun.portal.service.FileOperations
+import com.mobilerun.portal.service.ReverseConnectionService
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import androidx.core.app.NotificationCompat
@@ -1766,6 +1767,7 @@ class ApiHandler(
         val waitForOffer = params.optBoolean("waitForOffer", false)
         val manager = WebRtcManager.getInstance(context)
         manager.setStreamRequestId(sessionId)
+        ReverseConnectionService.getInstance()?.let { manager.setReverseConnectionService(it) }
         params.optJSONArray("iceServers")?.let {
             manager.setPendingIceServers(parseIceServers(it))
         }
@@ -1789,6 +1791,7 @@ class ApiHandler(
         val intent =
             Intent(context, com.mobilerun.portal.ui.ScreenCaptureActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                putExtra(com.mobilerun.portal.ui.ScreenCaptureActivity.EXTRA_MODE, com.mobilerun.portal.ui.ScreenCaptureActivity.MODE_STREAM)
                 putExtra(ScreenCaptureService.EXTRA_WIDTH, width)
                 putExtra(ScreenCaptureService.EXTRA_HEIGHT, height)
                 putExtra(ScreenCaptureService.EXTRA_FPS, fps)
@@ -1892,6 +1895,7 @@ class ApiHandler(
 
         val manager = WebRtcManager.getInstance(context)
         manager.setStreamRequestId(sessionId)
+        ReverseConnectionService.getInstance()?.let { manager.setReverseConnectionService(it) }
         params.optJSONArray("iceServers")?.let { iceArray ->
             try {
                 manager.setPendingIceServers(parseIceServers(iceArray))

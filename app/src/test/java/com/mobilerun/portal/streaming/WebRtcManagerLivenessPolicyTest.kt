@@ -6,6 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.webrtc.DataChannel
 import org.webrtc.PeerConnection
+import java.util.concurrent.CompletableFuture
 
 class WebRtcManagerLivenessPolicyTest {
     @Test
@@ -167,5 +168,77 @@ class WebRtcManagerLivenessPolicyTest {
                 livenessStaleAfterMs = 300_000L,
             ),
         )
+    }
+
+    @Test
+    fun completeFrameCaptureWaiters_completesAllConcurrentRequestsWithSameSnapshotResult() {
+        val waiterOne = CompletableFuture<String>()
+        val waiterTwo = CompletableFuture<String>()
+
+        val completed =
+            WebRtcManager.completeFrameCaptureWaiters(
+                listOf(waiterOne, waiterTwo),
+                "snapshot-base64",
+            )
+
+        assertEquals(2, completed)
+        assertEquals("snapshot-base64", waiterOne.get())
+        assertEquals("snapshot-base64", waiterTwo.get())
+    }
+
+    @Test
+    fun failFrameCaptureWaiters_failsAllPendingRequestsOnCaptureCleanup() {
+        val waiterOne = CompletableFuture<String>()
+        val waiterTwo = CompletableFuture<String>()
+
+        val completed =
+            WebRtcManager.failFrameCaptureWaiters(
+                listOf(waiterOne, waiterTwo),
+                "capture_stopped",
+            )
+
+        assertEquals(2, completed)
+        assertEquals("error: capture_stopped", waiterOne.get())
+        assertEquals("error: capture_stopped", waiterTwo.get())
+    }
+
+    @Test
+    fun nextZeroSentStatsIntervalCount_warnsAfterTwoConnectedZeroFrameIntervals() {
+        val first =
+            WebRtcManager.nextZeroSentStatsIntervalCount(
+                currentCount = 0,
+                iceState = PeerConnection.IceConnectionState.CONNECTED,
+                framesSent = 0L,
+            )
+        val second =
+            WebRtcManager.nextZeroSentStatsIntervalCount(
+                currentCount = first,
+                iceState = PeerConnection.IceConnectionState.CONNECTED,
+                framesSent = 0L,
+            )
+
+        assertEquals(1, first)
+        assertEquals(2, second)
+        assertTrue(WebRtcManager.shouldWarnForZeroSentStats(second))
+    }
+
+    @Test
+    fun nextZeroSentStatsIntervalCount_resetsWhenFramesFlowAgain() {
+        val connectedSilence =
+            WebRtcManager.nextZeroSentStatsIntervalCount(
+                currentCount = 1,
+                iceState = PeerConnection.IceConnectionState.CONNECTED,
+                framesSent = 0L,
+            )
+        val withFrames =
+            WebRtcManager.nextZeroSentStatsIntervalCount(
+                currentCount = connectedSilence,
+                iceState = PeerConnection.IceConnectionState.CONNECTED,
+                framesSent = 3L,
+            )
+
+        assertEquals(2, connectedSilence)
+        assertEquals(0, withFrames)
+        assertFalse(WebRtcManager.shouldWarnForZeroSentStats(withFrames))
     }
 }
