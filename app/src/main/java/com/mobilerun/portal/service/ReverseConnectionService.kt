@@ -586,6 +586,7 @@ class ReverseConnectionService : Service() {
             }
 
             val requestId = id
+            val dispatchStartedAtMs = SystemClock.elapsedRealtime()
             val executor =
                 when (WebSocketDispatchPolicy.bucketForNormalizedMethod(normalizedMethod)) {
                     WebSocketDispatchBucket.SIGNALING -> signalingExecutor
@@ -600,6 +601,7 @@ class ReverseConnectionService : Service() {
                     params = params,
                     origin = ActionDispatcher.Origin.WEBSOCKET_REVERSE,
                     requestId = requestId,
+                    dispatchStartedAtMs = dispatchStartedAtMs,
                 )
             }
         } catch (e: Exception) {
@@ -615,6 +617,7 @@ class ReverseConnectionService : Service() {
         params: JSONObject,
         origin: ActionDispatcher.Origin,
         requestId: Any?,
+        dispatchStartedAtMs: Long,
     ) {
         try {
             val result = dispatcher.dispatch(
@@ -623,10 +626,15 @@ class ReverseConnectionService : Service() {
                 origin = origin,
                 requestId = requestId,
             )
-            Log.d(TAG, "Command executed. Result type: ${result.javaClass.simpleName}")
+            val elapsedMs = SystemClock.elapsedRealtime() - dispatchStartedAtMs
+            Log.d(
+                TAG,
+                "Completed $method (id=$requestId, elapsedMs=$elapsedMs, result=${result.javaClass.simpleName})",
+            )
             sendResponse(client, result, requestId)
         } catch (e: Exception) {
-            Log.e(TAG, "Command execution failed for $method", e)
+            val elapsedMs = SystemClock.elapsedRealtime() - dispatchStartedAtMs
+            Log.e(TAG, "Failed $method (id=$requestId, elapsedMs=$elapsedMs)", e)
             sendErrorResponse(client, requestId, e.message ?: "unknown exception")
         }
     }

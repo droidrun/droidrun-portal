@@ -83,7 +83,13 @@ class MediaProjectionScreenshotter private constructor(context: Context) {
 
         mainHandler.postDelayed(timeoutRunnable, CAPTURE_TIMEOUT_MS)
 
-        if (webRtc.hasReusableCaptureFrameSource()) {
+        val captureState = webRtc.getCaptureFastStateSnapshot()
+        Log.d(
+            TAG,
+            "capture: entry reusableSharedCapture=${captureState.reusableFrameSource} captureActive=${captureState.captureActive} mode=${captureState.captureSessionMode} gen=${captureState.generation}",
+        )
+
+        if (captureState.reusableFrameSource) {
             Log.d(TAG, "capture: reusing active shared capture frame")
             pendingCapture.usedSharedCaptureSession = true
             completeFromReusableCapture()
@@ -121,7 +127,12 @@ class MediaProjectionScreenshotter private constructor(context: Context) {
             return
         }
         cachePermission(resultCode, data)
-        if (WebRtcManager.getInstance(appContext).hasReusableCaptureFrameSource()) {
+        val captureState = WebRtcManager.getInstance(appContext).getCaptureFastStateSnapshot()
+        if (captureState.reusableFrameSource) {
+            Log.d(
+                TAG,
+                "capture: permission result can reuse active shared capture frame (mode=${captureState.captureSessionMode}, gen=${captureState.generation})",
+            )
             p.usedSharedCaptureSession = true
             completeFromReusableCapture()
             return
@@ -130,6 +141,7 @@ class MediaProjectionScreenshotter private constructor(context: Context) {
     }
 
     fun onSharedCaptureReady() {
+        Log.d(TAG, "capture: shared capture owner is ready; tapping next frame")
         completeFromReusableCapture()
     }
 
@@ -215,6 +227,7 @@ class MediaProjectionScreenshotter private constructor(context: Context) {
         data: Intent,
         allowPromptRetry: Boolean = false,
     ) {
+        Log.d(TAG, "capture: using raw one-off MediaProjection fallback")
         val thread = HandlerThread("MediaProjectionScreenshot")
         thread.start()
         val handler = Handler(thread.looper)

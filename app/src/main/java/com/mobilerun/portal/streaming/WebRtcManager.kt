@@ -217,6 +217,51 @@ class WebRtcManager private constructor(private val context: Context) {
                     !streamActive
         }
 
+        internal data class CaptureFastState(
+            val captureActive: Boolean,
+            val reusableFrameSource: Boolean,
+            val captureSessionMode: CaptureSessionMode,
+            val generation: Int,
+        )
+
+        internal data class CaptureFrameRequestPlan(
+            val reusableCaptureAvailable: Boolean,
+            val shouldCancelIdleStop: Boolean,
+        )
+
+        internal fun buildCaptureFastState(
+            captureActive: Boolean,
+            videoTrackReady: Boolean,
+            captureSessionMode: CaptureSessionMode,
+            generation: Int,
+        ): CaptureFastState {
+            if (!captureActive) {
+                return CaptureFastState(
+                    captureActive = false,
+                    reusableFrameSource = false,
+                    captureSessionMode = CaptureSessionMode.NONE,
+                    generation = 0,
+                )
+            }
+            return CaptureFastState(
+                captureActive = true,
+                reusableFrameSource = videoTrackReady,
+                captureSessionMode = captureSessionMode,
+                generation = generation,
+            )
+        }
+
+        internal fun planCaptureFrameRequest(
+            captureFastState: CaptureFastState,
+        ): CaptureFrameRequestPlan {
+            return CaptureFrameRequestPlan(
+                reusableCaptureAvailable = captureFastState.reusableFrameSource,
+                shouldCancelIdleStop =
+                    captureFastState.reusableFrameSource &&
+                            captureFastState.captureSessionMode == CaptureSessionMode.CAPTURE_ONLY,
+            )
+        }
+
         private fun copyI420ToNv21(
             i420: VideoFrame.I420Buffer,
             width: Int,
@@ -398,6 +443,14 @@ class WebRtcManager private constructor(private val context: Context) {
     private var captureLogStreamId = 0
     private var firstCaptureFrameLoggedStreamId = 0
     private var captureSessionMode = CaptureSessionMode.NONE
+    @Volatile
+    private var captureFastState =
+        buildCaptureFastState(
+            captureActive = false,
+            videoTrackReady = false,
+            captureSessionMode = CaptureSessionMode.NONE,
+            generation = 0,
+        )
 
     @Volatile
     private var controlChannel: DataChannel? = null
@@ -440,8 +493,9 @@ class WebRtcManager private constructor(private val context: Context) {
     fun isStreamActive(): Boolean =
         synchronized(streamLock) { peerConnection != null || secondarySessions.isNotEmpty() }
 
-    fun hasReusableCaptureFrameSource(): Boolean =
-        synchronized(streamLock) { screenCapturer != null && videoTrack != null }
+    fun hasReusableCaptureFrameSource(): Boolean = captureFastState.reusableFrameSource
+
+    internal fun getCaptureFastStateSnapshot(): CaptureFastState = captureFastState
 
     /**
      * Tap the next frame from the active screen-capture VideoTrack and return it
@@ -452,15 +506,18 @@ class WebRtcManager private constructor(private val context: Context) {
      */
     fun captureStreamFrame(): CompletableFuture<String> {
         val future = CompletableFuture<String>()
-        if (!hasReusableCaptureFrameSource()) {
+        val captureState = getCaptureFastStateSnapshot()
+        val requestPlan = planCaptureFrameRequest(captureState)
+        Log.d(
+            TAG,
+            "captureStreamFrame: reusable=${requestPlan.reusableCaptureAvailable} mode=${captureState.captureSessionMode} gen=${captureState.generation}",
+        )
+        if (!requestPlan.reusableCaptureAvailable) {
+            Log.w(TAG, "captureStreamFrame: no reusable shared capture is available")
             future.complete("error: no_active_capture")
             return future
         }
-        val captureSessionModeAtRequest =
-            synchronized(streamLock) {
-                captureSessionMode
-            }
-        if (captureSessionModeAtRequest == CaptureSessionMode.CAPTURE_ONLY) {
+        if (requestPlan.shouldCancelIdleStop) {
             cancelIdleStop()
         }
 
@@ -473,9 +530,10 @@ class WebRtcManager private constructor(private val context: Context) {
                             pendingFrameCaptures.removeAll { it.future === future }
                         }
                     if (removed) {
+                        val timeoutState = getCaptureFastStateSnapshot()
                         Log.w(
                             TAG,
-                            "Screenshot waiter timed out waiting for next shared capture frame"
+                            "Screenshot waiter timed out waiting for next shared capture frame (reusable=${timeoutState.reusableFrameSource}, mode=${timeoutState.captureSessionMode}, gen=${timeoutState.generation})",
                         )
                         future.complete("error: frame_timeout")
                     }
@@ -688,7 +746,7 @@ class WebRtcManager private constructor(private val context: Context) {
             }
         }
 
-    fun isCaptureActive(): Boolean = synchronized(streamLock) { screenCapturer != null }
+    fun isCaptureActive(): Boolean = captureFastState.captureActive
 
     private fun initializePeerConnectionFactory() {
         PeerConnectionFactory.initialize(
@@ -799,11 +857,15 @@ class WebRtcManager private constructor(private val context: Context) {
             waitingForOffer = waitForOffer
             iceRestartAttempts = 0
             captureSessionMode = CaptureSessionMode.STREAM
+            refreshCaptureFastStateLocked()
             primePrimarySessionLivenessLocked(sessionId, SystemClock.elapsedRealtime())
         }
         val newResources = createPeerConnection(effectiveIceServers, streamId, sessionId)
+        val activeTrack =
+            createVideoTrack(permissionResultData, width, height, fps, streamId) ?: return
         val sendReadyFor: String?
         val shouldCreateOffer: Boolean
+        val connectionForSender: PeerConnection?
         synchronized(streamLock) {
             if (streamGeneration.get() != streamId) {
                 newResources?.let {
@@ -814,14 +876,7 @@ class WebRtcManager private constructor(private val context: Context) {
             peerConnection = newResources?.peerConnection
             controlChannel = newResources?.controlChannel
             scrcpyControlHandler = newResources?.scrcpyControlHandler
-            createVideoTrack(permissionResultData, width, height, fps, streamId)
-
-            videoTrack?.let { track ->
-                val sender = peerConnection?.addTrack(track, listOf(VIDEO_TRACK_ID))
-                configureVideoSender(sender, width, height, fps)
-            }
-
-            startStatsLogging(streamId)
+            connectionForSender = peerConnection
             if (!waitForOffer) {
                 shouldCreateOffer = true
                 sendReadyFor = null
@@ -837,6 +892,17 @@ class WebRtcManager private constructor(private val context: Context) {
                     )
                 }
             }
+        }
+        try {
+            if (isCurrentStream(streamId)) {
+                val sender = connectionForSender?.addTrack(activeTrack, listOf(VIDEO_TRACK_ID))
+                configureVideoSender(sender, width, height, fps)
+                startStatsLogging(streamId)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed attaching primary video sender", e)
+            stopStream()
+            throw e
         }
         if (shouldCreateOffer) createOffer(streamId)
         sendReadyFor?.let { sendStreamReady(it) }
@@ -859,10 +925,11 @@ class WebRtcManager private constructor(private val context: Context) {
         val streamId = streamGeneration.incrementAndGet()
         val staleResources = synchronized(streamLock) { detachStreamResourcesLocked() }
         cleanupStreamResources(staleResources)
-        createVideoTrack(permissionResultData, width, height, fps, streamId)
         synchronized(streamLock) {
             captureSessionMode = CaptureSessionMode.CAPTURE_ONLY
+            refreshCaptureFastStateLocked()
         }
+        createVideoTrack(permissionResultData, width, height, fps, streamId)
     }
 
     fun startStreamWithExistingCapture(
@@ -941,6 +1008,7 @@ class WebRtcManager private constructor(private val context: Context) {
             iceRestartAttempts = 0
             captureLogStreamId = streamId
             captureSessionMode = CaptureSessionMode.STREAM
+            refreshCaptureFastStateLocked()
             primePrimarySessionLivenessLocked(sessionId, SystemClock.elapsedRealtime())
             if (videoTrack == null) {
                 throw IllegalStateException("No active capture to reuse")
@@ -949,6 +1017,8 @@ class WebRtcManager private constructor(private val context: Context) {
         val newResources = createPeerConnection(effectiveIceServers, streamId, sessionId)
         val sendReadyFor: String?
         val shouldCreateOffer: Boolean
+        val activeTrack: VideoTrack
+        val connectionForSender: PeerConnection?
         synchronized(streamLock) {
             if (streamGeneration.get() != streamId) {
                 newResources?.let {
@@ -959,11 +1029,8 @@ class WebRtcManager private constructor(private val context: Context) {
             peerConnection = newResources?.peerConnection
             controlChannel = newResources?.controlChannel
             scrcpyControlHandler = newResources?.scrcpyControlHandler
-            val activeTrack =
-                videoTrack ?: throw IllegalStateException("No active capture to reuse")
-            val sender = peerConnection?.addTrack(activeTrack, listOf(VIDEO_TRACK_ID))
-            configureVideoSender(sender, width, height, fps)
-            startStatsLogging(streamId)
+            activeTrack = videoTrack ?: throw IllegalStateException("No active capture to reuse")
+            connectionForSender = peerConnection
             if (!waitForOffer) {
                 shouldCreateOffer = true
                 sendReadyFor = null
@@ -979,6 +1046,17 @@ class WebRtcManager private constructor(private val context: Context) {
                     )
                 }
             }
+        }
+        try {
+            if (isCurrentStream(streamId)) {
+                val sender = connectionForSender?.addTrack(activeTrack, listOf(VIDEO_TRACK_ID))
+                configureVideoSender(sender, width, height, fps)
+                startStatsLogging(streamId)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed attaching reused-capture video sender", e)
+            stopStream()
+            throw e
         }
         if (shouldCreateOffer) createOffer(streamId)
         sendReadyFor?.let { sendStreamReady(it) }
@@ -1395,19 +1473,13 @@ class WebRtcManager private constructor(private val context: Context) {
     }
 
     internal fun onSharedCaptureScreenshotCompleted(usedSharedCaptureSession: Boolean) {
-        val captureActive: Boolean
-        val streamActive: Boolean
-        val currentCaptureSessionMode: CaptureSessionMode
-        synchronized(streamLock) {
-            captureActive = screenCapturer != null
-            streamActive = peerConnection != null || secondarySessions.isNotEmpty()
-            currentCaptureSessionMode = captureSessionMode
-        }
+        val captureState = getCaptureFastStateSnapshot()
+        val streamActive = isStreamActive()
         if (
             !shouldArmCaptureOnlyIdleStop(
                 usedSharedCaptureSession = usedSharedCaptureSession,
-                captureSessionMode = currentCaptureSessionMode,
-                captureActive = captureActive,
+                captureSessionMode = captureState.captureSessionMode,
+                captureActive = captureState.captureActive,
                 streamActive = streamActive,
             )
         ) {
@@ -1578,6 +1650,7 @@ class WebRtcManager private constructor(private val context: Context) {
         captureHeight = 0
         captureFps = 0
         captureSessionMode = CaptureSessionMode.NONE
+        refreshCaptureFastStateLocked()
         return resources
     }
 
@@ -2413,8 +2486,8 @@ class WebRtcManager private constructor(private val context: Context) {
         height: Int,
         fps: Int,
         streamId: Int,
-    ) {
-        screenCapturer =
+    ): VideoTrack? {
+        val capturer =
             ScreenCapturerAndroid(
                 permissionResultData,
                 object : MediaProjection.Callback() {
@@ -2422,34 +2495,81 @@ class WebRtcManager private constructor(private val context: Context) {
                         postStopStreamIfCurrent(streamId)
                         ScreenCaptureService.requestStop("projection_stopped")
                     }
-                }
+                },
             )
 
         val source =
-            peerConnectionFactory?.createVideoSource(screenCapturer!!.isScreencast)
+            peerConnectionFactory?.createVideoSource(capturer.isScreencast)
                 ?: throw IllegalStateException("PeerConnectionFactory unavailable")
-        videoSource = source
         val captureObserver = createCaptureFrameObserver(source.capturerObserver)
+        val textureHelper = SurfaceTextureHelper.create("CaptureThread", eglBase.eglBaseContext)
 
         // Start Capture
-        surfaceTextureHelper = SurfaceTextureHelper.create("CaptureThread", eglBase.eglBaseContext)
-        screenCapturer?.initialize(surfaceTextureHelper, context, captureObserver)
+        capturer.initialize(textureHelper, context, captureObserver)
         try {
-            screenCapturer?.startCapture(width, height, fps)
+            capturer.startCapture(width, height, fps)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start capture", e)
+            cleanupStreamResources(
+                StreamResources(
+                    screenCapturer = capturer,
+                    videoSource = source,
+                    videoTrack = null,
+                    surfaceTextureHelper = textureHelper,
+                    peerConnection = null,
+                    controlChannel = null,
+                ),
+            )
             stopStream()
             throw RuntimeException("Failed to start screen capture: ${e.message}", e)
         }
 
-        synchronized(streamLock) {
-            captureLogStreamId = streamId
-            captureWidth = width
-            captureHeight = height
-            captureFps = fps
-        }
+        val track =
+            peerConnectionFactory?.createVideoTrack(VIDEO_TRACK_ID, source)
+                ?: run {
+                    cleanupStreamResources(
+                        StreamResources(
+                            screenCapturer = capturer,
+                            videoSource = source,
+                            videoTrack = null,
+                            surfaceTextureHelper = textureHelper,
+                            peerConnection = null,
+                            controlChannel = null,
+                        ),
+                    )
+                    throw IllegalStateException("Failed to create video track")
+                }
 
-        videoTrack = peerConnectionFactory?.createVideoTrack(VIDEO_TRACK_ID, videoSource)
+        var published = false
+        synchronized(streamLock) {
+            if (streamGeneration.get() == streamId) {
+                screenCapturer = capturer
+                videoSource = source
+                surfaceTextureHelper = textureHelper
+                captureLogStreamId = streamId
+                captureWidth = width
+                captureHeight = height
+                captureFps = fps
+                videoTrack = track
+                refreshCaptureFastStateLocked()
+                published = true
+            }
+        }
+        if (!published) {
+            Log.w(TAG, "Discarding stale capture resources for streamId=$streamId")
+            cleanupStreamResources(
+                StreamResources(
+                    screenCapturer = capturer,
+                    videoSource = source,
+                    videoTrack = track,
+                    surfaceTextureHelper = textureHelper,
+                    peerConnection = null,
+                    controlChannel = null,
+                ),
+            )
+            return null
+        }
+        return track
     }
 
     private fun createOffer(streamId: Int) {
@@ -3281,5 +3401,15 @@ class WebRtcManager private constructor(private val context: Context) {
         }
 
         Log.i(TAG, "WebRtcManager resources released")
+    }
+
+    private fun refreshCaptureFastStateLocked() {
+        captureFastState =
+            buildCaptureFastState(
+                captureActive = screenCapturer != null,
+                videoTrackReady = videoTrack != null,
+                captureSessionMode = captureSessionMode,
+                generation = captureLogStreamId,
+            )
     }
 }

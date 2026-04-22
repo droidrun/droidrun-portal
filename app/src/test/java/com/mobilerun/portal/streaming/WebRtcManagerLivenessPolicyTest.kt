@@ -143,6 +143,70 @@ class WebRtcManagerLivenessPolicyTest {
     }
 
     @Test
+    fun buildCaptureFastState_marksReusableSharedCaptureWithoutSessionLockState() {
+        val state =
+            WebRtcManager.buildCaptureFastState(
+                captureActive = true,
+                videoTrackReady = true,
+                captureSessionMode = WebRtcManager.CaptureSessionMode.STREAM,
+                generation = 42,
+            )
+
+        assertTrue(state.captureActive)
+        assertTrue(state.reusableFrameSource)
+        assertEquals(WebRtcManager.CaptureSessionMode.STREAM, state.captureSessionMode)
+        assertEquals(42, state.generation)
+    }
+
+    @Test
+    fun buildCaptureFastState_clearsReusableStateWhenCaptureIsReset() {
+        val state =
+            WebRtcManager.buildCaptureFastState(
+                captureActive = false,
+                videoTrackReady = true,
+                captureSessionMode = WebRtcManager.CaptureSessionMode.STREAM,
+                generation = 42,
+            )
+
+        assertFalse(state.captureActive)
+        assertFalse(state.reusableFrameSource)
+        assertEquals(WebRtcManager.CaptureSessionMode.NONE, state.captureSessionMode)
+        assertEquals(0, state.generation)
+    }
+
+    @Test
+    fun planCaptureFrameRequest_reusesFastCaptureStateWithoutNeedingStreamLock() {
+        val requestPlan =
+            WebRtcManager.planCaptureFrameRequest(
+                WebRtcManager.buildCaptureFastState(
+                    captureActive = true,
+                    videoTrackReady = true,
+                    captureSessionMode = WebRtcManager.CaptureSessionMode.STREAM,
+                    generation = 7,
+                ),
+            )
+
+        assertTrue(requestPlan.reusableCaptureAvailable)
+        assertFalse(requestPlan.shouldCancelIdleStop)
+    }
+
+    @Test
+    fun planCaptureFrameRequest_captureOnlyReuseCancelsIdleStop() {
+        val requestPlan =
+            WebRtcManager.planCaptureFrameRequest(
+                WebRtcManager.buildCaptureFastState(
+                    captureActive = true,
+                    videoTrackReady = true,
+                    captureSessionMode = WebRtcManager.CaptureSessionMode.CAPTURE_ONLY,
+                    generation = 7,
+                ),
+            )
+
+        assertTrue(requestPlan.reusableCaptureAvailable)
+        assertTrue(requestPlan.shouldCancelIdleStop)
+    }
+
+    @Test
     fun resolveIncomingSessionRoute_takesOverWhenLivenessIsStale() {
         assertEquals(
             WebRtcManager.IncomingSessionRoute.TAKEOVER_STALE_PRIMARY,
