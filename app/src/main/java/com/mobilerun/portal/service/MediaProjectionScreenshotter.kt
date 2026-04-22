@@ -49,6 +49,7 @@ class MediaProjectionScreenshotter private constructor(context: Context) {
         val height: Int,
         val density: Int,
         val timeoutRunnable: Runnable,
+        var usedSharedCaptureSession: Boolean = false,
     )
 
     private data class CachedPermission(
@@ -58,11 +59,6 @@ class MediaProjectionScreenshotter private constructor(context: Context) {
 
     fun capture(): CompletableFuture<String> {
         val webRtc = WebRtcManager.getInstance(appContext)
-        if (webRtc.hasReusableCaptureFrameSource()) {
-            Log.d(TAG, "capture: reusing active WebRTC capture frame")
-            return webRtc.captureStreamFrame()
-        }
-
         val future = CompletableFuture<String>()
         val metrics = resolveDisplayMetrics()
         val timeoutRunnable = Runnable {
@@ -86,6 +82,13 @@ class MediaProjectionScreenshotter private constructor(context: Context) {
         }
 
         mainHandler.postDelayed(timeoutRunnable, CAPTURE_TIMEOUT_MS)
+
+        if (webRtc.hasReusableCaptureFrameSource()) {
+            Log.d(TAG, "capture: reusing active shared capture frame")
+            pendingCapture.usedSharedCaptureSession = true
+            completeFromReusableCapture()
+            return future
+        }
 
         val cachedGrant = synchronized(lock) {
             cachedPermission?.let { CachedPermission(it.resultCode, Intent(it.data)) }
@@ -119,6 +122,7 @@ class MediaProjectionScreenshotter private constructor(context: Context) {
         }
         cachePermission(resultCode, data)
         if (WebRtcManager.getInstance(appContext).hasReusableCaptureFrameSource()) {
+            p.usedSharedCaptureSession = true
             completeFromReusableCapture()
             return
         }
@@ -140,6 +144,7 @@ class MediaProjectionScreenshotter private constructor(context: Context) {
         }
         if (cachedGrant != null) {
             Log.w(TAG, "Shared capture bootstrap failed ($message); falling back to raw projection capture")
+            p.usedSharedCaptureSession = false
             runCapture(
                 p = p,
                 resultCode = cachedGrant.resultCode,
@@ -157,6 +162,7 @@ class MediaProjectionScreenshotter private constructor(context: Context) {
         data: Intent,
         allowPromptRetry: Boolean = false,
     ) {
+        p.usedSharedCaptureSession = true
         try {
             val intent = Intent(appContext, ScreenCaptureService::class.java).apply {
                 action = ScreenCaptureService.ACTION_PERMISSION_RESULT
@@ -171,6 +177,7 @@ class MediaProjectionScreenshotter private constructor(context: Context) {
             Log.d(TAG, "capture: starting shared capture owner")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start shared capture owner", e)
+            p.usedSharedCaptureSession = false
             runCapture(
                 p = p,
                 resultCode = resultCode,
@@ -360,6 +367,9 @@ class MediaProjectionScreenshotter private constructor(context: Context) {
         if (p != null) {
             mainHandler.removeCallbacks(p.timeoutRunnable)
             p.future.complete(result)
+            WebRtcManager
+                .getInstance(appContext)
+                .onSharedCaptureScreenshotCompleted(p.usedSharedCaptureSession)
         }
     }
 

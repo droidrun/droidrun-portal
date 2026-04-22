@@ -40,6 +40,7 @@ class WebRtcManager private constructor(private val context: Context) {
         private const val H264_CODEC_NAME = "H264/90000"
         private const val STATS_INTERVAL_MS = 5000L
         private const val IDLE_TIMEOUT_MS = 10 * 60 * 1000L
+        private const val SCREENSHOT_CAPTURE_IDLE_TIMEOUT_MS = 60_000L
         private const val KEEP_ALIVE_TIMEOUT_MS = 30_000L
         private const val KEEP_ALIVE_HEALTHY_GRACE_MS = 30 * 60 * 1000L
         private const val MAX_OUTGOING_ICE_CANDIDATES = 50
@@ -204,6 +205,18 @@ class WebRtcManager private constructor(private val context: Context) {
 
         internal fun shouldWarnForZeroSentStats(intervalCount: Int): Boolean = intervalCount == 2
 
+        internal fun shouldArmCaptureOnlyIdleStop(
+            usedSharedCaptureSession: Boolean,
+            captureSessionMode: CaptureSessionMode,
+            captureActive: Boolean,
+            streamActive: Boolean,
+        ): Boolean {
+            return usedSharedCaptureSession &&
+                captureSessionMode == CaptureSessionMode.CAPTURE_ONLY &&
+                captureActive &&
+                !streamActive
+        }
+
         private fun copyI420ToNv21(
             i420: VideoFrame.I420Buffer,
             width: Int,
@@ -305,6 +318,12 @@ class WebRtcManager private constructor(private val context: Context) {
         TAKEOVER_STALE_PRIMARY,
     }
 
+    internal enum class CaptureSessionMode {
+        NONE,
+        STREAM,
+        CAPTURE_ONLY,
+    }
+
     private data class SecondarySession(
         val sessionId: String,
         val peerConnection: PeerConnection,
@@ -378,6 +397,7 @@ class WebRtcManager private constructor(private val context: Context) {
     private var consecutiveZeroSentStatsIntervals = 0
     private var captureLogStreamId = 0
     private var firstCaptureFrameLoggedStreamId = 0
+    private var captureSessionMode = CaptureSessionMode.NONE
 
     @Volatile
     private var controlChannel: DataChannel? = null
@@ -435,6 +455,13 @@ class WebRtcManager private constructor(private val context: Context) {
         if (!hasReusableCaptureFrameSource()) {
             future.complete("error: no_active_capture")
             return future
+        }
+        val captureSessionModeAtRequest =
+            synchronized(streamLock) {
+                captureSessionMode
+            }
+        if (captureSessionModeAtRequest == CaptureSessionMode.CAPTURE_ONLY) {
+            cancelIdleStop()
         }
 
         val pending =
@@ -754,6 +781,7 @@ class WebRtcManager private constructor(private val context: Context) {
             streamRequestId = sessionId
             waitingForOffer = waitForOffer
             iceRestartAttempts = 0
+            captureSessionMode = CaptureSessionMode.STREAM
             primePrimarySessionLivenessLocked(sessionId, SystemClock.elapsedRealtime())
         }
         val newResources = createPeerConnection(effectiveIceServers, streamId, sessionId)
@@ -815,6 +843,9 @@ class WebRtcManager private constructor(private val context: Context) {
         val staleResources = synchronized(streamLock) { detachStreamResourcesLocked() }
         cleanupStreamResources(staleResources)
         createVideoTrack(permissionResultData, width, height, fps, streamId)
+        synchronized(streamLock) {
+            captureSessionMode = CaptureSessionMode.CAPTURE_ONLY
+        }
     }
 
     fun startStreamWithExistingCapture(
@@ -891,6 +922,7 @@ class WebRtcManager private constructor(private val context: Context) {
             waitingForOffer = waitForOffer
             iceRestartAttempts = 0
             captureLogStreamId = streamId
+            captureSessionMode = CaptureSessionMode.STREAM
             primePrimarySessionLivenessLocked(sessionId, SystemClock.elapsedRealtime())
             if (videoTrack == null) {
                 throw IllegalStateException("No active capture to reuse")
@@ -1344,6 +1376,35 @@ class WebRtcManager private constructor(private val context: Context) {
         stopAllSessions(reason)
     }
 
+    internal fun onSharedCaptureScreenshotCompleted(usedSharedCaptureSession: Boolean) {
+        val captureActive: Boolean
+        val streamActive: Boolean
+        val currentCaptureSessionMode: CaptureSessionMode
+        synchronized(streamLock) {
+            captureActive = screenCapturer != null
+            streamActive = peerConnection != null || secondarySessions.isNotEmpty()
+            currentCaptureSessionMode = captureSessionMode
+        }
+        if (
+            !shouldArmCaptureOnlyIdleStop(
+                usedSharedCaptureSession = usedSharedCaptureSession,
+                captureSessionMode = currentCaptureSessionMode,
+                captureActive = captureActive,
+                streamActive = streamActive,
+            )
+        ) {
+            return
+        }
+        Log.i(
+            TAG,
+            "Arming capture-only idle stop for shared screenshot reuse (${SCREENSHOT_CAPTURE_IDLE_TIMEOUT_MS}ms)",
+        )
+        scheduleIdleStop(
+            reason = "screenshot_capture_only",
+            timeoutMs = SCREENSHOT_CAPTURE_IDLE_TIMEOUT_MS,
+        )
+    }
+
     fun stopStreamAsync(onStopped: (() -> Unit)? = null) {
         cancelIdleStop()
         cancelAllKeepAlives()
@@ -1377,7 +1438,7 @@ class WebRtcManager private constructor(private val context: Context) {
         }
     }
 
-    private fun scheduleIdleStop(reason: String) {
+    private fun scheduleIdleStop(reason: String, timeoutMs: Long = IDLE_TIMEOUT_MS) {
         if (!isCaptureActive()) return
         idleStopRunnable?.let { stopHandler.removeCallbacks(it) }
         val runnable = Runnable {
@@ -1388,7 +1449,7 @@ class WebRtcManager private constructor(private val context: Context) {
             }
         }
         idleStopRunnable = runnable
-        stopHandler.postDelayed(runnable, IDLE_TIMEOUT_MS)
+        stopHandler.postDelayed(runnable, timeoutMs)
     }
 
     private fun cancelIdleStop() {
@@ -1498,6 +1559,7 @@ class WebRtcManager private constructor(private val context: Context) {
         captureWidth = 0
         captureHeight = 0
         captureFps = 0
+        captureSessionMode = CaptureSessionMode.NONE
         return resources
     }
 

@@ -13,10 +13,30 @@ class WebSocketDispatchPolicyTest {
     }
 
     @Test
-    fun bucketForNormalizedMethod_routesFastSignalingAwayFromHeavyExecutor() {
+    fun bucketForNormalizedMethod_routesAllStreamAndWebRtcMethodsToOrderedSignalingExecutor() {
         assertEquals(
             WebSocketDispatchBucket.SIGNALING,
-            WebSocketDispatchPolicy.bucketForNormalizedMethod("webrtc/keepAlive"),
+            WebSocketDispatchPolicy.bucketForNormalizedMethod("stream/start"),
+        )
+        assertEquals(
+            WebSocketDispatchBucket.SIGNALING,
+            WebSocketDispatchPolicy.bucketForNormalizedMethod("stream/stop"),
+        )
+        assertEquals(
+            WebSocketDispatchBucket.SIGNALING,
+            WebSocketDispatchPolicy.bucketForNormalizedMethod("webrtc/connect"),
+        )
+        assertEquals(
+            WebSocketDispatchBucket.SIGNALING,
+            WebSocketDispatchPolicy.bucketForNormalizedMethod("webrtc/rtcConfiguration"),
+        )
+        assertEquals(
+            WebSocketDispatchBucket.SIGNALING,
+            WebSocketDispatchPolicy.bucketForNormalizedMethod("webrtc/offer"),
+        )
+        assertEquals(
+            WebSocketDispatchBucket.SIGNALING,
+            WebSocketDispatchPolicy.bucketForNormalizedMethod("webrtc/answer"),
         )
         assertEquals(
             WebSocketDispatchBucket.SIGNALING,
@@ -24,23 +44,27 @@ class WebSocketDispatchPolicyTest {
         )
         assertEquals(
             WebSocketDispatchBucket.SIGNALING,
-            WebSocketDispatchPolicy.bucketForNormalizedMethod("stream/stop"),
+            WebSocketDispatchPolicy.bucketForNormalizedMethod("webrtc/requestFrame"),
+        )
+        assertEquals(
+            WebSocketDispatchBucket.SIGNALING,
+            WebSocketDispatchPolicy.bucketForNormalizedMethod("webrtc/keepAlive"),
         )
     }
 
     @Test
-    fun bucketForNormalizedMethod_keepsScreenshotAndStreamStartOnHeavyCommandExecutor() {
+    fun bucketForNormalizedMethod_keepsHeavyCommandsOnCommandExecutor() {
         assertEquals(
             WebSocketDispatchBucket.COMMAND,
             WebSocketDispatchPolicy.bucketForNormalizedMethod("screenshot"),
         )
         assertEquals(
             WebSocketDispatchBucket.COMMAND,
-            WebSocketDispatchPolicy.bucketForNormalizedMethod("stream/start"),
+            WebSocketDispatchPolicy.bucketForNormalizedMethod("task/start"),
         )
         assertEquals(
             WebSocketDispatchBucket.COMMAND,
-            WebSocketDispatchPolicy.bucketForNormalizedMethod("webrtc/connect"),
+            WebSocketDispatchPolicy.bucketForNormalizedMethod("files/list"),
         )
     }
 }

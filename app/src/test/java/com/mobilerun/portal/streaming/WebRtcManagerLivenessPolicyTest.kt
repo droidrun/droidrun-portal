@@ -107,6 +107,42 @@ class WebRtcManagerLivenessPolicyTest {
     }
 
     @Test
+    fun shouldArmCaptureOnlyIdleStop_whenSharedScreenshotBootstrapsCaptureOnlySession() {
+        assertTrue(
+            WebRtcManager.shouldArmCaptureOnlyIdleStop(
+                usedSharedCaptureSession = true,
+                captureSessionMode = WebRtcManager.CaptureSessionMode.CAPTURE_ONLY,
+                captureActive = true,
+                streamActive = false,
+            ),
+        )
+    }
+
+    @Test
+    fun shouldArmCaptureOnlyIdleStop_whenScreenshotReusesActiveStreamCapture() {
+        assertFalse(
+            WebRtcManager.shouldArmCaptureOnlyIdleStop(
+                usedSharedCaptureSession = true,
+                captureSessionMode = WebRtcManager.CaptureSessionMode.STREAM,
+                captureActive = true,
+                streamActive = true,
+            ),
+        )
+    }
+
+    @Test
+    fun shouldArmCaptureOnlyIdleStop_whenSharedScreenshotFailsAfterBootstrap() {
+        assertTrue(
+            WebRtcManager.shouldArmCaptureOnlyIdleStop(
+                usedSharedCaptureSession = true,
+                captureSessionMode = WebRtcManager.CaptureSessionMode.CAPTURE_ONLY,
+                captureActive = true,
+                streamActive = false,
+            ),
+        )
+    }
+
+    @Test
     fun resolveIncomingSessionRoute_takesOverWhenLivenessIsStale() {
         assertEquals(
             WebRtcManager.IncomingSessionRoute.TAKEOVER_STALE_PRIMARY,
