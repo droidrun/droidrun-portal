@@ -143,7 +143,10 @@ class MediaProjectionScreenshotter private constructor(context: Context) {
             cachedPermission?.let { CachedPermission(it.resultCode, Intent(it.data)) }
         }
         if (cachedGrant != null) {
-            Log.w(TAG, "Shared capture bootstrap failed ($message); falling back to raw projection capture")
+            Log.w(
+                TAG,
+                "Shared capture bootstrap failed ($message); falling back to raw projection capture"
+            )
             p.usedSharedCaptureSession = false
             runCapture(
                 p = p,
@@ -166,7 +169,10 @@ class MediaProjectionScreenshotter private constructor(context: Context) {
         try {
             val intent = Intent(appContext, ScreenCaptureService::class.java).apply {
                 action = ScreenCaptureService.ACTION_PERMISSION_RESULT
-                putExtra(ScreenCaptureService.EXTRA_CAPTURE_MODE, ScreenCaptureService.CAPTURE_MODE_SCREENSHOT)
+                putExtra(
+                    ScreenCaptureService.EXTRA_CAPTURE_MODE,
+                    ScreenCaptureService.CAPTURE_MODE_SCREENSHOT
+                )
                 putExtra(ScreenCaptureService.EXTRA_RESULT_CODE, resultCode)
                 putExtra(ScreenCaptureService.EXTRA_RESULT_DATA, data)
                 putExtra(ScreenCaptureService.EXTRA_WIDTH, p.width)
@@ -220,9 +226,18 @@ class MediaProjectionScreenshotter private constructor(context: Context) {
             val done = AtomicBoolean(false)
 
             fun cleanup() {
-                try { virtualDisplay?.release() } catch (_: Exception) {}
-                try { imageReader?.close() } catch (_: Exception) {}
-                try { projection?.stop() } catch (_: Exception) {}
+                try {
+                    virtualDisplay?.release()
+                } catch (_: Exception) {
+                }
+                try {
+                    imageReader?.close()
+                } catch (_: Exception) {
+                }
+                try {
+                    projection?.stop()
+                } catch (_: Exception) {
+                }
                 thread.quitSafely()
             }
 
@@ -267,7 +282,10 @@ class MediaProjectionScreenshotter private constructor(context: Context) {
                         Log.e(TAG, "Error capturing frame", e)
                         completePending("error: ${e.message}")
                     } finally {
-                        try { image?.close() } catch (_: Exception) {}
+                        try {
+                            image?.close()
+                        } catch (_: Exception) {
+                        }
                         cleanup()
                     }
                 }, handler)
@@ -284,7 +302,10 @@ class MediaProjectionScreenshotter private constructor(context: Context) {
                 )
             } catch (e: Exception) {
                 Log.e(TAG, "Error starting projection capture", e)
-                if (allowPromptRetry && requestFreshPermissionPrompt(e.message ?: "projection_error")) {
+                if (allowPromptRetry && requestFreshPermissionPrompt(
+                        e.message ?: "projection_error"
+                    )
+                ) {
                     cleanup()
                     return@post
                 }

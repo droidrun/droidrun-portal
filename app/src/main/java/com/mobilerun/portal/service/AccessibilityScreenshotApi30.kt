@@ -58,7 +58,10 @@ internal object AccessibilityScreenshotApi30 {
                             bitmap.recycle()
                             screenshotResult.hardwareBuffer.close()
                             output.close()
-                            Log.d(tag, "Screenshot captured successfully, size: ${bytes.size} bytes")
+                            Log.d(
+                                tag,
+                                "Screenshot captured successfully, size: ${bytes.size} bytes"
+                            )
                             onSuccess(base64)
                         } catch (e: Exception) {
                             Log.e(tag, "Error processing screenshot", e)

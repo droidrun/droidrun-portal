@@ -142,7 +142,9 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
             } else {
                 val deleteStart = maxOf(0, replaceStart - count)
                 if (deleteStart == replaceStart) safeCurrentText
-                else safeCurrentText.substring(0, deleteStart) + safeCurrentText.substring(replaceStart)
+                else safeCurrentText.substring(0, deleteStart) + safeCurrentText.substring(
+                    replaceStart
+                )
             }
         }
     }
@@ -532,9 +534,9 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
                 Intent(this, KeepAliveRecoveryActivity::class.java).apply {
                     flags =
                         Intent.FLAG_ACTIVITY_NEW_TASK or
-                            Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS or
-                            Intent.FLAG_ACTIVITY_NO_ANIMATION or
-                            Intent.FLAG_ACTIVITY_SINGLE_TOP
+                                Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS or
+                                Intent.FLAG_ACTIVITY_NO_ANIMATION or
+                                Intent.FLAG_ACTIVITY_SINGLE_TOP
                     putExtra(KeepAliveRecoveryActivity.EXTRA_REASON, reason)
                     putExtra(KeepAliveRecoveryActivity.EXTRA_RECOVERY_TOKEN, recoveryToken)
                 }
@@ -867,7 +869,8 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
                 AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
                 finalText
             )
-            val setTextSuccess = targetNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
+            val setTextSuccess =
+                targetNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
             if (!setTextSuccess) return false
 
             setSelectionOnFocusedInput(targetNode, desiredSelection)
@@ -940,7 +943,8 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
                 AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
                 newText
             )
-            val setTextSuccess = targetNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
+            val setTextSuccess =
+                targetNode.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
             if (!setTextSuccess) return false
 
             setSelectionOnFocusedInput(targetNode, desiredSelection)
@@ -971,7 +975,10 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
         return null
     }
 
-    private fun setSelectionOnFocusedInput(targetNode: AccessibilityNodeInfo, selection: Int): Boolean {
+    private fun setSelectionOnFocusedInput(
+        targetNode: AccessibilityNodeInfo,
+        selection: Int
+    ): Boolean {
         val args = android.os.Bundle().apply {
             putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, selection)
             putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, selection)

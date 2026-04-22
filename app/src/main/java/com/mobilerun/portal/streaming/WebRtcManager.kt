@@ -97,8 +97,8 @@ class WebRtcManager private constructor(private val context: Context) {
             controlState: DataChannel.State?,
         ): Boolean {
             return iceState == PeerConnection.IceConnectionState.CONNECTED ||
-                iceState == PeerConnection.IceConnectionState.COMPLETED ||
-                controlState == DataChannel.State.OPEN
+                    iceState == PeerConnection.IceConnectionState.COMPLETED ||
+                    controlState == DataChannel.State.OPEN
         }
 
         internal fun evaluateSessionLivenessTimeout(
@@ -198,7 +198,7 @@ class WebRtcManager private constructor(private val context: Context) {
         ): Int {
             val connected =
                 iceState == PeerConnection.IceConnectionState.CONNECTED ||
-                    iceState == PeerConnection.IceConnectionState.COMPLETED
+                        iceState == PeerConnection.IceConnectionState.COMPLETED
             if (!connected || framesSent != 0L) return 0
             return currentCount + 1
         }
@@ -212,9 +212,9 @@ class WebRtcManager private constructor(private val context: Context) {
             streamActive: Boolean,
         ): Boolean {
             return usedSharedCaptureSession &&
-                captureSessionMode == CaptureSessionMode.CAPTURE_ONLY &&
-                captureActive &&
-                !streamActive
+                    captureSessionMode == CaptureSessionMode.CAPTURE_ONLY &&
+                    captureActive &&
+                    !streamActive
         }
 
         private fun copyI420ToNv21(
@@ -473,7 +473,10 @@ class WebRtcManager private constructor(private val context: Context) {
                             pendingFrameCaptures.removeAll { it.future === future }
                         }
                     if (removed) {
-                        Log.w(TAG, "Screenshot waiter timed out waiting for next shared capture frame")
+                        Log.w(
+                            TAG,
+                            "Screenshot waiter timed out waiting for next shared capture frame"
+                        )
                         future.complete("error: frame_timeout")
                     }
                 },
@@ -500,10 +503,17 @@ class WebRtcManager private constructor(private val context: Context) {
                 if (result.startsWith("error:")) {
                     Log.w(
                         TAG,
-                        "Failed completing $completed screenshot waiters from shared capture: ${result.removePrefix("error: ")}",
+                        "Failed completing $completed screenshot waiters from shared capture: ${
+                            result.removePrefix(
+                                "error: "
+                            )
+                        }",
                     )
                 } else {
-                    Log.d(TAG, "Completed $completed screenshot waiters from next shared capture frame")
+                    Log.d(
+                        TAG,
+                        "Completed $completed screenshot waiters from next shared capture frame"
+                    )
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "frame snapshot encode failed", e)
@@ -512,7 +522,10 @@ class WebRtcManager private constructor(private val context: Context) {
                         waiterFutures,
                         e.message ?: "frame_encode_failed",
                     )
-                Log.w(TAG, "Failed $completed screenshot waiters due to frame snapshot encode error")
+                Log.w(
+                    TAG,
+                    "Failed $completed screenshot waiters due to frame snapshot encode error"
+                )
             }
         }
     }
@@ -544,7 +557,10 @@ class WebRtcManager private constructor(private val context: Context) {
             }
         if (snapshot == null) {
             val failed = failFrameCaptureWaiters(waiters.map { it.future }, "frame_snapshot_failed")
-            Log.w(TAG, "Failed $failed screenshot waiters because the capture frame could not be cloned")
+            Log.w(
+                TAG,
+                "Failed $failed screenshot waiters because the capture frame could not be cloned"
+            )
             return
         }
 
@@ -659,8 +675,8 @@ class WebRtcManager private constructor(private val context: Context) {
         if (sessionId.isNullOrBlank()) return false
         return synchronized(streamLock) {
             primarySessionId == sessionId ||
-                streamRequestId == sessionId ||
-                secondarySessions.containsKey(sessionId)
+                    streamRequestId == sessionId ||
+                    secondarySessions.containsKey(sessionId)
         }
     }
 
@@ -746,6 +762,7 @@ class WebRtcManager private constructor(private val context: Context) {
                         takeoverPrimarySessionId = clearPrimarySessionForTakeoverLocked()
                         IncomingSessionRoute.PRIMARY
                     }
+
                     else -> resolvedRoute
                 }
             }
@@ -885,6 +902,7 @@ class WebRtcManager private constructor(private val context: Context) {
                         takeoverPrimarySessionId = clearPrimarySessionForTakeoverLocked()
                         IncomingSessionRoute.PRIMARY
                     }
+
                     else -> resolvedRoute
                 }
             }
@@ -1340,7 +1358,7 @@ class WebRtcManager private constructor(private val context: Context) {
                     secondaryResources = secondarySessions.remove(sessionId)
                 }
                 peerConnection != null || secondarySessions.isNotEmpty()
-        }
+            }
         primaryResources?.let { cleanupPeerResources(it) }
         secondaryResources?.let { cleanupSecondarySession(it) }
         if (reason == "keep_alive_timeout") {
@@ -1478,8 +1496,8 @@ class WebRtcManager private constructor(private val context: Context) {
     private fun isTrackedSessionLocked(sessionId: String): Boolean {
         if (sessionId.isBlank()) return false
         return primarySessionId == sessionId ||
-            streamRequestId == sessionId ||
-            secondarySessions.containsKey(sessionId)
+                streamRequestId == sessionId ||
+                secondarySessions.containsKey(sessionId)
     }
 
     private fun ensureSessionLivenessStateLocked(sessionId: String): SessionLivenessState {
@@ -1750,7 +1768,7 @@ class WebRtcManager private constructor(private val context: Context) {
         val isPrimary =
             synchronized(streamLock) {
                 primarySessionId == sessionId ||
-                    (primarySessionId == null && streamRequestId == sessionId)
+                        (primarySessionId == null && streamRequestId == sessionId)
             }
         if (!isPrimary) {
             handleOfferForSecondary(sdp, sessionId)
@@ -1765,12 +1783,18 @@ class WebRtcManager private constructor(private val context: Context) {
                     pendingSessionId == null -> {
                         pendingPrimaryOfferSessionId = sessionId
                         pendingPrimaryOffer = SessionDescription(SessionDescription.Type.OFFER, sdp)
-                        Log.i(TAG, "Queued primary offer until peer is ready (sessionId=$sessionId)")
+                        Log.i(
+                            TAG,
+                            "Queued primary offer until peer is ready (sessionId=$sessionId)"
+                        )
                     }
 
                     pendingSessionId == sessionId -> {
                         pendingPrimaryOffer = SessionDescription(SessionDescription.Type.OFFER, sdp)
-                        Log.i(TAG, "Replaced queued primary offer until peer is ready (sessionId=$sessionId)")
+                        Log.i(
+                            TAG,
+                            "Replaced queued primary offer until peer is ready (sessionId=$sessionId)"
+                        )
                     }
 
                     else -> {
@@ -1933,7 +1957,10 @@ class WebRtcManager private constructor(private val context: Context) {
                     }
                 )
             }
-        Log.i(TAG, "Sending primary answer: session=$sessionId sdpLength=${desc.description.length}")
+        Log.i(
+            TAG,
+            "Sending primary answer: session=$sessionId sdpLength=${desc.description.length}"
+        )
         reverseConnectionService?.sendText(json.toString())
     }
 
@@ -1954,7 +1981,7 @@ class WebRtcManager private constructor(private val context: Context) {
         val isPrimary =
             synchronized(streamLock) {
                 primarySessionId == sessionId ||
-                    (primarySessionId == null && streamRequestId == sessionId)
+                        (primarySessionId == null && streamRequestId == sessionId)
             }
         if (!isPrimary) {
             handleIceCandidateForSecondary(candidate, sessionId)

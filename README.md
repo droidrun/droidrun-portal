@@ -88,7 +88,7 @@ The operator-facing screen-awake watchdog can also be enabled from **Settings** 
 | WebRTC streaming + signaling | No | No | No | Yes |
 | `files/*` | No | Yes on Android 11+ | Yes on Android 11+ | Yes on Android 11+ |
 
-Android 8 support is a compatibility tier. Core control, screenshots, and reverse streaming are supported on API 26+, but file operations remain Android 11+ only in the current build. Advanced scrcpy-only features such as audio forwarding, camera mirroring, and newer display-specific features are not part of the Android-8 tier.
+Android 8 support is a compatibility tier. Core control, screenshots, and reverse streaming are supported on API 26+, but file operations remain Android 11+ only in the current build.
 
 ### 💻 ADB Commands (ContentProvider)
 
