@@ -15,6 +15,13 @@ internal object WebSocketDispatchPolicy {
         }
     }
 
+    internal fun shouldTraceExecutionTiming(normalizedMethod: String): Boolean =
+        normalizedMethod == "state" ||
+            normalizedMethod == "packages" ||
+            normalizedMethod == "screenshot" ||
+            normalizedMethod == "webrtc/rtcConfiguration" ||
+            normalizedMethod == "webrtc/requestFrame"
+
     internal fun isOrderedSignalingMethod(normalizedMethod: String): Boolean =
         normalizedMethod.startsWith("stream/") || normalizedMethod.startsWith("webrtc/")
 }
