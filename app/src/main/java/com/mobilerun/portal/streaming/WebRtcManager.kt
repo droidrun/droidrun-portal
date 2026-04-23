@@ -42,7 +42,7 @@ class WebRtcManager private constructor(private val context: Context) {
         private const val IDLE_TIMEOUT_MS = 10 * 60 * 1000L
         private const val SCREENSHOT_CAPTURE_IDLE_TIMEOUT_MS = 60_000L
         private const val KEEP_ALIVE_TIMEOUT_MS = 30_000L
-        private const val KEEP_ALIVE_HEALTHY_GRACE_MS = 30 * 60 * 1000L
+        private const val KEYFRAME_REQUEST_MIN_INTERVAL_MS = 250L
         private const val MAX_OUTGOING_ICE_CANDIDATES = 50
         private const val MAX_ICE_RESTARTS = 1
         private const val MAX_CONCURRENT_SESSIONS = 3
@@ -101,24 +101,8 @@ class WebRtcManager private constructor(private val context: Context) {
                     controlState == DataChannel.State.OPEN
         }
 
-        internal fun evaluateSessionLivenessTimeout(
-            peerHealthy: Boolean,
-            nowMs: Long,
-            firstSilentAtMs: Long?,
-            healthyGraceMs: Long,
-        ): SessionLivenessTimeoutDecision {
-            if (!peerHealthy) {
-                return SessionLivenessTimeoutDecision(
-                    shouldStop = true,
-                    firstSilentAtMs = firstSilentAtMs,
-                )
-            }
-            val effectiveFirstSilentAtMs = firstSilentAtMs ?: nowMs
-            return SessionLivenessTimeoutDecision(
-                shouldStop = firstSilentAtMs != null && nowMs - firstSilentAtMs >= healthyGraceMs,
-                firstSilentAtMs = effectiveFirstSilentAtMs,
-            )
-        }
+        internal fun evaluateSessionLivenessTimeout(peerHealthy: Boolean): SessionLivenessTimeoutDecision =
+            SessionLivenessTimeoutDecision(shouldStop = !peerHealthy)
 
         internal fun lastSessionCaptureAction(
             reason: String,
@@ -136,7 +120,6 @@ class WebRtcManager private constructor(private val context: Context) {
             currentPrimarySessionId: String?,
             incomingSessionId: String,
             primaryHasPeerResources: Boolean,
-            primaryFirstSilentAtMs: Long?,
             primaryLastLivenessAtMs: Long?,
             nowMs: Long,
             livenessStaleAfterMs: Long,
@@ -147,9 +130,6 @@ class WebRtcManager private constructor(private val context: Context) {
             if (!primaryHasPeerResources) {
                 return IncomingSessionRoute.TAKEOVER_STALE_PRIMARY
             }
-            if (primaryFirstSilentAtMs != null) {
-                return IncomingSessionRoute.TAKEOVER_STALE_PRIMARY
-            }
             if (
                 primaryLastLivenessAtMs == null ||
                 nowMs - primaryLastLivenessAtMs >= livenessStaleAfterMs
@@ -157,6 +137,115 @@ class WebRtcManager private constructor(private val context: Context) {
                 return IncomingSessionRoute.TAKEOVER_STALE_PRIMARY
             }
             return IncomingSessionRoute.SECONDARY
+        }
+
+        internal enum class KeyframeRequestScheduleDisposition {
+            SKIP_NO_STREAM,
+            COALESCE,
+            SCHEDULE,
+        }
+
+        internal data class KeyframeRequestScheduleDecision(
+            val disposition: KeyframeRequestScheduleDisposition,
+            val delayMs: Long,
+            val replacesPending: Boolean,
+        )
+
+        internal fun planKeyframeRequestSchedule(
+            streamActive: Boolean,
+            pendingGeneration: Int?,
+            pendingSessionId: String?,
+            currentGeneration: Int,
+            requestedSessionId: String,
+            nowMs: Long,
+            lastKeyframeRequestStartedAtMs: Long,
+            minIntervalMs: Long,
+        ): KeyframeRequestScheduleDecision {
+            if (!streamActive) {
+                return KeyframeRequestScheduleDecision(
+                    disposition = KeyframeRequestScheduleDisposition.SKIP_NO_STREAM,
+                    delayMs = 0L,
+                    replacesPending = false,
+                )
+            }
+            if (
+                pendingGeneration == currentGeneration &&
+                pendingSessionId == requestedSessionId
+            ) {
+                return KeyframeRequestScheduleDecision(
+                    disposition = KeyframeRequestScheduleDisposition.COALESCE,
+                    delayMs = 0L,
+                    replacesPending = false,
+                )
+            }
+            val sinceLastRequestMs = (nowMs - lastKeyframeRequestStartedAtMs).coerceAtLeast(0L)
+            return KeyframeRequestScheduleDecision(
+                disposition = KeyframeRequestScheduleDisposition.SCHEDULE,
+                delayMs = (minIntervalMs - sinceLastRequestMs).coerceAtLeast(0L),
+                replacesPending = pendingGeneration != null && pendingSessionId != null,
+            )
+        }
+
+        internal enum class KeyframeExecutionDisposition {
+            EXECUTE,
+            SKIP_REPLACED,
+            SKIP_STALE,
+        }
+
+        internal fun planKeyframeExecution(
+            pendingGeneration: Int?,
+            pendingSessionId: String?,
+            expectedGeneration: Int,
+            expectedSessionId: String,
+            activeGeneration: Int,
+            trackedSession: Boolean,
+            streamActive: Boolean,
+        ): KeyframeExecutionDisposition {
+            if (
+                pendingGeneration != expectedGeneration ||
+                pendingSessionId != expectedSessionId
+            ) {
+                return KeyframeExecutionDisposition.SKIP_REPLACED
+            }
+            if (!streamActive || !trackedSession || activeGeneration != expectedGeneration) {
+                return KeyframeExecutionDisposition.SKIP_STALE
+            }
+            return KeyframeExecutionDisposition.EXECUTE
+        }
+
+        internal data class KeyframeTargetAction(
+            val label: String,
+            val action: () -> Unit,
+        )
+
+        internal data class KeyframeExecutionSummary(
+            val attempted: Int,
+            val succeeded: Int,
+            val failed: Int,
+            val failedLabels: List<String>,
+        )
+
+        internal fun executeKeyframeTargetActions(
+            targets: List<KeyframeTargetAction>,
+        ): KeyframeExecutionSummary {
+            var succeeded = 0
+            var failed = 0
+            val failedLabels = mutableListOf<String>()
+            targets.forEach { target ->
+                try {
+                    target.action()
+                    succeeded += 1
+                } catch (t: Throwable) {
+                    failed += 1
+                    failedLabels += target.label
+                }
+            }
+            return KeyframeExecutionSummary(
+                attempted = targets.size,
+                succeeded = succeeded,
+                failed = failed,
+                failedLabels = failedLabels,
+            )
         }
 
         internal fun buildCpuFrameSnapshot(frame: VideoFrame): CapturedFrameSnapshot? {
@@ -335,15 +424,19 @@ class WebRtcManager private constructor(private val context: Context) {
 
     internal data class SessionLivenessTimeoutDecision(
         val shouldStop: Boolean,
-        val firstSilentAtMs: Long?,
     )
 
     private data class SessionLivenessState(
         var lastLivenessAtMs: Long,
-        var firstSilentAtMs: Long? = null,
         var iceState: PeerConnection.IceConnectionState? = null,
         var controlState: DataChannel.State? = null,
         var runnable: Runnable? = null,
+    )
+
+    private data class PendingKeyframeRequest(
+        val sessionId: String,
+        val generation: Int,
+        val runnable: Runnable,
     )
 
     internal data class PendingPrimarySignalingSnapshot(
@@ -415,6 +508,8 @@ class WebRtcManager private constructor(private val context: Context) {
 
     private val stopThread = HandlerThread("WebRtcStop").apply { start() }
     private val stopHandler = Handler(stopThread.looper)
+    private val keyframeThread = HandlerThread("WebRtcKeyframe").apply { start() }
+    private val keyframeHandler = Handler(keyframeThread.looper)
     private val statsThread = HandlerThread("WebRtcStats").apply { start() }
     private val statsHandler = Handler(statsThread.looper)
     private val frameTapThread = HandlerThread("WebRtcFrameTap").apply { start() }
@@ -460,6 +555,8 @@ class WebRtcManager private constructor(private val context: Context) {
     @Volatile
     private var pendingStreamStop: PendingStreamStop? = null
     private val sessionLivenessStates = mutableMapOf<String, SessionLivenessState>()
+    private var pendingKeyframeRequest: PendingKeyframeRequest? = null
+    private var lastKeyframeRequestStartedAtMs = 0L
     private val pendingFrameCaptures = mutableListOf<PendingFrameCapture>()
 
     init {
@@ -1378,32 +1475,107 @@ class WebRtcManager private constructor(private val context: Context) {
         reverseConnectionService?.sendText(json.toString())
     }
 
-    fun requestKeyFrame() {
-        synchronized(streamLock) {
-            peerConnection?.senders?.forEach { sender ->
-                if (sender.track()?.kind() != "video") return@forEach
-                val params = sender.parameters
-                params.encodings?.forEach { encoding ->
-                    val original = encoding.maxBitrateBps
-                    encoding.maxBitrateBps = (original ?: 2_000_000) + 1
-                    sender.setParameters(params)
-                    encoding.maxBitrateBps = original
-                    sender.setParameters(params)
-                }
-            }
-            secondarySessions.values.forEach { session ->
-                session.peerConnection.senders?.forEach { sender ->
-                    if (sender.track()?.kind() != "video") return@forEach
-                    val params = sender.parameters
-                    params.encodings?.forEach { encoding ->
-                        val original = encoding.maxBitrateBps
-                        encoding.maxBitrateBps = (original ?: 2_000_000) + 1
-                        sender.setParameters(params)
-                        encoding.maxBitrateBps = original
-                        sender.setParameters(params)
+    private fun executeQueuedKeyframeRequest(sessionId: String, generation: Int) {
+        var targets = emptyList<KeyframeTargetAction>()
+        val executionDisposition =
+            synchronized(streamLock) {
+                val pendingRequest = pendingKeyframeRequest
+                val disposition =
+                    planKeyframeExecution(
+                        pendingGeneration = pendingRequest?.generation,
+                        pendingSessionId = pendingRequest?.sessionId,
+                        expectedGeneration = generation,
+                        expectedSessionId = sessionId,
+                        activeGeneration = streamGeneration.get(),
+                        trackedSession = isTrackedSessionLocked(sessionId),
+                        streamActive = peerConnection != null || secondarySessions.isNotEmpty(),
+                    )
+                if (disposition == KeyframeExecutionDisposition.EXECUTE) {
+                    pendingKeyframeRequest = null
+                    lastKeyframeRequestStartedAtMs = SystemClock.elapsedRealtime()
+                    targets = buildKeyframeTargetActionsLocked()
+                } else {
+                    if (
+                        pendingRequest?.generation == generation &&
+                        pendingRequest?.sessionId == sessionId
+                    ) {
+                        pendingKeyframeRequest = null
                     }
+                    targets = emptyList()
                 }
+                disposition
             }
+
+        when (executionDisposition) {
+            KeyframeExecutionDisposition.SKIP_REPLACED -> {
+                Log.d(
+                    TAG,
+                    "Skipping queued keyframe request for session=$sessionId generation=$generation because it was replaced",
+                )
+                return
+            }
+
+            KeyframeExecutionDisposition.SKIP_STALE -> {
+                Log.d(
+                    TAG,
+                    "Skipping queued keyframe request for session=$sessionId generation=$generation because the stream is stale",
+                )
+                return
+            }
+
+            KeyframeExecutionDisposition.EXECUTE -> Unit
+        }
+
+        if (targets.isEmpty()) {
+            Log.d(
+                TAG,
+                "Skipping queued keyframe request for session=$sessionId generation=$generation because no video senders are active",
+            )
+            return
+        }
+
+        val summary = executeKeyframeTargetActions(targets)
+        val message =
+            "Executed queued keyframe request for session=$sessionId generation=$generation attempted=${summary.attempted} succeeded=${summary.succeeded} failed=${summary.failed} failedLabels=${summary.failedLabels.joinToString(",")}"
+        if (summary.failed > 0) {
+            Log.w(TAG, message)
+        } else {
+            Log.i(TAG, message)
+        }
+    }
+
+    private fun buildKeyframeTargetActionsLocked(): List<KeyframeTargetAction> {
+        val targets = mutableListOf<KeyframeTargetAction>()
+
+        peerConnection?.senders?.forEach { sender ->
+            if (sender.track()?.kind() != "video") return@forEach
+            targets +=
+                KeyframeTargetAction(label = "primary") {
+                    requestKeyframeOnSender(sender)
+                }
+        }
+
+        secondarySessions.values.forEach { session ->
+            session.peerConnection.senders?.forEach { sender ->
+                if (sender.track()?.kind() != "video") return@forEach
+                targets +=
+                    KeyframeTargetAction(label = "secondary:${session.sessionId}") {
+                        requestKeyframeOnSender(sender)
+                    }
+            }
+        }
+
+        return targets
+    }
+
+    private fun requestKeyframeOnSender(sender: RtpSender) {
+        val params = sender.parameters
+        params.encodings?.forEach { encoding ->
+            val original = encoding.maxBitrateBps
+            encoding.maxBitrateBps = (original ?: 2_000_000) + 1
+            sender.setParameters(params)
+            encoding.maxBitrateBps = original
+            sender.setParameters(params)
         }
     }
 
@@ -1587,21 +1759,35 @@ class WebRtcManager private constructor(private val context: Context) {
     private fun primePrimarySessionLivenessLocked(sessionId: String, nowMs: Long) {
         val state = ensureSessionLivenessStateLocked(sessionId)
         state.lastLivenessAtMs = nowMs
-        state.firstSilentAtMs = null
     }
 
     private fun resolveIncomingSessionRouteLocked(sessionId: String): IncomingSessionRoute {
         val currentPrimarySessionId = primarySessionId
         val primaryState = currentPrimarySessionId?.let { sessionLivenessStates[it] }
-        return resolveIncomingSessionRoute(
+        val route =
+            resolveIncomingSessionRoute(
             currentPrimarySessionId = currentPrimarySessionId,
             incomingSessionId = sessionId,
             primaryHasPeerResources = peerConnection != null || controlChannel != null,
-            primaryFirstSilentAtMs = primaryState?.firstSilentAtMs,
             primaryLastLivenessAtMs = primaryState?.lastLivenessAtMs?.takeIf { it > 0L },
             nowMs = SystemClock.elapsedRealtime(),
             livenessStaleAfterMs = KEEP_ALIVE_TIMEOUT_MS,
         )
+        if (
+            route == IncomingSessionRoute.TAKEOVER_STALE_PRIMARY &&
+            currentPrimarySessionId != null &&
+            currentPrimarySessionId != sessionId
+        ) {
+            val lastLivenessAgeMs =
+                primaryState?.lastLivenessAtMs
+                    ?.takeIf { it > 0L }
+                    ?.let { SystemClock.elapsedRealtime() - it }
+            Log.i(
+                TAG,
+                "Incoming session $sessionId taking over stale primary $currentPrimarySessionId (lastLivenessAgeMs=${lastLivenessAgeMs ?: -1L})",
+            )
+        }
+        return route
     }
 
     private fun clearPrimarySessionForTakeoverLocked(): String? {
@@ -3061,7 +3247,6 @@ class WebRtcManager private constructor(private val context: Context) {
             if (!isTrackedSessionLocked(sessionId)) return
             val state = ensureSessionLivenessStateLocked(sessionId)
             state.lastLivenessAtMs = SystemClock.elapsedRealtime()
-            state.firstSilentAtMs = null
             state.runnable?.let { stopHandler.removeCallbacks(it) }
             val runnable = Runnable { handleSessionLivenessTimeout(sessionId) }
             state.runnable = runnable
@@ -3079,11 +3264,71 @@ class WebRtcManager private constructor(private val context: Context) {
             Log.i(TAG, "First requestFrame received for session=$sessionId")
         }
         handleKeepAlive(sessionId)
-        if (!isStreamActive()) {
-            Log.i(TAG, "RequestFrame received but no active stream; awaiting offer/connection")
+        val nowMs = SystemClock.elapsedRealtime()
+        var scheduledRequest: PendingKeyframeRequest? = null
+        val decision =
+            synchronized(streamLock) {
+                val generation = streamGeneration.get()
+                val pendingRequest = pendingKeyframeRequest
+                val scheduleDecision =
+                    planKeyframeRequestSchedule(
+                        streamActive = peerConnection != null || secondarySessions.isNotEmpty(),
+                        pendingGeneration = pendingRequest?.generation,
+                        pendingSessionId = pendingRequest?.sessionId,
+                        currentGeneration = generation,
+                        requestedSessionId = sessionId,
+                        nowMs = nowMs,
+                        lastKeyframeRequestStartedAtMs = lastKeyframeRequestStartedAtMs,
+                        minIntervalMs = KEYFRAME_REQUEST_MIN_INTERVAL_MS,
+                    )
+                if (scheduleDecision.disposition == KeyframeRequestScheduleDisposition.SCHEDULE) {
+                    pendingRequest?.let { keyframeHandler.removeCallbacks(it.runnable) }
+                    val runnable = Runnable { executeQueuedKeyframeRequest(sessionId, generation) }
+                    scheduledRequest =
+                        PendingKeyframeRequest(
+                            sessionId = sessionId,
+                            generation = generation,
+                            runnable = runnable,
+                        )
+                    pendingKeyframeRequest = scheduledRequest
+                }
+                scheduleDecision
+            }
+
+        when (decision.disposition) {
+            KeyframeRequestScheduleDisposition.SKIP_NO_STREAM -> {
+                Log.i(TAG, "RequestFrame received but no active stream; awaiting offer/connection")
+            }
+
+            KeyframeRequestScheduleDisposition.COALESCE -> {
+                Log.d(TAG, "Coalesced requestFrame keyframe request for session=$sessionId")
+            }
+
+            KeyframeRequestScheduleDisposition.SCHEDULE -> {
+                val logPrefix = if (decision.replacesPending) "Replaced" else "Scheduled"
+                Log.d(
+                    TAG,
+                    "$logPrefix requestFrame keyframe request for session=$sessionId delayMs=${decision.delayMs}",
+                )
+                scheduledRequest?.let {
+                    keyframeHandler.postDelayed(it.runnable, decision.delayMs)
+                }
+            }
+        }
+    }
+
+    fun requestKeyFrame() {
+        val sessionId =
+            synchronized(streamLock) {
+                primarySessionId?.takeIf { it.isNotBlank() }
+                    ?: streamRequestId?.takeIf { it.isNotBlank() }
+                    ?: secondarySessions.keys.firstOrNull()
+            }
+        if (sessionId.isNullOrBlank()) {
+            Log.i(TAG, "requestKeyFrame called but no tracked session is active")
             return
         }
-        requestKeyFrame()
+        handleRequestFrame(sessionId)
     }
 
     private fun handleSessionLivenessTimeout(sessionId: String) {
@@ -3093,7 +3338,7 @@ class WebRtcManager private constructor(private val context: Context) {
         var peerHealthy = false
         var iceState: PeerConnection.IceConnectionState? = null
         var controlState: DataChannel.State? = null
-        var firstSilentAtMs: Long? = null
+        var lastLivenessAtMs: Long? = null
         synchronized(streamLock) {
             val state = sessionLivenessStates[sessionId] ?: return
             state.runnable = null
@@ -3107,16 +3352,12 @@ class WebRtcManager private constructor(private val context: Context) {
             val decision =
                 evaluateSessionLivenessTimeout(
                     peerHealthy = peerHealthy,
-                    nowMs = nowMs,
-                    firstSilentAtMs = state.firstSilentAtMs,
-                    healthyGraceMs = KEEP_ALIVE_HEALTHY_GRACE_MS,
                 )
             if (decision.shouldStop) {
                 sessionLivenessStates.remove(sessionId)
                 shouldStop = true
             } else {
-                state.firstSilentAtMs = decision.firstSilentAtMs
-                firstSilentAtMs = decision.firstSilentAtMs
+                lastLivenessAtMs = state.lastLivenessAtMs.takeIf { it > 0L }
                 val runnable = Runnable { handleSessionLivenessTimeout(sessionId) }
                 state.runnable = runnable
                 reschedule = runnable
@@ -3130,18 +3371,11 @@ class WebRtcManager private constructor(private val context: Context) {
             stopStream(sessionId, "keep_alive_timeout")
             return
         }
-        val silentForMs = firstSilentAtMs?.let { nowMs - it } ?: 0L
-        if (silentForMs == 0L) {
-            Log.i(
-                TAG,
-                "KeepAlive timeout detected for sessionId=$sessionId but peer is healthy; starting grace period (iceState=$iceState controlState=$controlState graceMs=$KEEP_ALIVE_HEALTHY_GRACE_MS)",
-            )
-        } else {
-            Log.i(
-                TAG,
-                "KeepAlive timeout deferred for sessionId=$sessionId because peer is healthy (iceState=$iceState controlState=$controlState silentForMs=$silentForMs graceMs=$KEEP_ALIVE_HEALTHY_GRACE_MS)",
-            )
-        }
+        val staleForMs = lastLivenessAtMs?.let { nowMs - it } ?: KEEP_ALIVE_TIMEOUT_MS
+        Log.i(
+            TAG,
+            "KeepAlive timeout for sessionId=$sessionId but peer is healthy; keeping stream alive (iceState=$iceState controlState=$controlState staleForMs=$staleForMs)",
+        )
         reschedule?.let { stopHandler.postDelayed(it, KEEP_ALIVE_TIMEOUT_MS) }
     }
 
@@ -3362,12 +3596,14 @@ class WebRtcManager private constructor(private val context: Context) {
             streamGeneration.incrementAndGet()
             primarySessionId = null
             streamRequestId = null
+            pendingKeyframeRequest = null
             staleSecondary = secondarySessions.values.toList()
             secondarySessions.clear()
             resources = detachStreamResourcesLocked()
         }
         staleSecondary.forEach { cleanupSecondarySession(it) }
         cleanupStreamResources(resources)
+        keyframeHandler.removeCallbacksAndMessages(null)
 
         try {
             peerConnectionFactory?.dispose()
@@ -3386,6 +3622,12 @@ class WebRtcManager private constructor(private val context: Context) {
             stopThread.quitSafely()
         } catch (e: Exception) {
             Log.e(TAG, "Error quitting stopThread", e)
+        }
+
+        try {
+            keyframeThread.quitSafely()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error quitting keyframeThread", e)
         }
 
         try {

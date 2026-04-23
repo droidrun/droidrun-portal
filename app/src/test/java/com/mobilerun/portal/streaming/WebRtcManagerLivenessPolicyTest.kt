@@ -1,12 +1,12 @@
 package com.mobilerun.portal.streaming
 
+import java.util.concurrent.CompletableFuture
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.webrtc.DataChannel
 import org.webrtc.PeerConnection
-import java.util.concurrent.CompletableFuture
 
 class WebRtcManagerLivenessPolicyTest {
     @Test
@@ -30,56 +30,15 @@ class WebRtcManagerLivenessPolicyTest {
     }
 
     @Test
-    fun evaluateSessionLivenessTimeout_startsGraceWindowForHealthyPeer() {
-        val decision =
-            WebRtcManager.evaluateSessionLivenessTimeout(
-                peerHealthy = true,
-                nowMs = 30_000L,
-                firstSilentAtMs = null,
-                healthyGraceMs = 300_000L,
-            )
+    fun evaluateSessionLivenessTimeout_keepsHealthyPeerAlive() {
+        val decision = WebRtcManager.evaluateSessionLivenessTimeout(peerHealthy = true)
 
         assertFalse(decision.shouldStop)
-        assertEquals(30_000L, decision.firstSilentAtMs)
-    }
-
-    @Test
-    fun evaluateSessionLivenessTimeout_stopsAfterGraceWindowExpires() {
-        val decision =
-            WebRtcManager.evaluateSessionLivenessTimeout(
-                peerHealthy = true,
-                nowMs = 331_000L,
-                firstSilentAtMs = 30_000L,
-                healthyGraceMs = 300_000L,
-            )
-
-        assertTrue(decision.shouldStop)
-        assertEquals(30_000L, decision.firstSilentAtMs)
-    }
-
-    @Test
-    fun evaluateSessionLivenessTimeout_keepsHealthyPeerAliveWithinThirtyMinuteGrace() {
-        val decision =
-            WebRtcManager.evaluateSessionLivenessTimeout(
-                peerHealthy = true,
-                nowMs = 1_799_000L,
-                firstSilentAtMs = 30_000L,
-                healthyGraceMs = 1_800_000L,
-            )
-
-        assertFalse(decision.shouldStop)
-        assertEquals(30_000L, decision.firstSilentAtMs)
     }
 
     @Test
     fun evaluateSessionLivenessTimeout_stopsImmediatelyWhenPeerIsUnhealthy() {
-        val decision =
-            WebRtcManager.evaluateSessionLivenessTimeout(
-                peerHealthy = false,
-                nowMs = 30_000L,
-                firstSilentAtMs = null,
-                healthyGraceMs = 300_000L,
-            )
+        val decision = WebRtcManager.evaluateSessionLivenessTimeout(peerHealthy = false)
 
         assertTrue(decision.shouldStop)
     }
@@ -214,25 +173,8 @@ class WebRtcManagerLivenessPolicyTest {
                 currentPrimarySessionId = "primary",
                 incomingSessionId = "replacement",
                 primaryHasPeerResources = true,
-                primaryFirstSilentAtMs = null,
                 primaryLastLivenessAtMs = 1_000L,
                 nowMs = 301_000L,
-                livenessStaleAfterMs = 300_000L,
-            ),
-        )
-    }
-
-    @Test
-    fun resolveIncomingSessionRoute_takesOverWhenPrimaryIsAlreadySilent() {
-        assertEquals(
-            WebRtcManager.IncomingSessionRoute.TAKEOVER_STALE_PRIMARY,
-            WebRtcManager.resolveIncomingSessionRoute(
-                currentPrimarySessionId = "primary",
-                incomingSessionId = "replacement",
-                primaryHasPeerResources = true,
-                primaryFirstSilentAtMs = 123L,
-                primaryLastLivenessAtMs = 200_000L,
-                nowMs = 250_000L,
                 livenessStaleAfterMs = 300_000L,
             ),
         )
@@ -246,7 +188,6 @@ class WebRtcManagerLivenessPolicyTest {
                 currentPrimarySessionId = "primary",
                 incomingSessionId = "secondary",
                 primaryHasPeerResources = true,
-                primaryFirstSilentAtMs = null,
                 primaryLastLivenessAtMs = 290_000L,
                 nowMs = 300_000L,
                 livenessStaleAfterMs = 300_000L,
@@ -262,12 +203,62 @@ class WebRtcManagerLivenessPolicyTest {
                 currentPrimarySessionId = "primary",
                 incomingSessionId = "replacement",
                 primaryHasPeerResources = false,
-                primaryFirstSilentAtMs = null,
                 primaryLastLivenessAtMs = 290_000L,
                 nowMs = 300_000L,
                 livenessStaleAfterMs = 300_000L,
             ),
         )
+    }
+
+    @Test
+    fun planKeyframeRequestSchedule_coalescesBurstForSameSessionAndGeneration() {
+        assertEquals(
+            WebRtcManager.Companion.KeyframeRequestScheduleDisposition.COALESCE,
+            WebRtcManager.planKeyframeRequestSchedule(
+                streamActive = true,
+                pendingGeneration = 7,
+                pendingSessionId = "session-a",
+                currentGeneration = 7,
+                requestedSessionId = "session-a",
+                nowMs = 1_000L,
+                lastKeyframeRequestStartedAtMs = 900L,
+                minIntervalMs = 250L,
+            ).disposition,
+        )
+    }
+
+    @Test
+    fun planKeyframeExecution_skipsWorkWhenGenerationChanges() {
+        assertEquals(
+            WebRtcManager.Companion.KeyframeExecutionDisposition.SKIP_STALE,
+            WebRtcManager.planKeyframeExecution(
+                pendingGeneration = 7,
+                pendingSessionId = "session-a",
+                expectedGeneration = 7,
+                expectedSessionId = "session-a",
+                activeGeneration = 8,
+                trackedSession = true,
+                streamActive = true,
+            ),
+        )
+    }
+
+    @Test
+    fun executeKeyframeTargetActions_continuesPastFailures() {
+        val summary =
+            WebRtcManager.executeKeyframeTargetActions(
+                listOf(
+                    WebRtcManager.Companion.KeyframeTargetAction(label = "primary") {},
+                    WebRtcManager.Companion.KeyframeTargetAction(label = "secondary") {
+                        error("boom")
+                    },
+                    WebRtcManager.Companion.KeyframeTargetAction(label = "fallback") {},
+                ),
+            )
+
+        assertEquals(3, summary.attempted)
+        assertEquals(2, summary.succeeded)
+        assertEquals(1, summary.failed)
     }
 
     @Test

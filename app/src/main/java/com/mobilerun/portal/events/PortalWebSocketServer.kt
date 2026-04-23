@@ -1,5 +1,6 @@
 package com.mobilerun.portal.events
 
+import android.os.SystemClock
 import android.util.Log
 import com.mobilerun.portal.events.model.EventType
 import com.mobilerun.portal.events.model.PortalEvent
@@ -116,6 +117,7 @@ class PortalWebSocketServer(
                     dispatchAndRespond(
                         conn = conn,
                         method = method,
+                        normalizedMethod = normalizedMethod,
                         params = params,
                         requestId = id,
                     )
@@ -151,9 +153,12 @@ class PortalWebSocketServer(
     private fun dispatchAndRespond(
         conn: WebSocket?,
         method: String,
+        normalizedMethod: String,
         params: JSONObject,
         requestId: Any?,
     ) {
+        val traceExecutionTiming = WebSocketDispatchPolicy.shouldTraceExecutionTiming(normalizedMethod)
+        val startedAtMs = if (traceExecutionTiming) SystemClock.elapsedRealtime() else 0L
         try {
             val result = actionDispatcher.dispatch(
                 method,
@@ -161,9 +166,21 @@ class PortalWebSocketServer(
                 origin = ActionDispatcher.Origin.WEBSOCKET_LOCAL,
                 requestId = requestId,
             )
+            if (traceExecutionTiming) {
+                val elapsedMs = SystemClock.elapsedRealtime() - startedAtMs
+                Log.d(
+                    TAG,
+                    "Completed $normalizedMethod (id=$requestId, elapsedMs=$elapsedMs, resultType=${result.javaClass.simpleName})",
+                )
+            }
             sendResponse(conn, result, requestId)
         } catch (e: Exception) {
-            Log.e(TAG, "Command execution failed for $method", e)
+            if (traceExecutionTiming) {
+                val elapsedMs = SystemClock.elapsedRealtime() - startedAtMs
+                Log.e(TAG, "Failed $normalizedMethod (id=$requestId, elapsedMs=$elapsedMs)", e)
+            } else {
+                Log.e(TAG, "Command execution failed for $method", e)
+            }
             sendErrorResponse(conn, requestId, e.message ?: "unknown exception")
         }
     }

@@ -67,4 +67,18 @@ class WebSocketDispatchPolicyTest {
             WebSocketDispatchPolicy.bucketForNormalizedMethod("files/list"),
         )
     }
+
+    @Test
+    fun shouldTraceExecutionTiming_marksStateAndWebRtcSetupMethods() {
+        assertEquals(true, WebSocketDispatchPolicy.shouldTraceExecutionTiming("state"))
+        assertEquals(true, WebSocketDispatchPolicy.shouldTraceExecutionTiming("packages"))
+        assertEquals(true, WebSocketDispatchPolicy.shouldTraceExecutionTiming("screenshot"))
+        assertEquals(
+            true,
+            WebSocketDispatchPolicy.shouldTraceExecutionTiming("webrtc/rtcConfiguration"),
+        )
+        assertEquals(true, WebSocketDispatchPolicy.shouldTraceExecutionTiming("webrtc/requestFrame"))
+        assertEquals(false, WebSocketDispatchPolicy.shouldTraceExecutionTiming("task/start"))
+        assertEquals(false, WebSocketDispatchPolicy.shouldTraceExecutionTiming("webrtc/offer"))
+    }
 }
