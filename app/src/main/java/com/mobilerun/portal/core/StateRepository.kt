@@ -11,9 +11,29 @@ class StateRepository(private val service: MobilerunAccessibilityService?) {
     fun getVisibleElements(): List<ElementNode> = service?.getVisibleElements() ?: emptyList()
 
     fun getFullTree(filter: Boolean): JSONObject? {
-        val root = service?.rootInActiveWindow ?: return null
-        val bounds = if (filter) service.getScreenBounds() else null
+        val svc = service ?: return null
+        val root = svc.rootInActiveWindow ?: pickFallbackRoot(svc) ?: return null
+        val bounds = if (filter) svc.getScreenBounds() else null
         return AccessibilityTreeBuilder.buildFullAccessibilityTreeJson(root, bounds)
+    }
+
+    /**
+     * Falls back to enumerating accessibility windows when `rootInActiveWindow`
+     * returns null. Picks the topmost user-facing window with a non-null root.
+     * Requires `flagRetrieveInteractiveWindows` in the service config.
+     */
+    private fun pickFallbackRoot(svc: MobilerunAccessibilityService): android.view.accessibility.AccessibilityNodeInfo? {
+        val ws = svc.windows ?: return null
+        return try {
+            ws.sortedByDescending { it.layer }
+                .firstOrNull {
+                    it.type == android.view.accessibility.AccessibilityWindowInfo.TYPE_APPLICATION ||
+                    it.type == android.view.accessibility.AccessibilityWindowInfo.TYPE_SYSTEM
+                }
+                ?.root
+        } finally {
+            ws.forEach { it.recycle() }
+        }
     }
 
     fun getPhoneState(): PhoneState =

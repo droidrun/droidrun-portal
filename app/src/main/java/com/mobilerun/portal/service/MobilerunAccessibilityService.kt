@@ -594,14 +594,21 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
         val elements = mutableListOf<ElementNode>()
         val indexCounter = IndexCounter(1)
 
-        val rootNode = rootInActiveWindow ?: return elements
+        val rootCandidates = collectRootCandidates()
+        if (rootCandidates.isEmpty()) {
+            // Nothing queryable right now (active window flake, or no a11y windows yet).
+            // Preserve the previous snapshot so callers don't see a transient empty.
+            synchronized(visibleElements) {
+                return visibleElements.toMutableList()
+            }
+        }
+
         try {
-            val rootElement = findAllVisibleElements(rootNode, 0, null, indexCounter)
-            rootElement?.let {
-                collectRootElements(it, elements)
+            for ((rootNode, layer) in rootCandidates) {
+                walkAsRoot(rootNode, layer, elements, indexCounter)
             }
         } finally {
-            rootNode.recycle()
+            rootCandidates.forEach { (node, _) -> node.recycle() }
         }
 
         synchronized(visibleElements) {
@@ -610,6 +617,67 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
         }
 
         return elements
+    }
+
+    /**
+     * Returns one or more root [AccessibilityNodeInfo]s to walk for the current
+     * screen, paired with their window layer. Tries `rootInActiveWindow` first
+     * (cheap, common case). When that's null — which can happen on apps whose
+     * outermost window flakes through `rootInActiveWindow` mid-transition or
+     * when an accessibility overlay claims focus — falls back to enumerating
+     * `windows` and picking the topmost user-facing roots. Requires
+     * `flagRetrieveInteractiveWindows` in the service config for the fallback
+     * to populate `windows`.
+     */
+    private fun collectRootCandidates(): List<Pair<AccessibilityNodeInfo, Int>> {
+        rootInActiveWindow?.let { return listOf(it to 0) }
+        val ws = windows ?: return emptyList()
+        val out = mutableListOf<Pair<AccessibilityNodeInfo, Int>>()
+        try {
+            ws.sortedByDescending { it.layer }
+                .filter {
+                    it.type == AccessibilityWindowInfo.TYPE_APPLICATION ||
+                    it.type == AccessibilityWindowInfo.TYPE_SYSTEM
+                }
+                .forEach { w ->
+                    val r = w.root
+                    if (r != null) out.add(r to w.layer)
+                }
+        } finally {
+            ws.forEach { it.recycle() }
+        }
+        return out
+    }
+
+    /**
+     * Walks [rootNode] and accumulates visible elements into [elements].
+     * If the root itself is filtered (e.g. zero-size wrapper before first
+     * layout), its direct children are walked as fresh roots so their subtrees
+     * aren't orphaned by the `parent?.addChild` no-op.
+     */
+    private fun walkAsRoot(
+        rootNode: AccessibilityNodeInfo,
+        windowLayer: Int,
+        elements: MutableList<ElementNode>,
+        indexCounter: IndexCounter,
+    ) {
+        val rootElement = findAllVisibleElements(rootNode, windowLayer, null, indexCounter)
+        if (rootElement != null) {
+            collectRootElements(rootElement, elements)
+            return
+        }
+        // Root was filtered out — promote its visible descendants to roots.
+        for (i in 0 until rootNode.childCount) {
+            val childNode = rootNode.getChild(i) ?: continue
+            try {
+                val childRoot = findAllVisibleElements(childNode, windowLayer, null, indexCounter)
+                if (childRoot != null) {
+                    collectRootElements(childRoot, elements)
+                }
+            } finally {
+                childNode.recycle()
+            }
+        }
     }
 
     private fun collectRootElements(element: ElementNode, rootElements: MutableList<ElementNode>) {
