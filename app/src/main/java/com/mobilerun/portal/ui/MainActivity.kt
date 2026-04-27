@@ -32,6 +32,7 @@ import android.content.ClipboardManager
 import com.mobilerun.portal.databinding.ActivityMainBinding
 import com.mobilerun.portal.taskprompt.PortalActiveTaskRecord
 import com.mobilerun.portal.taskprompt.PortalAuthCallbackValidator
+import com.mobilerun.portal.taskprompt.PortalAuthDeepLink
 import com.mobilerun.portal.taskprompt.PortalBalanceCacheState
 import com.mobilerun.portal.taskprompt.PortalCloudClient
 import com.mobilerun.portal.taskprompt.PortalModelOption
@@ -2098,10 +2099,13 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
 
     private fun openCloudLogin(configManager: ConfigManager) {
         val deviceId = configManager.deviceID
-        val forceLogin = if (configManager.forceLoginOnNextConnect) "&force_login=true" else ""
+        val forceLogin = configManager.forceLoginOnNextConnect
         configManager.forceLoginOnNextConnect = false
         configManager.markBrowserAuthPending(ttlMs = PortalAuthCallbackValidator.PENDING_WINDOW_MS)
-        val url = "https://cloud.mobilerun.ai/auth/device?deviceId=$deviceId&scheme=mobilerun$forceLogin"
+        val url = PortalAuthDeepLink.buildCloudLoginUrl(
+            deviceId = deviceId,
+            forceLogin = forceLogin,
+        )
         try {
             val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
             startActivity(intent)
@@ -2114,7 +2118,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
     private fun handleDeepLink(intent: Intent?) {
         try {
             val data: Uri? = intent?.data
-            if (data != null && data.scheme == "mobilerun" && data.host == "auth-callback") {
+            if (data != null && PortalAuthDeepLink.isAuthCallback(data.scheme, data.host)) {
                 val configManager = ConfigManager.getInstance(this)
                 val validationResult = PortalAuthCallbackValidator.validate(
                     token = data.getQueryParameter("token"),
