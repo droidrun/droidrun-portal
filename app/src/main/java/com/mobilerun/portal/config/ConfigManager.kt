@@ -862,7 +862,13 @@ class ConfigManager private constructor(private val context: Context) {
         }
     }
 
+    fun clearCredentials() {
+        secretsPrefs.edit(commit = true) { clear() }
+        devicePrefs.edit(commit = true) { clear() }
+    }
+
     fun resetToDefaults() {
+        clearCredentials()
         sharedPrefs.edit(commit = true) {
             clear()
             putBoolean(KEY_OVERLAY_VISIBLE, true)

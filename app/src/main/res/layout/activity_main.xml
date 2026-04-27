@@ -835,6 +835,20 @@
                                 android:orientation="horizontal">
 
                                 <com.google.android.material.button.MaterialButton
+                                    android:id="@+id/btn_error_sign_out"
+                                    style="@style/Widget.MaterialComponents.Button.TextButton"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="36dp"
+                                    android:layout_marginEnd="8dp"
+                                    android:minWidth="0dp"
+                                    android:minHeight="0dp"
+                                    android:paddingHorizontal="12dp"
+                                    android:paddingVertical="0dp"
+                                    android:text="@string/sign_out"
+                                    android:textColor="@color/text_gray"
+                                    android:textSize="12sp" />
+
+                                <com.google.android.material.button.MaterialButton
                                     android:id="@+id/btn_dismiss_error"
                                     style="@style/Widget.MaterialComponents.Button.TextButton"
                                     android:layout_width="wrap_content"
