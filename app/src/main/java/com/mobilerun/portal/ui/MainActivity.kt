@@ -226,6 +226,10 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
             ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
         }
 
+        binding.btnErrorSignOut.setOnClickListener {
+            showSignOutConfirmation()
+        }
+
         // Configure endpoints collapsible section
         setupEndpointsCollapsible()
         attachTaskPromptCardToActiveContainer()
@@ -1224,7 +1228,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
     private fun signOutLocally() {
         val configManager = ConfigManager.getInstance(this)
         disconnectService()
-        configManager.reverseConnectionToken = ""
+        configManager.clearCloudCredentials()
         configManager.reverseConnectionEnabled = false
         configManager.forceLoginOnNextConnect = true
         ConnectionStateManager.setState(ConnectionState.DISCONNECTED)

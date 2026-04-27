@@ -862,7 +862,26 @@ class ConfigManager private constructor(private val context: Context) {
         }
     }
 
+    fun clearCloudCredentials() {
+        secretsPrefs.edit(commit = true) {
+            remove(KEY_REVERSE_CONNECTION_TOKEN)
+            remove(KEY_REVERSE_CONNECTION_SERVICE_KEY)
+        }
+        sharedPrefs.edit(commit = true) {
+            remove(KEY_DEVICE_ID)
+            remove(KEY_REVERSE_CONNECTION_TOKEN)
+            remove(KEY_REVERSE_CONNECTION_SERVICE_KEY)
+        }
+        devicePrefs.edit(commit = true) { clear() }
+    }
+
+    fun clearAllCredentials() {
+        secretsPrefs.edit(commit = true) { clear() }
+        devicePrefs.edit(commit = true) { clear() }
+    }
+
     fun resetToDefaults() {
+        clearAllCredentials()
         sharedPrefs.edit(commit = true) {
             clear()
             putBoolean(KEY_OVERLAY_VISIBLE, true)

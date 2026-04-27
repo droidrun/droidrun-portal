@@ -260,6 +260,57 @@ class ConfigManagerTaskPromptTest {
     }
 
     @Test
+    fun clearCloudCredentials_preservesLocalApiToken() {
+        sharedStore["overlay_visible"] = false
+        sharedStore["socket_server_enabled"] = true
+        sharedStore["device_id"] = "legacy-device-123"
+        deviceStore["device_id"] = "device-123"
+        secretsStore["auth_token"] = "auth-123"
+        secretsStore["reverse_connection_token"] = "reverse-123"
+        secretsStore["reverse_connection_service_key"] = "service-123"
+
+        ConfigManager.getInstance(context).clearCloudCredentials()
+
+        assertTrue(deviceStore.isEmpty())
+        assertEquals("auth-123", secretsStore["auth_token"])
+        assertFalse(secretsStore.containsKey("reverse_connection_token"))
+        assertFalse(secretsStore.containsKey("reverse_connection_service_key"))
+        assertEquals(false, sharedStore["overlay_visible"])
+        assertEquals(true, sharedStore["socket_server_enabled"])
+        assertFalse(sharedStore.containsKey("device_id"))
+    }
+
+    @Test
+    fun resetToDefaults_clearsCredentialsAndRestoresDefaults() {
+        sharedStore["overlay_visible"] = false
+        sharedStore["overlay_offset"] = 42
+        sharedStore["socket_server_enabled"] = true
+        sharedStore["socket_server_port"] = 9999
+        sharedStore["websocket_enabled"] = true
+        sharedStore["websocket_port"] = 9998
+        sharedStore["reverse_connection_enabled"] = true
+        sharedStore["production_mode"] = true
+        deviceStore["device_id"] = "device-123"
+        secretsStore["auth_token"] = "auth-123"
+        secretsStore["reverse_connection_token"] = "reverse-123"
+        secretsStore["reverse_connection_service_key"] = "service-123"
+
+        val configManager = ConfigManager.getInstance(context)
+        configManager.resetToDefaults()
+
+        assertTrue(deviceStore.isEmpty())
+        assertTrue(secretsStore.isEmpty())
+        assertTrue(configManager.overlayVisible)
+        assertEquals(0, configManager.overlayOffset)
+        assertFalse(configManager.socketServerEnabled)
+        assertEquals(8080, configManager.socketServerPort)
+        assertFalse(configManager.websocketEnabled)
+        assertEquals(8081, configManager.websocketPort)
+        assertFalse(configManager.reverseConnectionEnabled)
+        assertFalse(configManager.productionMode)
+    }
+
+    @Test
     fun browserAuthPendingWindow_isTimeBoundAndClearable() {
         val configManager = ConfigManager.getInstance(context)
 
