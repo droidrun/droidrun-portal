@@ -207,6 +207,9 @@
                 <data
                     android:scheme="mobilerun"
                     android:host="auth-callback" />
+                <data
+                    android:scheme="droidrun"
+                    android:host="auth-callback" />
             </intent-filter>
         </activity>
 
