@@ -260,20 +260,24 @@ class ConfigManagerTaskPromptTest {
     }
 
     @Test
-    fun clearCredentials_clearsSecretsAndDevicePrefsOnly() {
+    fun clearCloudCredentials_preservesLocalApiToken() {
         sharedStore["overlay_visible"] = false
         sharedStore["socket_server_enabled"] = true
+        sharedStore["device_id"] = "legacy-device-123"
         deviceStore["device_id"] = "device-123"
         secretsStore["auth_token"] = "auth-123"
         secretsStore["reverse_connection_token"] = "reverse-123"
         secretsStore["reverse_connection_service_key"] = "service-123"
 
-        ConfigManager.getInstance(context).clearCredentials()
+        ConfigManager.getInstance(context).clearCloudCredentials()
 
         assertTrue(deviceStore.isEmpty())
-        assertTrue(secretsStore.isEmpty())
+        assertEquals("auth-123", secretsStore["auth_token"])
+        assertFalse(secretsStore.containsKey("reverse_connection_token"))
+        assertFalse(secretsStore.containsKey("reverse_connection_service_key"))
         assertEquals(false, sharedStore["overlay_visible"])
         assertEquals(true, sharedStore["socket_server_enabled"])
+        assertFalse(sharedStore.containsKey("device_id"))
     }
 
     @Test

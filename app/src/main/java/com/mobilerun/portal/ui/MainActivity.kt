@@ -1228,7 +1228,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
     private fun signOutLocally() {
         val configManager = ConfigManager.getInstance(this)
         disconnectService()
-        configManager.clearCredentials()
+        configManager.clearCloudCredentials()
         configManager.reverseConnectionEnabled = false
         configManager.forceLoginOnNextConnect = true
         ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
