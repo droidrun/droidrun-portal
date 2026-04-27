@@ -13,7 +13,7 @@ class WebSocketDispatchPolicyTest {
     }
 
     @Test
-    fun bucketForNormalizedMethod_routesAllStreamAndWebRtcMethodsToOrderedSignalingExecutor() {
+    fun bucketForNormalizedMethod_routesOrderedStreamAndWebRtcMethodsToSignalingExecutor() {
         assertEquals(
             WebSocketDispatchBucket.SIGNALING,
             WebSocketDispatchPolicy.bucketForNormalizedMethod("stream/start"),
@@ -42,12 +42,16 @@ class WebSocketDispatchPolicyTest {
             WebSocketDispatchBucket.SIGNALING,
             WebSocketDispatchPolicy.bucketForNormalizedMethod("webrtc/ice"),
         )
+    }
+
+    @Test
+    fun bucketForNormalizedMethod_routesLivenessMethodsToLightweightExecutor() {
         assertEquals(
-            WebSocketDispatchBucket.SIGNALING,
+            WebSocketDispatchBucket.LIGHTWEIGHT,
             WebSocketDispatchPolicy.bucketForNormalizedMethod("webrtc/requestFrame"),
         )
         assertEquals(
-            WebSocketDispatchBucket.SIGNALING,
+            WebSocketDispatchBucket.LIGHTWEIGHT,
             WebSocketDispatchPolicy.bucketForNormalizedMethod("webrtc/keepAlive"),
         )
     }

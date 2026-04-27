@@ -33,6 +33,7 @@ class PortalWebSocketServer(
     }
 
     private val signalingExecutor = Executors.newSingleThreadExecutor()
+    private val lightweightExecutor = Executors.newSingleThreadExecutor()
     private val commandExecutor = Executors.newSingleThreadExecutor()
     private val installExecutor = Executors.newSingleThreadExecutor()
     private val localDeviceEventRelay = LocalDeviceEventRelay(
@@ -110,6 +111,7 @@ class PortalWebSocketServer(
                 val executor =
                     when (WebSocketDispatchPolicy.bucketForNormalizedMethod(normalizedMethod)) {
                         WebSocketDispatchBucket.SIGNALING -> signalingExecutor
+                        WebSocketDispatchBucket.LIGHTWEIGHT -> lightweightExecutor
                         WebSocketDispatchBucket.COMMAND -> commandExecutor
                         WebSocketDispatchBucket.INSTALL -> installExecutor
                     }
@@ -248,6 +250,11 @@ class PortalWebSocketServer(
                 signalingExecutor.shutdownNow()
             } catch (e: Exception) {
                 Log.e(TAG, "Error stopping signaling executor", e)
+            }
+            try {
+                lightweightExecutor.shutdownNow()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error stopping lightweight executor", e)
             }
             try {
                 commandExecutor.shutdownNow()

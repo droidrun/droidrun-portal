@@ -218,6 +218,25 @@ class WebRtcManager private constructor(private val context: Context) {
             val action: () -> Unit,
         )
 
+        internal data class KeyframeTargetSnapshot<T : Any>(
+            val label: String,
+            val target: T,
+        )
+
+        internal fun <T : Any> buildKeyframeTargetSnapshot(
+            primaryTarget: T?,
+            secondaryTargets: Iterable<Pair<String, T?>>,
+        ): List<KeyframeTargetSnapshot<T>> {
+            val targets = mutableListOf<KeyframeTargetSnapshot<T>>()
+            primaryTarget?.let { targets += KeyframeTargetSnapshot(label = "primary", target = it) }
+            secondaryTargets.forEach { (sessionId, target) ->
+                target?.let {
+                    targets += KeyframeTargetSnapshot(label = "secondary:$sessionId", target = it)
+                }
+            }
+            return targets
+        }
+
         internal data class KeyframeExecutionSummary(
             val attempted: Int,
             val succeeded: Int,
@@ -467,6 +486,7 @@ class WebRtcManager private constructor(private val context: Context) {
         val peerConnection: PeerConnection,
         val controlChannel: DataChannel?,
         val controlHandler: ScrcpyControlChannel?,
+        var videoSender: RtpSender? = null,
         val pendingIceCandidates: ConcurrentLinkedQueue<IceCandidate> = ConcurrentLinkedQueue(),
         val pendingOutgoingIceCandidates: ConcurrentLinkedQueue<IceCandidate> = ConcurrentLinkedQueue(),
         var canSendOutgoingIceCandidates: Boolean = false,
@@ -480,6 +500,7 @@ class WebRtcManager private constructor(private val context: Context) {
 
     @Volatile
     private var peerConnection: PeerConnection? = null
+    private var primaryVideoSender: RtpSender? = null
 
     @Volatile
     private var primarySessionId: String? = null
@@ -994,6 +1015,11 @@ class WebRtcManager private constructor(private val context: Context) {
             if (isCurrentStream(streamId)) {
                 val sender = connectionForSender?.addTrack(activeTrack, listOf(VIDEO_TRACK_ID))
                 configureVideoSender(sender, width, height, fps)
+                synchronized(streamLock) {
+                    if (isCurrentStreamLocked(streamId) && peerConnection == connectionForSender) {
+                        primaryVideoSender = sender
+                    }
+                }
                 startStatsLogging(streamId)
             }
         } catch (e: Exception) {
@@ -1148,6 +1174,11 @@ class WebRtcManager private constructor(private val context: Context) {
             if (isCurrentStream(streamId)) {
                 val sender = connectionForSender?.addTrack(activeTrack, listOf(VIDEO_TRACK_ID))
                 configureVideoSender(sender, width, height, fps)
+                synchronized(streamLock) {
+                    if (isCurrentStreamLocked(streamId) && peerConnection == connectionForSender) {
+                        primaryVideoSender = sender
+                    }
+                }
                 startStatsLogging(streamId)
             }
         } catch (e: Exception) {
@@ -1191,27 +1222,49 @@ class WebRtcManager private constructor(private val context: Context) {
         staleSession?.let { cleanupSecondarySession(it) }
 
         val streamId = streamGeneration.incrementAndGet()
+        lateinit var activeTrack: VideoTrack
+        lateinit var session: SecondarySession
+        var effectiveWidth = width
+        var effectiveHeight = height
+        var effectiveFps = fps
         synchronized(streamLock) {
-            val activeTrack =
-                videoTrack ?: throw IllegalStateException("No active capture to reuse")
-            val session =
+            activeTrack = videoTrack ?: throw IllegalStateException("No active capture to reuse")
+            session =
                 createSecondaryPeerConnectionLocked(
                     sessionId = sessionId,
                     customIceServers = customIceServers,
                     waitForOffer = waitForOffer,
                     streamId = streamId,
                 )
-            val sender = session.peerConnection.addTrack(activeTrack, listOf(VIDEO_TRACK_ID))
-            val effectiveWidth = if (captureWidth > 0) captureWidth else width
-            val effectiveHeight = if (captureHeight > 0) captureHeight else height
-            val effectiveFps = if (captureFps > 0) captureFps else fps
-            configureVideoSender(sender, effectiveWidth, effectiveHeight, effectiveFps)
+            effectiveWidth = if (captureWidth > 0) captureWidth else width
+            effectiveHeight = if (captureHeight > 0) captureHeight else height
+            effectiveFps = if (captureFps > 0) captureFps else fps
             secondarySessions[sessionId] = session
-            if (!waitForOffer) {
-                createOfferForSecondary(sessionId, streamId)
-            } else {
-                sendStreamReady(sessionId)
+        }
+
+        try {
+            val sender = session.peerConnection.addTrack(activeTrack, listOf(VIDEO_TRACK_ID))
+            configureVideoSender(sender, effectiveWidth, effectiveHeight, effectiveFps)
+            synchronized(streamLock) {
+                val current = secondarySessions[sessionId]
+                if (current === session && current.streamId == streamId) {
+                    current.videoSender = sender
+                }
             }
+        } catch (e: Exception) {
+            synchronized(streamLock) {
+                if (secondarySessions[sessionId] === session) {
+                    secondarySessions.remove(sessionId)
+                }
+            }
+            cleanupSecondarySession(session)
+            throw e
+        }
+
+        if (!waitForOffer) {
+            createOfferForSecondary(sessionId, streamId)
+        } else {
+            sendStreamReady(sessionId)
         }
     }
 
@@ -1395,6 +1448,7 @@ class WebRtcManager private constructor(private val context: Context) {
 
     private fun cleanupSecondarySession(session: SecondarySession) {
         cancelKeepAlive(session.sessionId)
+        session.videoSender = null
         try {
             session.controlChannel?.close()
         } catch (e: Exception) {
@@ -1545,27 +1599,14 @@ class WebRtcManager private constructor(private val context: Context) {
     }
 
     private fun buildKeyframeTargetActionsLocked(): List<KeyframeTargetAction> {
-        val targets = mutableListOf<KeyframeTargetAction>()
-
-        peerConnection?.senders?.forEach { sender ->
-            if (sender.track()?.kind() != "video") return@forEach
-            targets +=
-                KeyframeTargetAction(label = "primary") {
-                    requestKeyframeOnSender(sender)
-                }
-        }
-
-        secondarySessions.values.forEach { session ->
-            session.peerConnection.senders?.forEach { sender ->
-                if (sender.track()?.kind() != "video") return@forEach
-                targets +=
-                    KeyframeTargetAction(label = "secondary:${session.sessionId}") {
-                        requestKeyframeOnSender(sender)
-                    }
+        return buildKeyframeTargetSnapshot(
+            primaryTarget = primaryVideoSender,
+            secondaryTargets = secondarySessions.values.map { it.sessionId to it.videoSender },
+        ).map { snapshot ->
+            KeyframeTargetAction(label = snapshot.label) {
+                requestKeyframeOnSender(snapshot.target)
             }
         }
-
-        return targets
     }
 
     private fun requestKeyframeOnSender(sender: RtpSender) {
@@ -1890,6 +1931,7 @@ class WebRtcManager private constructor(private val context: Context) {
             clearSessionLivenessStateLocked(streamRequestId)
         }
         peerConnection = null
+        primaryVideoSender = null
         controlChannel = null
         scrcpyControlHandler = null
         stopStatsLogging()

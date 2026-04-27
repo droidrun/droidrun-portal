@@ -244,6 +244,29 @@ class WebRtcManagerLivenessPolicyTest {
     }
 
     @Test
+    fun buildKeyframeTargetSnapshot_includesOnlyStoredVideoSenders() {
+        val snapshot =
+            WebRtcManager.buildKeyframeTargetSnapshot(
+                primaryTarget = "primary-sender",
+                secondaryTargets =
+                    listOf(
+                        "secondary-a" to "sender-a",
+                        "secondary-b" to null,
+                        "secondary-c" to "sender-c",
+                    ),
+            )
+
+        assertEquals(
+            listOf("primary", "secondary:secondary-a", "secondary:secondary-c"),
+            snapshot.map { it.label },
+        )
+        assertEquals(
+            listOf("primary-sender", "sender-a", "sender-c"),
+            snapshot.map { it.target },
+        )
+    }
+
+    @Test
     fun executeKeyframeTargetActions_continuesPastFailures() {
         val summary =
             WebRtcManager.executeKeyframeTargetActions(
