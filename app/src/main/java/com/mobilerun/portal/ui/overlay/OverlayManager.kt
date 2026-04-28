@@ -24,6 +24,8 @@ class OverlayManager(private val context: Context) {
     private var overlayView: OverlayView? = null
     private val handler = Handler(Looper.getMainLooper())
     private val elementRects = CopyOnWriteArrayList<ElementInfo>()
+    // Requested visibility, kept separate from the actual WindowManager attach state
+    private var overlayDesiredVisible = false
     private var isOverlayVisible = false
     private var isDrawingEnabled = true // Flag to temporarily disable drawing
     private var positionCorrectionOffset = 0 // Default correction offset
@@ -148,6 +150,7 @@ class OverlayManager(private val context: Context) {
     }
 
     fun showOverlay() {
+        overlayDesiredVisible = true
         if (overlayView != null) {
             Log.d(TAG, "Overlay already exists, checking if it's attached")
             try {
@@ -173,11 +176,17 @@ class OverlayManager(private val context: Context) {
 
     private fun createAndAddOverlay() {
         try {
+            if (!overlayDesiredVisible) {
+                Log.d(TAG, "Skipping overlay creation because overlay is hidden")
+                return
+            }
+
             Log.d(TAG, "Creating new overlay")
-            overlayView = OverlayView(context).apply {
+            val newOverlayView = OverlayView(context).apply {
                 // Set hardware acceleration
                 setLayerType(View.LAYER_TYPE_HARDWARE, null)
             }
+            overlayView = newOverlayView
             val params = WindowManager.LayoutParams(
                 WindowManager.LayoutParams.MATCH_PARENT,
                 WindowManager.LayoutParams.MATCH_PARENT,
@@ -197,27 +206,45 @@ class OverlayManager(private val context: Context) {
             
             handler.post {
                 try {
-                    windowManager.addView(overlayView, params)
+                    if (!overlayDesiredVisible || overlayView !== newOverlayView) {
+                        Log.d(TAG, "Skipping overlay attach because overlay is hidden or stale")
+                        if (overlayView === newOverlayView) {
+                            overlayView = null
+                            isOverlayVisible = false
+                            isOverlayReady.set(false)
+                        }
+                        return@post
+                    }
+
+                    windowManager.addView(newOverlayView, params)
                     isOverlayVisible = true
                     
                     // Set ready state and notify callback after a short delay to ensure view is laid out
                     handler.postDelayed({
-                        if (overlayView?.parent != null) {
-                            isOverlayReady.set(true)
-                            onReadyCallback?.let { it() }
-                        } else {
-                            Log.e(TAG, "Overlay not properly attached after delay")
-                            // Try to recreate if not attached
-                            hideOverlay()
-                            showOverlay()
+                        if (overlayView === newOverlayView) {
+                            if (newOverlayView.parent != null) {
+                                isOverlayReady.set(true)
+                                onReadyCallback?.let { it() }
+                            } else if (overlayDesiredVisible) {
+                                Log.e(TAG, "Overlay not properly attached after delay")
+                                // Try to recreate if not attached
+                                overlayView = null
+                                isOverlayVisible = false
+                                isOverlayReady.set(false)
+                                showOverlay()
+                            } else {
+                                isOverlayReady.set(false)
+                            }
                         }
                     }, 500)
                 } catch (e: Exception) {
                     Log.e(TAG, "Error adding overlay: ${e.message}", e)
                     // Clean up on failure
-                    overlayView = null
-                    isOverlayVisible = false
-                    isOverlayReady.set(false)
+                    if (overlayView === newOverlayView) {
+                        overlayView = null
+                        isOverlayVisible = false
+                        isOverlayReady.set(false)
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -230,7 +257,13 @@ class OverlayManager(private val context: Context) {
     }
 
     fun hideOverlay() {
+        overlayDesiredVisible = false
         handler.post {
+            if (overlayDesiredVisible) {
+                Log.d(TAG, "Skipping stale overlay hide because overlay is visible again")
+                return@post
+            }
+
             try {
                 overlayView?.let {
                     windowManager.removeView(it)
@@ -273,7 +306,7 @@ class OverlayManager(private val context: Context) {
 
     fun refreshOverlay() {
         handler.post {
-            if (!isOverlayVisible) {
+            if (!overlayDesiredVisible) {
                 Log.d(TAG, "Skipping overlay refresh because overlay is hidden")
                 return@post
             }
@@ -476,4 +509,4 @@ class OverlayManager(private val context: Context) {
             return false // Set to true to show test rectangle
         }
     }
-} 
+}
