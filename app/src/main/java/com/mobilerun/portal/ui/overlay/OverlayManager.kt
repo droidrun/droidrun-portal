@@ -259,6 +259,11 @@ class OverlayManager(private val context: Context) {
     fun hideOverlay() {
         overlayDesiredVisible = false
         handler.post {
+            if (overlayDesiredVisible) {
+                Log.d(TAG, "Skipping stale overlay hide because overlay is visible again")
+                return@post
+            }
+
             try {
                 overlayView?.let {
                     windowManager.removeView(it)
