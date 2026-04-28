@@ -273,6 +273,10 @@ class OverlayManager(private val context: Context) {
 
     fun refreshOverlay() {
         handler.post {
+            if (!isOverlayVisible) {
+                Log.d(TAG, "Skipping overlay refresh because overlay is hidden")
+                return@post
+            }
             if (overlayView == null) {
                 Log.e(TAG, "Cannot refresh overlay - view is null")
                 showOverlay()
