@@ -17,6 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version-name: ${{ steps.version.outputs.VERSION_NAME }}
+      version-code: ${{ steps.version.outputs.VERSION_CODE }}
     steps:
       - uses: actions/checkout@v4
 
@@ -157,3 +158,16 @@ jobs:
       R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
       R2_BUCKET: ${{ secrets.R2_BUCKET }}
+
+  register-app:
+    needs: [build, deploy-r2]
+    if: startsWith(github.ref, 'refs/tags/')
+    uses: droidrun/shared-workflows/.github/workflows/register-app.yml@v1
+    with:
+      display-name: Portal
+      package-name: ${{ vars.PORTAL_ARTIFACT_PREFIX || 'com.mobilerun.portal' }}
+      version-name: ${{ needs.build.outputs.version-name }}
+      version-code: ${{ fromJSON(needs.build.outputs.version-code) }}
+      r2-prefix: portal
+    secrets:
+      APPS_WEBHOOK_KEY: ${{ secrets.APPS_WEBHOOK_KEY }}
