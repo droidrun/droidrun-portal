@@ -29,7 +29,7 @@
             android:layout_height="56dp"
             android:layout_gravity="center"
             android:src="@drawable/triangle_alert"
-            app:tint="@color/droidrun_warning"
+            app:tint="@color/mobilerun_warning"
             android:layout_marginBottom="20dp"
             android:importantForAccessibility="no" />
 
@@ -102,7 +102,7 @@
                 android:text="@string/open_settings"
                 android:textColor="@color/text_white"
                 android:textSize="14sp"
-                app:backgroundTint="@color/droidrun_primary"
+                app:backgroundTint="@color/mobilerun_primary"
                 app:cornerRadius="8dp" />
 
         </LinearLayout>

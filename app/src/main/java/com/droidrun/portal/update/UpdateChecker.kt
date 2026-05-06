@@ -8,12 +8,13 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageInstaller
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
-import com.droidrun.portal.ui.MainActivity
+import com.mobilerun.portal.ui.MainActivity
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
@@ -236,6 +237,10 @@ object UpdateChecker {
         val cacheFile = File(context.cacheDir, CACHED_APK_FILENAME)
         if (!cacheFile.exists()) {
             Log.e(TAG, "Cached APK not found")
+            return null
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            Log.w(TAG, "Saving cached APK to public Downloads is unsupported below Android 10")
             return null
         }
         return try {

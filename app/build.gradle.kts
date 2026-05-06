@@ -4,12 +4,12 @@ plugins {
 }
 
 android {
-    namespace = "com.droidrun.portal"
+    namespace = "com.mobilerun.portal"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.droidrun.portal"
-        minSdk = 30
+        applicationId = "com.mobilerun.portal"
+        minSdk = 26
         targetSdk = 34
         versionCode = (project.findProperty("versionCode") as String).toInt()
         versionName = project.findProperty("versionName") as String

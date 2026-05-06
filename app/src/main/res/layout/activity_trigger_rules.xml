@@ -275,14 +275,31 @@
                 android:gravity="center_vertical"
                 android:orientation="horizontal">
 
-                <TextView
+                <com.google.android.material.button.MaterialButtonToggleGroup
+                    android:id="@+id/historyToggleGroup"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="Recent Runs"
-                    android:textColor="@color/text_gray"
-                    android:textSize="12sp"
-                    android:textStyle="bold" />
+                    app:selectionRequired="true"
+                    app:singleSelection="true">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/buttonShowRuns"
+                        style="?attr/materialButtonOutlinedStyle"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Recent Runs"
+                        android:textAllCaps="false" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/buttonShowQueued"
+                        style="?attr/materialButtonOutlinedStyle"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Queued"
+                        android:textAllCaps="false" />
+
+                </com.google.android.material.button.MaterialButtonToggleGroup>
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/clearRunsButton"
@@ -305,12 +322,30 @@
                 android:textColor="@color/text_gray"
                 android:textSize="14sp" />
 
+            <TextView
+                android:id="@+id/emptyQueuedText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="No queued tasks."
+                android:textColor="@color/text_gray"
+                android:textSize="14sp"
+                android:visibility="gone" />
+
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/runsRecyclerView"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
                 android:nestedScrollingEnabled="false" />
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/queuedRecyclerView"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:nestedScrollingEnabled="false"
+                android:visibility="gone" />
 
         </LinearLayout>
     </androidx.core.widget.NestedScrollView>

@@ -8,31 +8,31 @@
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
 
-    <!-- Droidrun Portal brand colors -->
-    <color name="droidrun_primary">#0D9373</color>
-    <color name="droidrun_primary_dark">#0D9373</color>
-    <color name="droidrun_primary_light">#07C983</color>
-    <color name="droidrun_accent">#07C983</color>
-    <color name="droidrun_secondary">#0D9373</color>
-    <color name="droidrun_green">#07C983</color>
-    <color name="droidrun_orange">#FFB74D</color>
-    <color name="droidrun_background">#0F0F0F</color>
-    <color name="droidrun_surface">#161616</color>
-    <color name="droidrun_card">#1A1A1A</color>
-    <color name="droidrun_text_primary">#FFFFFF</color>
-    <color name="droidrun_text_secondary">#07C983</color>
-    <color name="droidrun_text_hint">#0D9373</color>
-    <color name="droidrun_text_light">#B2F0E0</color>
-    <color name="droidrun_text_dark">#FFFFFF</color>
+    <!-- Mobilerun Portal brand colors -->
+    <color name="mobilerun_primary">#0D9373</color>
+    <color name="mobilerun_primary_dark">#0D9373</color>
+    <color name="mobilerun_primary_light">#07C983</color>
+    <color name="mobilerun_accent">#07C983</color>
+    <color name="mobilerun_secondary">#0D9373</color>
+    <color name="mobilerun_green">#07C983</color>
+    <color name="mobilerun_orange">#FFB74D</color>
+    <color name="mobilerun_background">#0F0F0F</color>
+    <color name="mobilerun_surface">#161616</color>
+    <color name="mobilerun_card">#1A1A1A</color>
+    <color name="mobilerun_text_primary">#FFFFFF</color>
+    <color name="mobilerun_text_secondary">#07C983</color>
+    <color name="mobilerun_text_hint">#0D9373</color>
+    <color name="mobilerun_text_light">#B2F0E0</color>
+    <color name="mobilerun_text_dark">#FFFFFF</color>
 
     <!-- UI element colors -->
-    <color name="droidrun_divider">#252525</color>
-    <color name="droidrun_shadow">#20000000</color>
-    <color name="droidrun_ripple">#220D9373</color>
-    <color name="droidrun_error">#FF5252</color>
-    <color name="droidrun_success">#07C983</color>
-    <color name="droidrun_warning">#FFD740</color>
-    <color name="droidrun_disabled">#555555</color>
+    <color name="mobilerun_divider">#252525</color>
+    <color name="mobilerun_shadow">#20000000</color>
+    <color name="mobilerun_ripple">#220D9373</color>
+    <color name="mobilerun_error">#FF5252</color>
+    <color name="mobilerun_success">#07C983</color>
+    <color name="mobilerun_warning">#FFD740</color>
+    <color name="mobilerun_disabled">#555555</color>
 
     <!-- UI background colors (darker palette) -->
     <color name="background_primary">#0F0F0F</color>

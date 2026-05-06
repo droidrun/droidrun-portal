@@ -90,7 +90,7 @@
                 android:layout_marginTop="14dp"
                 android:text="@string/retry"
                 android:textAllCaps="false"
-                app:backgroundTint="@color/droidrun_primary" />
+                app:backgroundTint="@color/mobilerun_primary" />
 
         </LinearLayout>
 

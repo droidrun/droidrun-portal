@@ -27,11 +27,11 @@ from typing import Any
 from urllib.parse import urlencode, unquote_plus, urlparse
 
 
-APP_AUTHORITY = "com.droidrun.portal"
+APP_AUTHORITY = "com.mobilerun.portal"
 DEFAULT_LOCAL_PORT = 8081
 DEFAULT_REVERSE_PORT = 8765
 DEFAULT_TIMEOUT_SEC = 15.0
-REVERSE_SERVICE_COMPONENT = "com.droidrun.portal/.service.ReverseConnectionService"
+REVERSE_SERVICE_COMPONENT = "com.mobilerun.portal/.service.ReverseConnectionService"
 websockets = None
 
 
@@ -206,7 +206,7 @@ def snapshot_reverse_config(device: str | None) -> ReverseConfigSnapshot:
     service_was_running = is_reverse_service_running(device)
     code, out, err = run_subprocess(
         adb_prefix(device)
-        + ["shell", "run-as", APP_AUTHORITY, "cat", "shared_prefs/droidrun_config.xml"]
+        + ["shell", "run-as", APP_AUTHORITY, "cat", "shared_prefs/mobilerun_config.xml"]
     )
     if code != 0:
         detail = err or out or "run-as unavailable"

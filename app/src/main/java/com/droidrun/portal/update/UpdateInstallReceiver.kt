@@ -6,7 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageInstaller
 import android.os.Build
 import android.util.Log
-import com.droidrun.portal.api.ApiHandler
+import com.mobilerun.portal.api.ApiHandler
 
 /**
  * Receives the result of a [PackageInstaller] session commit triggered by [UpdateChecker].

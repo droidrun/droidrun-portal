@@ -120,7 +120,7 @@
                 android:text="@string/retry"
                 android:textAllCaps="false"
                 android:visibility="gone"
-                app:backgroundTint="@color/droidrun_primary" />
+                app:backgroundTint="@color/mobilerun_primary" />
 
         </LinearLayout>
 

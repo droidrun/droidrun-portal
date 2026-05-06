@@ -241,7 +241,7 @@
                         android:layout_weight="1"
                         android:layout_gravity="center_vertical"
                         android:layout_marginStart="8dp"
-                        android:text="Droidrun Portal"
+                        android:text="Mobilerun Portal"
                         android:textColor="@color/text_white"
                         android:textSize="22sp"
                         android:textStyle="bold"
@@ -283,7 +283,7 @@
                             android:layout_width="20dp"
                             android:layout_height="20dp"
                             android:src="@drawable/info"
-                            app:tint="@color/droidrun_warning"
+                            app:tint="@color/mobilerun_warning"
                             android:layout_marginEnd="12dp"
                             android:importantForAccessibility="no" />
 
@@ -391,6 +391,7 @@
                             android:layout_marginEnd="12dp" />
 
                         <TextView
+                            android:id="@+id/file_access_banner_text"
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
@@ -489,7 +490,7 @@
                             android:layout_width="20dp"
                             android:layout_height="20dp"
                             android:src="@drawable/info"
-                            app:tint="@color/droidrun_warning"
+                            app:tint="@color/mobilerun_warning"
                             android:layout_marginEnd="12dp"
                             android:importantForAccessibility="no" />
 
@@ -884,6 +885,20 @@
                                 android:layout_marginTop="4dp"
                                 android:gravity="end"
                                 android:orientation="horizontal">
+
+                                <com.google.android.material.button.MaterialButton
+                                    android:id="@+id/btn_error_sign_out"
+                                    style="@style/Widget.MaterialComponents.Button.TextButton"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="36dp"
+                                    android:layout_marginEnd="8dp"
+                                    android:minWidth="0dp"
+                                    android:minHeight="0dp"
+                                    android:paddingHorizontal="12dp"
+                                    android:paddingVertical="0dp"
+                                    android:text="@string/sign_out"
+                                    android:textColor="@color/text_gray"
+                                    android:textSize="12sp" />
 
                                 <com.google.android.material.button.MaterialButton
                                     android:id="@+id/btn_dismiss_error"

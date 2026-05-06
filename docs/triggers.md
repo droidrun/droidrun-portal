@@ -1,6 +1,6 @@
 # Triggers and Events
 
-Droidrun Portal exposes trigger management over the local `ContentProvider`, the local WebSocket JSON-RPC API, and the reverse WebSocket connection used by cloud control. The rule and run payloads use the same `TriggerJson` schema that Portal persists internally; there is no separate external trigger schema.
+Mobilerun Portal exposes trigger management over the local `ContentProvider`, the local WebSocket JSON-RPC API, and the reverse WebSocket connection used by cloud control. The rule and run payloads use the same `TriggerJson` schema that Portal persists internally; there is no separate external trigger schema.
 
 Trigger endpoints are headless-safe: `triggers/*` methods remain available even when the Accessibility Service is not connected.
 
@@ -69,56 +69,56 @@ Example:
 
 ## ContentProvider Endpoints
 
-All trigger URIs use the authority `content://com.droidrun.portal/`.
+All trigger URIs use the authority `content://com.mobilerun.portal/`.
 
 ### Query URIs
 
-- `content://com.droidrun.portal/triggers/catalog`
-- `content://com.droidrun.portal/triggers/status`
-- `content://com.droidrun.portal/triggers/rules`
-- `content://com.droidrun.portal/triggers/rules/<ruleId>`
-- `content://com.droidrun.portal/triggers/runs?limit=<n>`
+- `content://com.mobilerun.portal/triggers/catalog`
+- `content://com.mobilerun.portal/triggers/status`
+- `content://com.mobilerun.portal/triggers/rules`
+- `content://com.mobilerun.portal/triggers/rules/<ruleId>`
+- `content://com.mobilerun.portal/triggers/runs?limit=<n>`
 
 ### Mutation URIs
 
-- `content://com.droidrun.portal/triggers/rules/save`
+- `content://com.mobilerun.portal/triggers/rules/save`
   Required values: `rule_json` or `rule_json_base64`
-- `content://com.droidrun.portal/triggers/rules/delete`
+- `content://com.mobilerun.portal/triggers/rules/delete`
   Required value: `rule_id`
-- `content://com.droidrun.portal/triggers/rules/set_enabled`
+- `content://com.mobilerun.portal/triggers/rules/set_enabled`
   Required values: `rule_id`, `enabled`
-- `content://com.droidrun.portal/triggers/rules/test`
+- `content://com.mobilerun.portal/triggers/rules/test`
   Required value: `rule_id`
-- `content://com.droidrun.portal/triggers/runs/delete`
+- `content://com.mobilerun.portal/triggers/runs/delete`
   Required value: `run_id`
-- `content://com.droidrun.portal/triggers/runs/clear`
+- `content://com.mobilerun.portal/triggers/runs/clear`
 
 Examples:
 
 ```bash
-adb shell content query --uri content://com.droidrun.portal/triggers/catalog
-adb shell content query --uri content://com.droidrun.portal/triggers/status
-adb shell content query --uri content://com.droidrun.portal/triggers/rules
-adb shell content query --uri content://com.droidrun.portal/triggers/rules/rule-1
-adb shell content query --uri 'content://com.droidrun.portal/triggers/runs?limit=20'
+adb shell content query --uri content://com.mobilerun.portal/triggers/catalog
+adb shell content query --uri content://com.mobilerun.portal/triggers/status
+adb shell content query --uri content://com.mobilerun.portal/triggers/rules
+adb shell content query --uri content://com.mobilerun.portal/triggers/rules/rule-1
+adb shell content query --uri 'content://com.mobilerun.portal/triggers/runs?limit=20'
 
-adb shell content insert --uri content://com.droidrun.portal/triggers/rules/save \
+adb shell content insert --uri content://com.mobilerun.portal/triggers/rules/save \
   --bind rule_json_base64:s:"BASE64_RULE_JSON"
 
-adb shell content insert --uri content://com.droidrun.portal/triggers/rules/set_enabled \
+adb shell content insert --uri content://com.mobilerun.portal/triggers/rules/set_enabled \
   --bind rule_id:s:"rule-1" \
   --bind enabled:b:false
 
-adb shell content insert --uri content://com.droidrun.portal/triggers/rules/test \
+adb shell content insert --uri content://com.mobilerun.portal/triggers/rules/test \
   --bind rule_id:s:"rule-1"
 
-adb shell content insert --uri content://com.droidrun.portal/triggers/rules/delete \
+adb shell content insert --uri content://com.mobilerun.portal/triggers/rules/delete \
   --bind rule_id:s:"rule-1"
 
-adb shell content insert --uri content://com.droidrun.portal/triggers/runs/delete \
+adb shell content insert --uri content://com.mobilerun.portal/triggers/runs/delete \
   --bind run_id:s:"run-1"
 
-adb shell content insert --uri content://com.droidrun.portal/triggers/runs/clear
+adb shell content insert --uri content://com.mobilerun.portal/triggers/runs/clear
 ```
 
 ## Save Validation

@@ -1,6 +1,6 @@
 # Reverse Connection (Cloud Mode)
 
-Droidrun Portal can initiate an outbound WebSocket connection to a host (used by Mobilerun Cloud). This keeps the device reachable even when it is behind NAT or on mobile networks.
+Mobilerun Portal can initiate an outbound WebSocket connection to a host (used by Mobilerun Cloud). This keeps the device reachable even when it is behind NAT or on mobile networks.
 
 ## Enable in the app
 
@@ -164,7 +164,7 @@ Streaming commands are only supported over reverse connection.
 ## Configure via ContentProvider (optional)
 
 ```bash
-adb shell content insert --uri content://com.droidrun.portal/configure_reverse_connection --bind url_base64:s:"d3NzOi8vYXBpLm1vYmlsZXJ1bi5haS92MS9wcm92aWRlcnMvcGVyc29uYWwvam9pbg==" --bind token_base64:s:"WU9VUl9UT0tFTg==" --bind enabled:b:true
+adb shell content insert --uri content://com.mobilerun.portal/configure_reverse_connection --bind url_base64:s:"d3NzOi8vYXBpLm1vYmlsZXJ1bi5haS92MS9wcm92aWRlcnMvcGVyc29uYWwvam9pbg==" --bind token_base64:s:"WU9VUl9UT0tFTg==" --bind enabled:b:true
 ```
 
 The `check_event_streams.py` smoke script uses the same base64-backed provider fields under

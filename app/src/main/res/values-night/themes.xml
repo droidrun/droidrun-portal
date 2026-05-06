@@ -1,13 +1,13 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Base application theme. -->
-    <style name="Theme.Droidrun" parent="Theme.MaterialComponents.NoActionBar">
+    <style name="Theme.Mobilerun" parent="Theme.MaterialComponents.NoActionBar">
         <!-- Primary brand color. -->
-        <item name="colorPrimary">@color/droidrun_primary_light</item>
-        <item name="colorPrimaryVariant">@color/droidrun_primary</item>
+        <item name="colorPrimary">@color/mobilerun_primary_light</item>
+        <item name="colorPrimaryVariant">@color/mobilerun_primary</item>
         <item name="colorOnPrimary">@color/black</item>
         <!-- Secondary brand color. -->
-        <item name="colorSecondary">@color/droidrun_accent</item>
-        <item name="colorSecondaryVariant">@color/droidrun_secondary</item>
+        <item name="colorSecondary">@color/mobilerun_accent</item>
+        <item name="colorSecondaryVariant">@color/mobilerun_secondary</item>
         <item name="colorOnSecondary">@color/black</item>
         <!-- Status bar color. -->
         <item name="android:statusBarColor">@color/black</item>
