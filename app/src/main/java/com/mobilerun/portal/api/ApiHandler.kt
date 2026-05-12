@@ -49,6 +49,8 @@ import android.app.NotificationManager
 import androidx.core.app.NotificationCompat
 import com.mobilerun.portal.state.AppVisibilityTracker
 import com.mobilerun.portal.ui.PermissionDialogActivity
+import java.util.Collections
+import java.util.IdentityHashMap
 import java.util.Locale
 
 class ApiHandler(
@@ -1203,7 +1205,11 @@ class ApiHandler(
         elements: List<com.mobilerun.portal.model.ElementNode>
     ): List<com.mobilerun.portal.model.ElementNode> {
         val all = mutableListOf<com.mobilerun.portal.model.ElementNode>()
+        val visited = Collections.newSetFromMap(
+            IdentityHashMap<com.mobilerun.portal.model.ElementNode, Boolean>()
+        )
         fun collect(node: com.mobilerun.portal.model.ElementNode) {
+            if (!visited.add(node)) return
             all.add(node)
             node.children.forEach { child -> collect(child) }
         }

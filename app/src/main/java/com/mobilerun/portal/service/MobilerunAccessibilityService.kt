@@ -53,6 +53,7 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
             "com.mobilerun.portal.action.DISABLE_LOCAL_WS_SERVER"
         private var instance: MobilerunAccessibilityService? = null
         private const val MIN_ELEMENT_SIZE = 5
+        private const val MAX_ACCESSIBILITY_TREE_DEPTH = 128
         private const val TOAST_DEBOUNCE_MS = 60_000L
         private const val AUTO_ACCEPT_FAILURE_TOAST_DEBOUNCE_MS = 10_000L
         private const val LOCAL_WS_NOTIFICATION_CHANNEL_ID = "local_ws_connection_channel"
@@ -593,9 +594,21 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
         val elements = mutableListOf<ElementNode>()
         val indexCounter = IndexCounter(1)
 
-        val rootNode = rootInActiveWindow ?: return elements
+        val rootNode = try {
+            rootInActiveWindow
+        } catch (e: RuntimeException) {
+            Log.e(TAG, "Unable to read active accessibility root: ${e.message}", e)
+            null
+        } ?: return elements
         try {
-            val rootElement = findAllVisibleElements(rootNode, 0, null, indexCounter)
+            val rootElement = findAllVisibleElements(
+                node = rootNode,
+                windowLayer = 0,
+                parent = null,
+                indexCounter = indexCounter,
+                depth = 0,
+                activeNodeKeys = mutableSetOf()
+            )
             rootElement?.let {
                 collectRootElements(it, elements)
             }
@@ -619,86 +632,126 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
         node: AccessibilityNodeInfo,
         windowLayer: Int,
         parent: ElementNode?,
-        indexCounter: IndexCounter
+        indexCounter: IndexCounter,
+        depth: Int,
+        activeNodeKeys: MutableSet<String>
     ): ElementNode? {
         try {
+            if (depth > MAX_ACCESSIBILITY_TREE_DEPTH) {
+                Log.w(TAG, "Skipping accessibility subtree deeper than $MAX_ACCESSIBILITY_TREE_DEPTH levels")
+                return null
+            }
 
             val rect = Rect()
             node.getBoundsInScreen(rect)
 
-            val isInScreen = Rect.intersects(rect, screenBounds)
-            val hasSize = rect.width() > MIN_ELEMENT_SIZE && rect.height() > MIN_ELEMENT_SIZE
-
-            var currentElement: ElementNode? = null
-
-            if (isInScreen && hasSize) {
-                val text = node.text?.toString() ?: ""
-                val contentDesc = node.contentDescription?.toString() ?: ""
-                val className = node.className?.toString() ?: ""
-                val viewId = node.viewIdResourceName ?: ""
-
-                val displayText = when {
-                    text.isNotEmpty() -> text
-                    contentDesc.isNotEmpty() -> contentDesc
-                    viewId.isNotEmpty() -> viewId.substringAfterLast('/')
-                    else -> className.substringAfterLast('.')
-                }
-
-                val elementType = if (node.isClickable) {
-                    "Clickable"
-                } else if (node.isCheckable) {
-                    "Checkable"
-                } else if (node.isEditable) {
-                    "Input"
-                } else if (text.isNotEmpty()) {
-                    "Text"
-                } else if (node.isScrollable) {
-                    "Container"
-                } else {
-                    "View"
-                }
-
-                val id = ElementNode.createId(rect, className.substringAfterLast('.'), displayText)
-
-                val nodeCopy = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    AccessibilityNodeInfo(node)
-                } else {
-                    @Suppress("DEPRECATION")
-                    AccessibilityNodeInfo.obtain(node)
-                }
-                currentElement = ElementNode(
-                    nodeCopy,
-                    Rect(rect),
-                    displayText,
-                    className.substringAfterLast('.'),
-                    windowLayer,
-                    System.currentTimeMillis(),
-                    id
-                )
-
-                // Assign unique index
-                currentElement.overlayIndex = indexCounter.getNext()
-
-                // Set parent-child relationship
-                parent?.addChild(currentElement)
+            val nodeKey = createTraversalKey(node, rect)
+            if (!activeNodeKeys.add(nodeKey)) {
+                Log.w(TAG, "Skipping cyclic accessibility node: $nodeKey")
+                return null
             }
 
-            // Recursively process children
-            for (i in 0 until node.childCount) {
-                val childNode = node.getChild(i) ?: continue
-                try {
-                    findAllVisibleElements(childNode, windowLayer, currentElement, indexCounter)
-                } finally {
-                    childNode.recycle()
-                }
-            }
+            try {
+                val isInScreen = Rect.intersects(rect, screenBounds)
+                val hasSize = rect.width() > MIN_ELEMENT_SIZE && rect.height() > MIN_ELEMENT_SIZE
 
-            return currentElement
+                var currentElement: ElementNode? = null
+
+                if (isInScreen && hasSize) {
+                    val text = node.text?.toString() ?: ""
+                    val contentDesc = node.contentDescription?.toString() ?: ""
+                    val className = node.className?.toString() ?: ""
+                    val viewId = node.viewIdResourceName ?: ""
+
+                    val displayText = when {
+                        text.isNotEmpty() -> text
+                        contentDesc.isNotEmpty() -> contentDesc
+                        viewId.isNotEmpty() -> viewId.substringAfterLast('/')
+                        else -> className.substringAfterLast('.')
+                    }
+
+                    val elementType = if (node.isClickable) {
+                        "Clickable"
+                    } else if (node.isCheckable) {
+                        "Checkable"
+                    } else if (node.isEditable) {
+                        "Input"
+                    } else if (text.isNotEmpty()) {
+                        "Text"
+                    } else if (node.isScrollable) {
+                        "Container"
+                    } else {
+                        "View"
+                    }
+
+                    val id = ElementNode.createId(rect, className.substringAfterLast('.'), displayText)
+
+                    val nodeCopy = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        AccessibilityNodeInfo(node)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        AccessibilityNodeInfo.obtain(node)
+                    }
+                    currentElement = ElementNode(
+                        nodeCopy,
+                        Rect(rect),
+                        displayText,
+                        className.substringAfterLast('.'),
+                        windowLayer,
+                        System.currentTimeMillis(),
+                        id
+                    )
+
+                    // Assign unique index
+                    currentElement.overlayIndex = indexCounter.getNext()
+
+                    // Set parent-child relationship
+                    parent?.addChild(currentElement)
+                }
+
+                // Recursively process children
+                for (i in 0 until node.childCount) {
+                    val childNode = node.getChild(i) ?: continue
+                    try {
+                        findAllVisibleElements(
+                            node = childNode,
+                            windowLayer = windowLayer,
+                            parent = currentElement,
+                            indexCounter = indexCounter,
+                            depth = depth + 1,
+                            activeNodeKeys = activeNodeKeys
+                        )
+                    } finally {
+                        childNode.recycle()
+                    }
+                }
+
+                return currentElement
+            } finally {
+                activeNodeKeys.remove(nodeKey)
+            }
 
         } catch (e: Exception) {
             Log.e(TAG, "Error in findAllVisibleElements: ${e.message}", e)
             return null
         }
+    }
+
+    private fun createTraversalKey(node: AccessibilityNodeInfo, rect: Rect): String {
+        val packageName = node.packageName?.toString().orEmpty()
+        val className = node.className?.toString().orEmpty()
+        val viewId = node.viewIdResourceName.orEmpty()
+        val text = node.text?.toString().orEmpty()
+        val contentDescription = node.contentDescription?.toString().orEmpty()
+        return listOf(
+            node.windowId.toString(),
+            rect.flattenToString(),
+            className,
+            viewId,
+            text.take(64),
+            contentDescription.take(64),
+            packageName,
+        ).joinToString("|")
     }
 
     fun getPhoneState(): PhoneState {

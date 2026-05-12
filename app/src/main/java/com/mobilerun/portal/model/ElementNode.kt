@@ -2,6 +2,8 @@ package com.mobilerun.portal.model
 
 import android.graphics.Rect
 import android.view.accessibility.AccessibilityNodeInfo
+import java.util.Collections
+import java.util.IdentityHashMap
 import kotlin.math.max
 import kotlin.math.min
 
@@ -25,6 +27,10 @@ data class ElementNode(
 ) {
     companion object {
         private const val FADE_DURATION_MS = 60000L // Time to fade from weight 1.0 to 0.0 (60 seconds)
+
+        private fun visitedSet(): MutableSet<ElementNode> {
+            return Collections.newSetFromMap(IdentityHashMap<ElementNode, Boolean>())
+        }
 
         /**
          * Creates a unique ID for an element based on its properties
@@ -71,8 +77,9 @@ data class ElementNode(
 
         var current = this
         var level = 0
+        val visited = visitedSet()
 
-        while (current.parent != null) {
+        while (current.parent != null && visited.add(current)) {
             level++
             current = current.parent!!
         }
@@ -84,7 +91,8 @@ data class ElementNode(
     // Get the root ancestor
     fun getRootAncestor(): ElementNode {
         var current = this
-        while (current.parent != null) {
+        val visited = visitedSet()
+        while (current.parent != null && visited.add(current)) {
             current = current.parent!!
         }
         return current
@@ -92,6 +100,9 @@ data class ElementNode(
 
     // Add a child node
     fun addChild(child: ElementNode) {
+        if (child === this || hasAncestor(child)) {
+            return
+        }
         if (!children.contains(child)) {
             children.add(child)
             child.parent = this
@@ -106,10 +117,16 @@ data class ElementNode(
 
     // Get all descendants (children, grandchildren, etc.)
     fun getAllDescendants(): List<ElementNode> {
+        return getAllDescendants(visitedSet())
+    }
+
+    private fun getAllDescendants(visited: MutableSet<ElementNode>): List<ElementNode> {
+        if (!visited.add(this)) return emptyList()
         val descendants = mutableListOf<ElementNode>()
         for (child in children) {
+            if (child in visited) continue
             descendants.add(child)
-            descendants.addAll(child.getAllDescendants())
+            descendants.addAll(child.getAllDescendants(visited))
         }
         return descendants
     }
@@ -118,11 +135,22 @@ data class ElementNode(
     fun getPathFromRoot(): List<ElementNode> {
         val path = mutableListOf<ElementNode>()
         var current: ElementNode? = this
-        while (current != null) {
+        val visited = visitedSet()
+        while (current != null && visited.add(current)) {
             path.add(0, current)
             current = current.parent
         }
         return path
+    }
+
+    private fun hasAncestor(candidate: ElementNode): Boolean {
+        var current = parent
+        val visited = visitedSet()
+        while (current != null && visited.add(current)) {
+            if (current === candidate) return true
+            current = current.parent
+        }
+        return false
     }
 
     override fun toString(): String {
