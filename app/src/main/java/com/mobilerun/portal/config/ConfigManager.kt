@@ -40,6 +40,7 @@ class ConfigManager private constructor(private val context: Context) {
         private const val KEY_DEV_MODE_ENABLED = "dev_mode_enabled"
         private const val KEY_INSTALL_AUTO_ACCEPT_ENABLED = "install_auto_accept_enabled"
         private const val KEY_KEEP_SCREEN_AWAKE_ENABLED = "keep_screen_awake_enabled"
+        private const val KEY_SMS_GATEWAY_ENABLED = "sms_gateway_enabled"
         private const val KEY_KEEP_ALIVE_LAST_RECOVERY_AT_MS = "keep_alive_last_recovery_at_ms"
         private const val KEY_KEEP_ALIVE_LAST_RECOVERY_ATTEMPT_AT_MS =
             "keep_alive_last_recovery_attempt_at_ms"
@@ -347,6 +348,14 @@ class ConfigManager private constructor(private val context: Context) {
         get() = sharedPrefs.getBoolean(KEY_KEEP_SCREEN_AWAKE_ENABLED, false)
         set(value) {
             sharedPrefs.edit { putBoolean(KEY_KEEP_SCREEN_AWAKE_ENABLED, value) }
+        }
+
+    // Opt-in SMS gateway (inbox/outbox via numbers-api). Persisted so a boot
+    // reconcile can restart it.
+    var smsGatewayEnabled: Boolean
+        get() = sharedPrefs.getBoolean(KEY_SMS_GATEWAY_ENABLED, false)
+        set(value) {
+            sharedPrefs.edit { putBoolean(KEY_SMS_GATEWAY_ENABLED, value) }
         }
 
     var keepAliveLastRecoveryAtMs: Long
@@ -707,6 +716,7 @@ class ConfigManager private constructor(private val context: Context) {
         fun onWebSocketEnabledChanged(enabled: Boolean) {}
         fun onWebSocketPortChanged(port: Int) {}
         fun onKeepScreenAwakeEnabledChanged(enabled: Boolean) {}
+        fun onSmsGatewayEnabledChanged(enabled: Boolean) {}
 
         fun onProductionModeChanged(enabled: Boolean) {}
     }
@@ -775,6 +785,12 @@ class ConfigManager private constructor(private val context: Context) {
         if (keepScreenAwakeEnabled == enabled) return
         keepScreenAwakeEnabled = enabled
         listeners.forEach { it.onKeepScreenAwakeEnabledChanged(enabled) }
+    }
+
+    fun setSmsGatewayEnabledWithNotification(enabled: Boolean) {
+        if (smsGatewayEnabled == enabled) return
+        smsGatewayEnabled = enabled
+        listeners.forEach { it.onSmsGatewayEnabledChanged(enabled) }
     }
 
     fun clearKeepAliveRuntimeState() {
