@@ -113,6 +113,48 @@ class AccessibilityTreeBuilderTest {
         verify(exactly = 1) { root.recycle() }
     }
 
+    @Test
+    fun buildFullAccessibilityTreeJson_mapsNonFiniteRangeValuesToJsonNull() {
+        val root = node("root")
+        val range = mockk<AccessibilityNodeInfo.RangeInfo>()
+        configureNode(root)
+        every { range.type } returns AccessibilityNodeInfo.RangeInfo.RANGE_TYPE_FLOAT
+        every { range.min } returns Float.NEGATIVE_INFINITY
+        every { range.max } returns Float.POSITIVE_INFINITY
+        every { range.current } returns Float.NaN
+        every { root.rangeInfo } returns range
+
+        val json = AccessibilityTreeBuilder.buildFullAccessibilityTreeJson(root)
+
+        assertNotNull(json)
+        val rangeJson = JSONObject(json!!.toString()).getJSONObject("rangeInfo")
+        assertEquals(AccessibilityNodeInfo.RangeInfo.RANGE_TYPE_FLOAT, rangeJson.getInt("type"))
+        assertTrue(rangeJson.isNull("min"))
+        assertTrue(rangeJson.isNull("max"))
+        assertTrue(rangeJson.isNull("current"))
+    }
+
+    @Test
+    fun buildFullAccessibilityTreeJson_preservesFiniteRangeValues() {
+        val root = node("root")
+        val range = mockk<AccessibilityNodeInfo.RangeInfo>()
+        configureNode(root)
+        every { range.type } returns AccessibilityNodeInfo.RangeInfo.RANGE_TYPE_FLOAT
+        every { range.min } returns -10.5f
+        every { range.max } returns 42.25f
+        every { range.current } returns 7.5f
+        every { root.rangeInfo } returns range
+
+        val json = AccessibilityTreeBuilder.buildFullAccessibilityTreeJson(root)
+
+        assertNotNull(json)
+        val rangeJson = JSONObject(json!!.toString()).getJSONObject("rangeInfo")
+        assertEquals(AccessibilityNodeInfo.RangeInfo.RANGE_TYPE_FLOAT, rangeJson.getInt("type"))
+        assertEquals(-10.5, rangeJson.getDouble("min"), 0.0)
+        assertEquals(42.25, rangeJson.getDouble("max"), 0.0)
+        assertEquals(7.5, rangeJson.getDouble("current"), 0.0)
+    }
+
     private fun node(name: String): AccessibilityNodeInfo {
         return mockk(name = name, relaxed = true)
     }
