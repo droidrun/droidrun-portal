@@ -47,6 +47,7 @@ import com.mobilerun.portal.keepalive.KeepAliveStartupException
 import org.webrtc.IceCandidate
 import org.webrtc.PeerConnection
 import com.mobilerun.portal.service.AutoAcceptGate
+import com.mobilerun.portal.service.CaptureSizing
 import com.mobilerun.portal.service.FileOperations
 import com.mobilerun.portal.service.ReverseConnectionService
 import android.app.NotificationChannel
@@ -88,6 +89,22 @@ class ApiHandler(
         const val EXTRA_INSTALL_PACKAGE = "install_package"
         private const val INSTALL_NOTIFICATION_CHANNEL_ID = "install_result_channel"
         private const val INSTALL_NOTIFICATION_ID = 4001
+
+        /**
+         * True for an explicit numeric value, or a numeric string (legacy `optInt`
+         * parsed numeric strings too, so a string width/height must still count as
+         * present). JSONObject.NULL, non-numeric strings, and other types count as
+         * absent.
+         */
+        fun isNumericCaptureParam(params: JSONObject, key: String): Boolean {
+            if (!params.has(key)) return false
+            val value = params.opt(key)
+            return when (value) {
+                is Number -> true
+                is String -> value.toDoubleOrNull() != null
+                else -> false
+            }
+        }
     }
 
     private val installLock = Any()
@@ -102,6 +119,24 @@ class ApiHandler(
     }
     val applicationContext: Context
         get() = context.applicationContext
+
+    private fun defaultCaptureSize(params: JSONObject): Pair<Int, Int> {
+        if (isNumericCaptureParam(params, "width") || isNumericCaptureParam(params, "height")) {
+            return Pair(
+                params.optInt("width", CaptureSizing.DEFAULT_CAPTURE_WIDTH)
+                    .coerceIn(CaptureSizing.CAPTURE_WIDTH_MIN, CaptureSizing.CAPTURE_WIDTH_MAX),
+                params.optInt("height", CaptureSizing.DEFAULT_CAPTURE_HEIGHT)
+                    .coerceIn(CaptureSizing.CAPTURE_HEIGHT_MIN, CaptureSizing.CAPTURE_HEIGHT_MAX),
+            )
+        }
+
+        return CaptureSizing.deriveAutoCaptureSize(context)
+    }
+
+    /** True when [defaultCaptureSize] would take the auto-derive path for these params. */
+    private fun isAutoDerivedCaptureSize(params: JSONObject): Boolean {
+        return !isNumericCaptureParam(params, "width") && !isNumericCaptureParam(params, "height")
+    }
 
     private fun getAvailableInternalBytes(): Long? {
         return try {
@@ -1931,8 +1966,8 @@ class ApiHandler(
     }
 
     fun startStream(params: JSONObject): ApiResponse {
-        val width = params.optInt("width", 720).coerceIn(144, 1920)
-        val height = params.optInt("height", 1280).coerceIn(256, 3840)
+        val (width, height) = defaultCaptureSize(params)
+        val sizeAutoDerived = isAutoDerivedCaptureSize(params)
         val fps = params.optInt("fps", 30).coerceIn(1, 60)
         val sessionId = params.optString("sessionId").trim()
         if (sessionId.isEmpty()) {
@@ -1968,6 +2003,7 @@ class ApiHandler(
                 putExtra(com.mobilerun.portal.ui.ScreenCaptureActivity.EXTRA_MODE, com.mobilerun.portal.ui.ScreenCaptureActivity.MODE_STREAM)
                 putExtra(ScreenCaptureService.EXTRA_WIDTH, width)
                 putExtra(ScreenCaptureService.EXTRA_HEIGHT, height)
+                putExtra(ScreenCaptureService.EXTRA_SIZE_AUTO_DERIVED, sizeAutoDerived)
                 putExtra(ScreenCaptureService.EXTRA_FPS, fps)
                 putExtra(ScreenCaptureService.EXTRA_WAIT_FOR_OFFER, waitForOffer)
             }
@@ -2063,8 +2099,7 @@ class ApiHandler(
         if (sessionId.isEmpty()) {
             return ApiResponse.Error("Missing required param: 'sessionId'")
         }
-        val width = params.optInt("width", 720).coerceIn(144, 1920)
-        val height = params.optInt("height", 1280).coerceIn(256, 3840)
+        val (width, height) = defaultCaptureSize(params)
         val fps = params.optInt("fps", 30).coerceIn(1, 60)
 
         val manager = WebRtcManager.getInstance(context)

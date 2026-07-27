@@ -30,12 +30,72 @@ class ScrcpyControlChannel : DataChannel.Observer {
 
         private const val MIN_GESTURE_DURATION_MS = 50L
         private const val MAX_GESTURE_DURATION_MS = 5000L
+
+        // MediaProjection captures the full display with a centered, uniform
+        // aspect-fit into the video canvas (no inset/cutout math). A point that
+        // lands in the resulting pillarbox/letterbox bars has no corresponding
+        // screen position and must not be injected as a tap.
+        fun mapFrameToScreen(
+            x: Int,
+            y: Int,
+            videoW: Int,
+            videoH: Int,
+            screenW: Int,
+            screenH: Int,
+        ): Pair<Float, Float>? {
+            if (videoW <= 0 || videoH <= 0 || screenW <= 0 || screenH <= 0) return null
+
+            val scaleX = videoW.toDouble() / screenW
+            val scaleY = videoH.toDouble() / screenH
+            val scale = minOf(scaleX, scaleY)
+
+            // The limiting axis (whichever of scaleX/scaleY is the min) fits
+            // the video canvas edge-to-edge, so its offset must be EXACTLY
+            // 0.0 — not the result of a floating-point subtraction, which can
+            // leave a residual of a few ten-thousandths of a pixel (e.g.
+            // video=720x1280 vs screen=1080x2408 previously computed
+            // offsetY≈0.000061 instead of 0) that's enough to push a
+            // legitimate edge tap (y=0) outside the bounds check below and
+            // have it misclassified as a pillarbox/letterbox bar point.
+            val offsetX: Double
+            val offsetY: Double
+            if (scaleX <= scaleY) {
+                offsetX = 0.0
+                offsetY = (videoH - screenH * scale) / 2.0
+            } else {
+                offsetX = (videoW - screenW * scale) / 2.0
+                offsetY = 0.0
+            }
+
+            val frameX = x.toDouble()
+            val frameY = y.toDouble()
+            if (frameX < offsetX || frameX > videoW - offsetX ||
+                frameY < offsetY || frameY > videoH - offsetY
+            ) {
+                return null
+            }
+
+            val screenX = (frameX - offsetX) / scale
+            val screenY = (frameY - offsetY) / scale
+
+            return Pair(
+                screenX.toFloat().coerceIn(0f, (screenW - 1).toFloat()),
+                screenY.toFloat().coerceIn(0f, (screenH - 1).toFloat()),
+            )
+        }
     }
 
     private val touchPath = mutableListOf<Pair<Float, Float>>()
     private var touchStartTime = 0L
-    private var lastVideoWidth = 0
-    private var lastVideoHeight = 0
+    private var gestureActive = false
+
+    // The pointer that owns the currently in-flight gesture. Multi-touch
+    // injection stays UNSUPPORTED (dispatchPath below drives a single
+    // GestureDescription stroke), but a second pointer must not corrupt the
+    // active pointer's state: while a gesture is active, DOWN/MOVE/UP from
+    // any other pointer id is ignored outright rather than clearing
+    // touchPath or cancelling a valid gesture.
+    private var activePointerId: Long? = null
 
     override fun onBufferedAmountChange(previousAmount: Long) {}
 
@@ -72,7 +132,7 @@ class ScrcpyControlChannel : DataChannel.Observer {
         buffer.order(ByteOrder.BIG_ENDIAN)
         buffer.get()
         val action = buffer.get().toInt() and 0xFF
-        buffer.long
+        val pointerId = buffer.long
 
         buffer.order(ByteOrder.LITTLE_ENDIAN)
         val x = buffer.int
@@ -81,26 +141,52 @@ class ScrcpyControlChannel : DataChannel.Observer {
         val videoHeight = buffer.short.toInt() and 0xFFFF
         buffer.short
 
-        lastVideoWidth = videoWidth
-        lastVideoHeight = videoHeight
+        // A second pointer while a gesture is active is dropped wholesale —
+        // its DOWN would otherwise clear touchPath out from under the first
+        // pointer, and its bar-DOWN would otherwise cancel a valid running
+        // gesture. The active pointer's own events fall through untouched.
+        if (gestureActive && pointerId != activePointerId) {
+            return
+        }
 
-        val (scaledX, scaledY) = scaleCoordinates(x, y, videoWidth, videoHeight)
+        val mapped = scaleCoordinates(x, y, videoWidth, videoHeight)
 
         when (action) {
             ACTION_DOWN -> {
                 touchPath.clear()
-                touchPath.add(Pair(scaledX, scaledY))
+                if (mapped == null) {
+                    gestureActive = false
+                    activePointerId = null
+                    return
+                }
+                gestureActive = true
+                activePointerId = pointerId
+                touchPath.add(mapped)
                 touchStartTime = System.currentTimeMillis()
             }
             ACTION_MOVE -> {
-                touchPath.add(Pair(scaledX, scaledY))
+                if (!gestureActive) return
+                // A move landing in the bars is dropped, not dispatched as a
+                // partial gesture: keep the gesture alive and skip the point.
+                if (mapped == null) return
+                touchPath.add(mapped)
             }
             ACTION_UP -> {
-                touchPath.add(Pair(scaledX, scaledY))
+                if (!gestureActive) {
+                    touchPath.clear()
+                    return
+                }
+                // UP in the bars intentionally releases at the last valid point —
+                // mirrors the web client (which sends UP at the last inside
+                // position) and scrcpy; cancelling here would swallow
+                // drag-to-edge gestures.
+                (mapped ?: touchPath.lastOrNull())?.let { touchPath.add(it) }
                 val duration = (System.currentTimeMillis() - touchStartTime)
                     .coerceIn(MIN_GESTURE_DURATION_MS, MAX_GESTURE_DURATION_MS)
                 dispatchPath(touchPath.toList(), duration)
                 touchPath.clear()
+                gestureActive = false
+                activePointerId = null
             }
         }
     }
@@ -119,7 +205,7 @@ class ScrcpyControlChannel : DataChannel.Observer {
         val hScroll = buffer.short.toInt()
         val vScroll = buffer.short.toInt()
 
-        val (scaledX, scaledY) = scaleCoordinates(x, y, videoWidth, videoHeight)
+        val (scaledX, scaledY) = scaleCoordinates(x, y, videoWidth, videoHeight) ?: return
 
         val scrollDistance = 200
         val endY = scaledY + (vScroll * scrollDistance)
@@ -276,13 +362,16 @@ class ScrcpyControlChannel : DataChannel.Observer {
         service.inputText(text, false)
     }
 
-    private fun scaleCoordinates(x: Int, y: Int, videoW: Int, videoH: Int): Pair<Float, Float> {
-        if (videoW <= 0 || videoH <= 0) return Pair(x.toFloat(), y.toFloat())
+    private fun scaleCoordinates(x: Int, y: Int, videoW: Int, videoH: Int): Pair<Float, Float>? {
+        val (screenW, screenH) = currentScreenSize()
+        return mapFrameToScreen(x, y, videoW, videoH, screenW, screenH)
+    }
 
+    private fun currentScreenSize(): Pair<Int, Int> {
         val service = MobilerunAccessibilityService.getInstance()
         val wm = service?.getSystemService(android.content.Context.WINDOW_SERVICE) as? android.view.WindowManager
 
-        val (screenW, screenH) = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+        return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
             val bounds = wm?.maximumWindowMetrics?.bounds
             Pair(bounds?.width() ?: Resources.getSystem().displayMetrics.widthPixels,
                  bounds?.height() ?: Resources.getSystem().displayMetrics.heightPixels)
@@ -292,11 +381,6 @@ class ScrcpyControlChannel : DataChannel.Observer {
             wm?.defaultDisplay?.getRealMetrics(metrics)
             Pair(metrics.widthPixels, metrics.heightPixels)
         }
-
-        val scaledX = (x.toFloat() / videoW) * screenW
-        val scaledY = (y.toFloat() / videoH) * screenH
-
-        return Pair(scaledX, scaledY)
     }
 
     private fun dispatchPath(points: List<Pair<Float, Float>>, durationMs: Long) {

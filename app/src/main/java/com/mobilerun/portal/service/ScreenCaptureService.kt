@@ -33,6 +33,14 @@ class ScreenCaptureService : Service() {
 
         const val EXTRA_WIDTH = "width"
         const val EXTRA_HEIGHT = "height"
+        // True only when ApiHandler used the auto-derive path (neither width
+        // nor height was explicitly requested) to compute EXTRA_WIDTH/HEIGHT.
+        // Those dims were computed before the MediaProjection permission
+        // activity launched; if the device rotates while that prompt is on
+        // screen, they go stale. When this flag is set we re-run the same
+        // fit here, after the permission grant, instead of trusting the
+        // extras. Explicit width/height requests are unaffected (flag false).
+        const val EXTRA_SIZE_AUTO_DERIVED = "size_auto_derived"
         const val EXTRA_FPS = "fps"
         const val EXTRA_WAIT_FOR_OFFER = "wait_for_offer"
 
@@ -74,8 +82,20 @@ class ScreenCaptureService : Service() {
                 val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, 0)
                 val resultData = intent.getParcelableExtra<Intent>(EXTRA_RESULT_DATA)
                 val captureMode = intent.getStringExtra(EXTRA_CAPTURE_MODE) ?: CAPTURE_MODE_STREAM
-                val width = intent.getIntExtra(EXTRA_WIDTH, 720)
-                val height = intent.getIntExtra(EXTRA_HEIGHT, 1280)
+                val requestedWidth = intent.getIntExtra(EXTRA_WIDTH, 720)
+                val requestedHeight = intent.getIntExtra(EXTRA_HEIGHT, 1280)
+                val sizeAutoDerived = intent.getBooleanExtra(EXTRA_SIZE_AUTO_DERIVED, false)
+                // Re-derive the auto-fit size now, at permission-grant time,
+                // instead of trusting dims computed before the permission
+                // prompt launched — a rotation while the prompt was open
+                // would otherwise bake stale-orientation dims into the
+                // VirtualDisplay. Explicit width/height requests skip this
+                // (sizeAutoDerived is false) and use the extras as-is.
+                val (width, height) = if (sizeAutoDerived) {
+                    CaptureSizing.deriveAutoCaptureSize(applicationContext)
+                } else {
+                    Pair(requestedWidth, requestedHeight)
+                }
                 val fps = intent.getIntExtra(EXTRA_FPS, 30)
                 val waitForOffer = intent.getBooleanExtra(EXTRA_WAIT_FOR_OFFER, false)
 

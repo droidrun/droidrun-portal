@@ -648,6 +648,109 @@ class ApiHandlerTest {
     }
 
     @Test
+    fun connectWebRtc_widthOnlyKeepsLegacyHeightDefault() {
+        // Fix A only derives a capture size when NEITHER key is present; an
+        // explicit width alone must keep the per-field legacy defaulting.
+        val stateRepo = mockk<StateRepository>(relaxed = true)
+        val context = mockk<Context>(relaxed = true)
+        every { context.applicationContext } returns context
+        val handler = createHandler(stateRepo = stateRepo, ime = null, context = context)
+        val manager = mockk<WebRtcManager>(relaxed = true)
+
+        mockkObject(WebRtcManager.Companion)
+        mockkObject(ReverseConnectionService.Companion)
+        every { WebRtcManager.getInstance(context) } returns manager
+        every { ReverseConnectionService.getInstance() } returns null
+        every { manager.isCaptureActive() } returns true
+        every {
+            manager.startStreamWithExistingCapture(800, 1280, 30, "session-1", true)
+        } just Runs
+
+        val response =
+            handler.connectWebRtc(
+                JSONObject().apply {
+                    put("sessionId", "session-1")
+                    put("width", 800)
+                },
+            )
+
+        assertEquals(ApiResponse.Success("reusing_capture"), response)
+        verify(exactly = 1) {
+            manager.startStreamWithExistingCapture(800, 1280, 30, "session-1", true)
+        }
+    }
+
+    @Test
+    fun connectWebRtc_stringWidthKeepsLegacyHeightDefault() {
+        // A numeric string width (e.g. from a client that JSON-encodes numbers
+        // as strings) must be treated as present, matching legacy `optInt`
+        // parsing behavior: width=800, height falls back to the 1280 default.
+        val stateRepo = mockk<StateRepository>(relaxed = true)
+        val context = mockk<Context>(relaxed = true)
+        every { context.applicationContext } returns context
+        val handler = createHandler(stateRepo = stateRepo, ime = null, context = context)
+        val manager = mockk<WebRtcManager>(relaxed = true)
+
+        mockkObject(WebRtcManager.Companion)
+        mockkObject(ReverseConnectionService.Companion)
+        every { WebRtcManager.getInstance(context) } returns manager
+        every { ReverseConnectionService.getInstance() } returns null
+        every { manager.isCaptureActive() } returns true
+        every {
+            manager.startStreamWithExistingCapture(800, 1280, 30, "session-1", true)
+        } just Runs
+
+        val response =
+            handler.connectWebRtc(
+                JSONObject().apply {
+                    put("sessionId", "session-1")
+                    put("width", "800")
+                },
+            )
+
+        assertEquals(ApiResponse.Success("reusing_capture"), response)
+        verify(exactly = 1) {
+            manager.startStreamWithExistingCapture(800, 1280, 30, "session-1", true)
+        }
+    }
+
+    @Test
+    fun connectWebRtc_nullWidthTreatedAsAbsentButExplicitHeightKeepsLegacyBranch() {
+        // width is present but JSONObject.NULL (treated as absent for the
+        // presence check); height is genuinely present, so the OR condition
+        // still routes to the legacy per-field branch, where optInt on the
+        // NULL width value falls back to its own 720 default.
+        val stateRepo = mockk<StateRepository>(relaxed = true)
+        val context = mockk<Context>(relaxed = true)
+        every { context.applicationContext } returns context
+        val handler = createHandler(stateRepo = stateRepo, ime = null, context = context)
+        val manager = mockk<WebRtcManager>(relaxed = true)
+
+        mockkObject(WebRtcManager.Companion)
+        mockkObject(ReverseConnectionService.Companion)
+        every { WebRtcManager.getInstance(context) } returns manager
+        every { ReverseConnectionService.getInstance() } returns null
+        every { manager.isCaptureActive() } returns true
+        every {
+            manager.startStreamWithExistingCapture(720, 1400, 30, "session-1", true)
+        } just Runs
+
+        val response =
+            handler.connectWebRtc(
+                JSONObject().apply {
+                    put("sessionId", "session-1")
+                    put("width", JSONObject.NULL)
+                    put("height", 1400)
+                },
+            )
+
+        assertEquals(ApiResponse.Success("reusing_capture"), response)
+        verify(exactly = 1) {
+            manager.startStreamWithExistingCapture(720, 1400, 30, "session-1", true)
+        }
+    }
+
+    @Test
     fun startStream_reusesActiveCaptureAndBindsReverseService() {
         val stateRepo = mockk<StateRepository>(relaxed = true)
         val context = mockk<Context>(relaxed = true)
