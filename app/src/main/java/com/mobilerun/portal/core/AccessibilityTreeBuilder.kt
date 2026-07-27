@@ -239,9 +239,9 @@ object AccessibilityTreeBuilder {
             node.rangeInfo?.let { range ->
                 put("rangeInfo", JSONObject().apply {
                     put("type", range.type)
-                    put("min", range.min.toDouble())
-                    put("max", range.max.toDouble())
-                    put("current", range.current.toDouble())
+                    put("min", jsonFiniteFloatOrNull(range.min))
+                    put("max", jsonFiniteFloatOrNull(range.max))
+                    put("current", jsonFiniteFloatOrNull(range.current))
                 })
             }
 
@@ -365,6 +365,10 @@ object AccessibilityTreeBuilder {
             AccessibilityTraversalGuard.leaveActivePath(node, activeNodePath)
             node.recycle()
         }
+    }
+
+    private fun jsonFiniteFloatOrNull(value: Float): Any {
+        return if (value.isFinite()) value.toDouble() else JSONObject.NULL
     }
 
     private fun getVisiblePercentage(rect: Rect, screenBounds: Rect): Float {
