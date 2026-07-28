@@ -41,6 +41,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import androidx.core.net.toUri
 import com.mobilerun.portal.service.ScreenCaptureService
+import com.mobilerun.portal.service.CaptureSizing
 import com.mobilerun.portal.streaming.WebRtcManager
 import com.mobilerun.portal.keepalive.KeepAliveController
 import com.mobilerun.portal.keepalive.KeepAliveStartupException
@@ -54,6 +55,7 @@ import android.app.NotificationManager
 import androidx.core.app.NotificationCompat
 import com.mobilerun.portal.state.AppVisibilityTracker
 import com.mobilerun.portal.ui.PermissionDialogActivity
+import com.mobilerun.portal.ui.ScreenCaptureActivity
 import java.util.Collections
 import java.util.IdentityHashMap
 import java.util.Locale
@@ -102,6 +104,28 @@ class ApiHandler(
     }
     val applicationContext: Context
         get() = context.applicationContext
+
+    private data class CaptureSizeSelection(
+        val width: Int,
+        val height: Int,
+        val auto: Boolean,
+    ) {
+        fun resolve(context: Context): Pair<Int, Int> =
+            if (auto) {
+                CaptureSizing.deriveAutoCaptureSize(context)
+            } else {
+                Pair(width, height)
+            }
+    }
+
+    private fun selectCaptureSize(params: JSONObject): CaptureSizeSelection =
+        CaptureSizeSelection(
+            width = params.optInt("width", CaptureSizing.DEFAULT_CAPTURE_WIDTH)
+                .coerceIn(CaptureSizing.CAPTURE_WIDTH_MIN, CaptureSizing.CAPTURE_WIDTH_MAX),
+            height = params.optInt("height", CaptureSizing.DEFAULT_CAPTURE_HEIGHT)
+                .coerceIn(CaptureSizing.CAPTURE_HEIGHT_MIN, CaptureSizing.CAPTURE_HEIGHT_MAX),
+            auto = !params.has("width") && !params.has("height"),
+        )
 
     private fun getAvailableInternalBytes(): Long? {
         return try {
@@ -1931,8 +1955,7 @@ class ApiHandler(
     }
 
     fun startStream(params: JSONObject): ApiResponse {
-        val width = params.optInt("width", 720).coerceIn(144, 1920)
-        val height = params.optInt("height", 1280).coerceIn(256, 3840)
+        val captureSize = selectCaptureSize(params)
         val fps = params.optInt("fps", 30).coerceIn(1, 60)
         val sessionId = params.optString("sessionId").trim()
         if (sessionId.isEmpty()) {
@@ -1948,6 +1971,7 @@ class ApiHandler(
 
         if (manager.isCaptureActive()) {
             return try {
+                val (width, height) = captureSize.resolve(context)
                 manager.startStreamWithExistingCapture(
                     width = width,
                     height = height,
@@ -1963,11 +1987,12 @@ class ApiHandler(
         }
 
         val intent =
-            Intent(context, com.mobilerun.portal.ui.ScreenCaptureActivity::class.java).apply {
+            Intent(context, ScreenCaptureActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                putExtra(com.mobilerun.portal.ui.ScreenCaptureActivity.EXTRA_MODE, com.mobilerun.portal.ui.ScreenCaptureActivity.MODE_STREAM)
-                putExtra(ScreenCaptureService.EXTRA_WIDTH, width)
-                putExtra(ScreenCaptureService.EXTRA_HEIGHT, height)
+                putExtra(ScreenCaptureActivity.EXTRA_MODE, ScreenCaptureActivity.MODE_STREAM)
+                putExtra(ScreenCaptureActivity.EXTRA_AUTO_CAPTURE_SIZE, captureSize.auto)
+                putExtra(ScreenCaptureService.EXTRA_WIDTH, captureSize.width)
+                putExtra(ScreenCaptureService.EXTRA_HEIGHT, captureSize.height)
                 putExtra(ScreenCaptureService.EXTRA_FPS, fps)
                 putExtra(ScreenCaptureService.EXTRA_WAIT_FOR_OFFER, waitForOffer)
             }
@@ -2063,8 +2088,7 @@ class ApiHandler(
         if (sessionId.isEmpty()) {
             return ApiResponse.Error("Missing required param: 'sessionId'")
         }
-        val width = params.optInt("width", 720).coerceIn(144, 1920)
-        val height = params.optInt("height", 1280).coerceIn(256, 3840)
+        val captureSize = selectCaptureSize(params)
         val fps = params.optInt("fps", 30).coerceIn(1, 60)
 
         val manager = WebRtcManager.getInstance(context)
@@ -2081,6 +2105,7 @@ class ApiHandler(
 
         return try {
             if (manager.isCaptureActive()) {
+                val (width, height) = captureSize.resolve(context)
                 manager.startStreamWithExistingCapture(
                     width = width,
                     height = height,
