@@ -7,6 +7,7 @@ import android.media.projection.MediaProjectionManager
 import android.os.Bundle
 import android.util.Log
 import com.mobilerun.portal.service.AutoAcceptGate
+import com.mobilerun.portal.service.CaptureSizing
 import com.mobilerun.portal.service.MediaProjectionScreenshotter
 import com.mobilerun.portal.service.ReverseConnectionService
 import com.mobilerun.portal.service.ScreenCaptureService
@@ -24,6 +25,7 @@ class ScreenCaptureActivity : Activity() {
         private const val TAG = "ScreenCaptureActivity"
 
         const val EXTRA_MODE = "mode"
+        const val EXTRA_AUTO_CAPTURE_SIZE = "auto_capture_size"
         const val MODE_STREAM = "stream"
         const val MODE_SCREENSHOT = "screenshot"
     }
@@ -33,8 +35,10 @@ class ScreenCaptureActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         mediaProjectionManager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        AutoAcceptGate.armMediaProjection()
-        startActivityForResult(mediaProjectionManager.createScreenCaptureIntent(), REQUEST_CODE_CAPTURE_PERM)
+        if (savedInstanceState == null) {
+            AutoAcceptGate.armMediaProjection()
+            startActivityForResult(mediaProjectionManager.createScreenCaptureIntent(), REQUEST_CODE_CAPTURE_PERM)
+        }
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -45,6 +49,15 @@ class ScreenCaptureActivity : Activity() {
                 MediaProjectionScreenshotter.getInstance(this)
                     .onPermissionResult(resultCode, data)
             } else if (resultCode == Activity.RESULT_OK && data != null) {
+                val (captureWidth, captureHeight) =
+                    if (intent.getBooleanExtra(EXTRA_AUTO_CAPTURE_SIZE, false)) {
+                        CaptureSizing.deriveAutoCaptureSize(this)
+                    } else {
+                        Pair(
+                            intent.getIntExtra(ScreenCaptureService.EXTRA_WIDTH, 720),
+                            intent.getIntExtra(ScreenCaptureService.EXTRA_HEIGHT, 1280),
+                        )
+                    }
                 // Pass the permission result to the service
                 val serviceIntent = Intent(this, ScreenCaptureService::class.java).apply {
                     action = ScreenCaptureService.ACTION_PERMISSION_RESULT
@@ -52,8 +65,8 @@ class ScreenCaptureActivity : Activity() {
                     putExtra(ScreenCaptureService.EXTRA_RESULT_CODE, resultCode)
                     putExtra(ScreenCaptureService.EXTRA_RESULT_DATA, data)
                     // Forward stream config from launching intent
-                    putExtra(ScreenCaptureService.EXTRA_WIDTH, intent.getIntExtra(ScreenCaptureService.EXTRA_WIDTH, 720))
-                    putExtra(ScreenCaptureService.EXTRA_HEIGHT, intent.getIntExtra(ScreenCaptureService.EXTRA_HEIGHT, 1280))
+                    putExtra(ScreenCaptureService.EXTRA_WIDTH, captureWidth)
+                    putExtra(ScreenCaptureService.EXTRA_HEIGHT, captureHeight)
                     putExtra(ScreenCaptureService.EXTRA_FPS, intent.getIntExtra(ScreenCaptureService.EXTRA_FPS, 30))
                     putExtra(ScreenCaptureService.EXTRA_WAIT_FOR_OFFER, intent.getBooleanExtra(ScreenCaptureService.EXTRA_WAIT_FOR_OFFER, false))
                 }

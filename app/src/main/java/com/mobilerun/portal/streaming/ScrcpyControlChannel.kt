@@ -16,7 +16,7 @@ class ScrcpyControlChannel : DataChannel.Observer {
     companion object {
         private const val TYPE_INJECT_KEYCODE = 0
         private const val TYPE_INJECT_TEXT = 1
-        private const val TYPE_INJECT_TOUCH_EVENT = 2
+        private const val TYPE_INJECT_TOUCH_EVENT = ScrcpyTouchPacketDecoder.MESSAGE_TYPE
         private const val TYPE_INJECT_SCROLL_EVENT = 3
         private const val TYPE_BACK_OR_SCREEN_ON = 4
         private const val TYPE_EXPAND_NOTIFICATION_PANEL = 5
@@ -25,17 +25,13 @@ class ScrcpyControlChannel : DataChannel.Observer {
         private const val TYPE_SET_CLIPBOARD = 9
 
         private const val ACTION_DOWN = 0
-        private const val ACTION_UP = 1
-        private const val ACTION_MOVE = 2
-
         private const val MIN_GESTURE_DURATION_MS = 50L
         private const val MAX_GESTURE_DURATION_MS = 5000L
     }
 
     private val touchPath = mutableListOf<Pair<Float, Float>>()
+    private val touchState = SinglePointerGestureState()
     private var touchStartTime = 0L
-    private var lastVideoWidth = 0
-    private var lastVideoHeight = 0
 
     override fun onBufferedAmountChange(previousAmount: Long) {}
 
@@ -65,43 +61,33 @@ class ScrcpyControlChannel : DataChannel.Observer {
     }
 
     private fun handleTouch(data: ByteArray) {
-        if (data.size < 32) return
+        val packet = ScrcpyTouchPacketDecoder.decode(data) ?: return
+        val mappedPoint =
+            scaleCoordinates(
+                packet.x,
+                packet.y,
+                packet.videoWidth,
+                packet.videoHeight,
+            )
 
-        val buffer = ByteBuffer.wrap(data)
-
-        buffer.order(ByteOrder.BIG_ENDIAN)
-        buffer.get()
-        val action = buffer.get().toInt() and 0xFF
-        buffer.long
-
-        buffer.order(ByteOrder.LITTLE_ENDIAN)
-        val x = buffer.int
-        val y = buffer.int
-        val videoWidth = buffer.short.toInt() and 0xFFFF
-        val videoHeight = buffer.short.toInt() and 0xFFFF
-        buffer.short
-
-        lastVideoWidth = videoWidth
-        lastVideoHeight = videoHeight
-
-        val (scaledX, scaledY) = scaleCoordinates(x, y, videoWidth, videoHeight)
-
-        when (action) {
-            ACTION_DOWN -> {
+        when (val update = touchState.consume(packet.action, packet.pointerId, mappedPoint)) {
+            is TouchGestureUpdate.Started -> {
                 touchPath.clear()
-                touchPath.add(Pair(scaledX, scaledY))
+                touchPath.add(Pair(update.point.x, update.point.y))
                 touchStartTime = System.currentTimeMillis()
             }
-            ACTION_MOVE -> {
-                touchPath.add(Pair(scaledX, scaledY))
+            is TouchGestureUpdate.Moved -> {
+                touchPath.add(Pair(update.point.x, update.point.y))
             }
-            ACTION_UP -> {
-                touchPath.add(Pair(scaledX, scaledY))
+            is TouchGestureUpdate.Finished -> {
+                touchPath.add(Pair(update.point.x, update.point.y))
                 val duration = (System.currentTimeMillis() - touchStartTime)
                     .coerceIn(MIN_GESTURE_DURATION_MS, MAX_GESTURE_DURATION_MS)
                 dispatchPath(touchPath.toList(), duration)
                 touchPath.clear()
             }
+            TouchGestureUpdate.Cancelled -> touchPath.clear()
+            TouchGestureUpdate.Ignored -> Unit
         }
     }
 
@@ -119,7 +105,9 @@ class ScrcpyControlChannel : DataChannel.Observer {
         val hScroll = buffer.short.toInt()
         val vScroll = buffer.short.toInt()
 
-        val (scaledX, scaledY) = scaleCoordinates(x, y, videoWidth, videoHeight)
+        val (scaledX, scaledY) =
+            scaleCoordinates(x, y, videoWidth, videoHeight)?.let { Pair(it.x, it.y) }
+                ?: return
 
         val scrollDistance = 200
         val endY = scaledY + (vScroll * scrollDistance)
@@ -276,9 +264,7 @@ class ScrcpyControlChannel : DataChannel.Observer {
         service.inputText(text, false)
     }
 
-    private fun scaleCoordinates(x: Int, y: Int, videoW: Int, videoH: Int): Pair<Float, Float> {
-        if (videoW <= 0 || videoH <= 0) return Pair(x.toFloat(), y.toFloat())
-
+    private fun scaleCoordinates(x: Int, y: Int, videoW: Int, videoH: Int): ScreenPoint? {
         val service = MobilerunAccessibilityService.getInstance()
         val wm = service?.getSystemService(android.content.Context.WINDOW_SERVICE) as? android.view.WindowManager
 
@@ -293,10 +279,7 @@ class ScrcpyControlChannel : DataChannel.Observer {
             Pair(metrics.widthPixels, metrics.heightPixels)
         }
 
-        val scaledX = (x.toFloat() / videoW) * screenW
-        val scaledY = (y.toFloat() / videoH) * screenH
-
-        return Pair(scaledX, scaledY)
+        return FrameToScreenMapper.map(x, y, videoW, videoH, screenW, screenH)
     }
 
     private fun dispatchPath(points: List<Pair<Float, Float>>, durationMs: Long) {

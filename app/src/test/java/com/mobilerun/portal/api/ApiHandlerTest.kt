@@ -13,9 +13,12 @@ import com.mobilerun.portal.input.TextInputResult
 import com.mobilerun.portal.keepalive.KeepAliveController
 import com.mobilerun.portal.keepalive.KeepAliveStartupException
 import com.mobilerun.portal.model.PhoneState
+import com.mobilerun.portal.service.CaptureSizing
 import com.mobilerun.portal.service.MobilerunAccessibilityService
 import com.mobilerun.portal.service.ReverseConnectionService
+import com.mobilerun.portal.service.ScreenCaptureService
 import com.mobilerun.portal.streaming.WebRtcManager
+import com.mobilerun.portal.ui.ScreenCaptureActivity
 import io.mockk.Runs
 import io.mockk.every
 import io.mockk.mockk
@@ -613,7 +616,7 @@ class ApiHandlerTest {
     }
 
     @Test
-    fun connectWebRtc_reusesActiveCapture() {
+    fun connectWebRtc_reusesActiveCaptureWithAutoSizeWhenDimensionsAreOmitted() {
         val stateRepo = mockk<StateRepository>(relaxed = true)
         val context = mockk<Context>(relaxed = true)
         every { context.applicationContext } returns context
@@ -623,11 +626,13 @@ class ApiHandlerTest {
 
         mockkObject(WebRtcManager.Companion)
         mockkObject(ReverseConnectionService.Companion)
+        mockkObject(CaptureSizing)
         every { WebRtcManager.getInstance(context) } returns manager
         every { ReverseConnectionService.getInstance() } returns reverseService
+        every { CaptureSizing.deriveAutoCaptureSize(context) } returns Pair(572, 1280)
         every { manager.isCaptureActive() } returns true
         every {
-            manager.startStreamWithExistingCapture(720, 1280, 30, "session-1", true)
+            manager.startStreamWithExistingCapture(572, 1280, 30, "session-1", true)
         } just Runs
 
         val response =
@@ -642,13 +647,14 @@ class ApiHandlerTest {
         verify(exactly = 1) { manager.setStreamRequestId("session-1") }
         verify(exactly = 1) { manager.setReverseConnectionService(reverseService) }
         verify(exactly = 1) { manager.setPendingIceServers(any()) }
+        verify(exactly = 1) { CaptureSizing.deriveAutoCaptureSize(context) }
         verify(exactly = 1) {
-            manager.startStreamWithExistingCapture(720, 1280, 30, "session-1", true)
+            manager.startStreamWithExistingCapture(572, 1280, 30, "session-1", true)
         }
     }
 
     @Test
-    fun startStream_reusesActiveCaptureAndBindsReverseService() {
+    fun startStream_reusesActiveCaptureWithAutoSizeAndBindsReverseService() {
         val stateRepo = mockk<StateRepository>(relaxed = true)
         val context = mockk<Context>(relaxed = true)
         every { context.applicationContext } returns context
@@ -658,11 +664,13 @@ class ApiHandlerTest {
 
         mockkObject(WebRtcManager.Companion)
         mockkObject(ReverseConnectionService.Companion)
+        mockkObject(CaptureSizing)
         every { WebRtcManager.getInstance(context) } returns manager
         every { ReverseConnectionService.getInstance() } returns reverseService
+        every { CaptureSizing.deriveAutoCaptureSize(context) } returns Pair(572, 1280)
         every { manager.isCaptureActive() } returns true
         every {
-            manager.startStreamWithExistingCapture(720, 1280, 30, "session-1", false)
+            manager.startStreamWithExistingCapture(572, 1280, 30, "session-1", false)
         } just Runs
 
         val response =
@@ -677,9 +685,160 @@ class ApiHandlerTest {
         verify(exactly = 1) { manager.setStreamRequestId("session-1") }
         verify(exactly = 1) { manager.setReverseConnectionService(reverseService) }
         verify(exactly = 1) { manager.setPendingIceServers(any()) }
+        verify(exactly = 1) { CaptureSizing.deriveAutoCaptureSize(context) }
         verify(exactly = 1) {
-            manager.startStreamWithExistingCapture(720, 1280, 30, "session-1", false)
+            manager.startStreamWithExistingCapture(572, 1280, 30, "session-1", false)
         }
+    }
+
+    @Test
+    fun startStream_preservesLegacyOptIntBehaviorWhenEitherDimensionKeyExists() {
+        val stateRepo = mockk<StateRepository>(relaxed = true)
+        val context = mockk<Context>(relaxed = true)
+        every { context.applicationContext } returns context
+        val handler = createHandler(stateRepo = stateRepo, ime = null, context = context)
+        val manager = mockk<WebRtcManager>(relaxed = true)
+
+        mockkObject(WebRtcManager.Companion)
+        mockkObject(ReverseConnectionService.Companion)
+        mockkObject(CaptureSizing)
+        every { WebRtcManager.getInstance(context) } returns manager
+        every { ReverseConnectionService.getInstance() } returns null
+        every { manager.isCaptureActive() } returns true
+
+        data class Case(
+            val name: String,
+            val params: JSONObject,
+            val expectedWidth: Int,
+            val expectedHeight: Int,
+        )
+
+        val cases =
+            listOf(
+                Case("width-only", JSONObject().put("width", 900), 900, 1280),
+                Case("height-only", JSONObject().put("height", 1600), 720, 1600),
+                Case(
+                    "null",
+                    JSONObject().put("width", JSONObject.NULL).put("height", JSONObject.NULL),
+                    720,
+                    1280,
+                ),
+                Case(
+                    "invalid",
+                    JSONObject().put("width", "bad").put("height", "worse"),
+                    720,
+                    1280,
+                ),
+                Case(
+                    "boolean",
+                    JSONObject().put("width", true).put("height", false),
+                    720,
+                    1280,
+                ),
+                Case("zero", JSONObject().put("width", 0).put("height", 0), 144, 256),
+                Case(
+                    "numeric-string",
+                    JSONObject().put("width", "900").put("height", "1600"),
+                    900,
+                    1600,
+                ),
+                Case(
+                    "explicit",
+                    JSONObject().put("width", 800).put("height", 1400),
+                    800,
+                    1400,
+                ),
+                Case(
+                    "clamped",
+                    JSONObject().put("width", 3000).put("height", 5000),
+                    1920,
+                    3840,
+                ),
+            )
+
+        cases.forEach { case ->
+            val sessionId = "session-${case.name}"
+            case.params.put("sessionId", sessionId)
+
+            assertEquals(
+                case.name,
+                ApiResponse.Success("reusing_capture"),
+                handler.startStream(case.params),
+            )
+            verify(exactly = 1) {
+                manager.startStreamWithExistingCapture(
+                    case.expectedWidth,
+                    case.expectedHeight,
+                    30,
+                    sessionId,
+                    false,
+                )
+            }
+        }
+
+        verify(exactly = 0) { CaptureSizing.deriveAutoCaptureSize(any()) }
+    }
+
+    @Test
+    fun startStream_newCaptureCarriesAutoSizeFlagOnlyWhenBothKeysAreAbsent() {
+        val stateRepo = mockk<StateRepository>(relaxed = true)
+        val context = mockk<Context>(relaxed = true)
+        every { context.applicationContext } returns context
+        val handler = createHandler(stateRepo = stateRepo, ime = null, context = context)
+        val manager = mockk<WebRtcManager>(relaxed = true)
+
+        mockkConstructor(Intent::class)
+        every { anyConstructed<Intent>().setFlags(any()) } returns mockk(relaxed = true)
+        every {
+            anyConstructed<Intent>().putExtra(any<String>(), any<Boolean>())
+        } returns mockk(relaxed = true)
+        every {
+            anyConstructed<Intent>().putExtra(any<String>(), any<Int>())
+        } returns mockk(relaxed = true)
+        every {
+            anyConstructed<Intent>().putExtra(any<String>(), any<String>())
+        } returns mockk(relaxed = true)
+        mockkObject(WebRtcManager.Companion)
+        mockkObject(ReverseConnectionService.Companion)
+        mockkObject(CaptureSizing)
+        every { WebRtcManager.getInstance(context) } returns manager
+        every { ReverseConnectionService.getInstance() } returns null
+        every { manager.isCaptureActive() } returns false
+
+        assertEquals(
+            ApiResponse.Success("prompting_user"),
+            handler.startStream(JSONObject().put("sessionId", "session-auto")),
+        )
+        assertEquals(
+            ApiResponse.Success("prompting_user"),
+            handler.startStream(
+                JSONObject()
+                    .put("sessionId", "session-explicit")
+                    .put("width", 900)
+                    .put("height", 1600),
+            ),
+        )
+
+        verify(exactly = 1) {
+            anyConstructed<Intent>().putExtra(ScreenCaptureActivity.EXTRA_AUTO_CAPTURE_SIZE, true)
+        }
+        verify(exactly = 1) {
+            anyConstructed<Intent>().putExtra(ScreenCaptureActivity.EXTRA_AUTO_CAPTURE_SIZE, false)
+        }
+        verify(exactly = 1) {
+            anyConstructed<Intent>().putExtra(ScreenCaptureService.EXTRA_WIDTH, 720)
+        }
+        verify(exactly = 1) {
+            anyConstructed<Intent>().putExtra(ScreenCaptureService.EXTRA_HEIGHT, 1280)
+        }
+        verify(exactly = 1) {
+            anyConstructed<Intent>().putExtra(ScreenCaptureService.EXTRA_WIDTH, 900)
+        }
+        verify(exactly = 1) {
+            anyConstructed<Intent>().putExtra(ScreenCaptureService.EXTRA_HEIGHT, 1600)
+        }
+        verify(exactly = 0) { CaptureSizing.deriveAutoCaptureSize(any()) }
+        verify(exactly = 2) { context.startActivity(any()) }
     }
 
     @Test
