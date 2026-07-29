@@ -149,9 +149,13 @@ fit can't be computed (display read failure or the fit falls outside the
 supported capture bounds), the cap is treated as absent and the device falls
 back to its default auto-sized capture — which may be larger than the
 requested box. `webrtc/connect` and `webrtc/rtcConfiguration` accept the same
-`width`/`height`/`maxWidth`/`maxHeight` params. Because the device may adjust the
-requested size, consumers must read the actual frame dimensions from the decoder
-rather than assuming the requested size was honored exactly.
+`width`/`height`/`maxWidth`/`maxHeight` params. Size params (absolute and cap
+alike) govern the shared capture: they are honored when a stream starts or
+reuses the capture as the primary session, while secondary sessions always
+inherit the primary's capture size and ignore their own size params. Because
+the device may adjust the requested size, consumers must read the actual frame
+dimensions from the decoder rather than assuming the requested size was
+honored exactly.
 
 ### Device → server
 
