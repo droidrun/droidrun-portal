@@ -842,6 +842,211 @@ class ApiHandlerTest {
     }
 
     @Test
+    fun startStream_capModeActivatesOnlyWhenBothMaxDimsPresentAndPositive() {
+        val stateRepo = mockk<StateRepository>(relaxed = true)
+        val context = mockk<Context>(relaxed = true)
+        every { context.applicationContext } returns context
+        val handler = createHandler(stateRepo = stateRepo, ime = null, context = context)
+        val manager = mockk<WebRtcManager>(relaxed = true)
+
+        mockkObject(WebRtcManager.Companion)
+        mockkObject(ReverseConnectionService.Companion)
+        mockkObject(CaptureSizing)
+        every { WebRtcManager.getInstance(context) } returns manager
+        every { ReverseConnectionService.getInstance() } returns null
+        every { manager.isCaptureActive() } returns true
+        every { CaptureSizing.deriveAutoCaptureSize(context) } returns Pair(572, 1280)
+        every { CaptureSizing.deriveCapCaptureSize(context, 400, 800) } returns Pair(500, 900)
+        every { CaptureSizing.deriveCapCaptureSize(context, 410, 810) } returns Pair(510, 910)
+        every { CaptureSizing.deriveCapCaptureSize(context, 420, 820) } returns Pair(520, 920)
+
+        data class Case(
+            val name: String,
+            val params: JSONObject,
+            val sessionId: String,
+            val expectedWidth: Int,
+            val expectedHeight: Int,
+        )
+
+        val cases =
+            listOf(
+                Case(
+                    "both positive activates cap mode",
+                    JSONObject().put("maxWidth", 400).put("maxHeight", 800),
+                    "session-cap-both",
+                    500,
+                    900,
+                ),
+                Case(
+                    "maxWidth only is a partial pair, falls to auto",
+                    JSONObject().put("maxWidth", 400),
+                    "session-cap-width-only",
+                    572,
+                    1280,
+                ),
+                Case(
+                    "maxHeight only is a partial pair, falls to auto",
+                    JSONObject().put("maxHeight", 800),
+                    "session-cap-height-only",
+                    572,
+                    1280,
+                ),
+                Case(
+                    "zero maxWidth treated as absent",
+                    JSONObject().put("maxWidth", 0).put("maxHeight", 800),
+                    "session-cap-zero-width",
+                    572,
+                    1280,
+                ),
+                Case(
+                    "negative maxHeight treated as absent",
+                    JSONObject().put("maxWidth", 400).put("maxHeight", -1),
+                    "session-cap-negative-height",
+                    572,
+                    1280,
+                ),
+                Case(
+                    "non-numeric strings treated as absent",
+                    JSONObject().put("maxWidth", "bad").put("maxHeight", "worse"),
+                    "session-cap-invalid-strings",
+                    572,
+                    1280,
+                ),
+                Case(
+                    "numeric strings activate cap mode",
+                    JSONObject().put("maxWidth", "410").put("maxHeight", "810"),
+                    "session-cap-numeric-strings",
+                    510,
+                    910,
+                ),
+                Case(
+                    "cap mode takes precedence over explicit width/height",
+                    JSONObject()
+                        .put("maxWidth", 420)
+                        .put("maxHeight", 820)
+                        .put("width", 900)
+                        .put("height", 1600),
+                    "session-cap-precedence",
+                    520,
+                    920,
+                ),
+            )
+
+        cases.forEach { case ->
+            case.params.put("sessionId", case.sessionId)
+            assertEquals(
+                case.name,
+                ApiResponse.Success("reusing_capture"),
+                handler.startStream(case.params),
+            )
+            verify(exactly = 1) {
+                manager.startStreamWithExistingCapture(
+                    case.expectedWidth,
+                    case.expectedHeight,
+                    30,
+                    case.sessionId,
+                    false,
+                )
+            }
+        }
+
+        verify(exactly = 3) { CaptureSizing.deriveCapCaptureSize(context, any(), any()) }
+    }
+
+    @Test
+    fun startStream_newCaptureCarriesMaxDimsExtrasWhenCapModeActive() {
+        val stateRepo = mockk<StateRepository>(relaxed = true)
+        val context = mockk<Context>(relaxed = true)
+        every { context.applicationContext } returns context
+        val handler = createHandler(stateRepo = stateRepo, ime = null, context = context)
+        val manager = mockk<WebRtcManager>(relaxed = true)
+
+        mockkConstructor(Intent::class)
+        every { anyConstructed<Intent>().setFlags(any()) } returns mockk(relaxed = true)
+        every {
+            anyConstructed<Intent>().putExtra(any<String>(), any<Boolean>())
+        } returns mockk(relaxed = true)
+        every {
+            anyConstructed<Intent>().putExtra(any<String>(), any<Int>())
+        } returns mockk(relaxed = true)
+        every {
+            anyConstructed<Intent>().putExtra(any<String>(), any<String>())
+        } returns mockk(relaxed = true)
+        mockkObject(WebRtcManager.Companion)
+        mockkObject(ReverseConnectionService.Companion)
+        mockkObject(CaptureSizing)
+        every { WebRtcManager.getInstance(context) } returns manager
+        every { ReverseConnectionService.getInstance() } returns null
+        every { manager.isCaptureActive() } returns false
+
+        assertEquals(
+            ApiResponse.Success("prompting_user"),
+            handler.startStream(
+                JSONObject()
+                    .put("sessionId", "session-cap-new")
+                    .put("maxWidth", 400)
+                    .put("maxHeight", 800),
+            ),
+        )
+
+        verify(exactly = 1) {
+            anyConstructed<Intent>().putExtra(ScreenCaptureActivity.EXTRA_MAX_WIDTH, 400)
+        }
+        verify(exactly = 1) {
+            anyConstructed<Intent>().putExtra(ScreenCaptureActivity.EXTRA_MAX_HEIGHT, 800)
+        }
+        verify(exactly = 1) {
+            anyConstructed<Intent>().putExtra(ScreenCaptureActivity.EXTRA_AUTO_CAPTURE_SIZE, false)
+        }
+        verify(exactly = 1) {
+            anyConstructed<Intent>().putExtra(ScreenCaptureService.EXTRA_WIDTH, 720)
+        }
+        verify(exactly = 1) {
+            anyConstructed<Intent>().putExtra(ScreenCaptureService.EXTRA_HEIGHT, 1280)
+        }
+        verify(exactly = 0) { CaptureSizing.deriveAutoCaptureSize(any()) }
+        verify(exactly = 1) { context.startActivity(any()) }
+    }
+
+    @Test
+    fun startStream_newCaptureOmitsMaxDimsExtrasWhenCapModeInactive() {
+        val stateRepo = mockk<StateRepository>(relaxed = true)
+        val context = mockk<Context>(relaxed = true)
+        every { context.applicationContext } returns context
+        val handler = createHandler(stateRepo = stateRepo, ime = null, context = context)
+        val manager = mockk<WebRtcManager>(relaxed = true)
+
+        mockkConstructor(Intent::class)
+        every { anyConstructed<Intent>().setFlags(any()) } returns mockk(relaxed = true)
+        every {
+            anyConstructed<Intent>().putExtra(any<String>(), any<Boolean>())
+        } returns mockk(relaxed = true)
+        every {
+            anyConstructed<Intent>().putExtra(any<String>(), any<Int>())
+        } returns mockk(relaxed = true)
+        every {
+            anyConstructed<Intent>().putExtra(any<String>(), any<String>())
+        } returns mockk(relaxed = true)
+        mockkObject(WebRtcManager.Companion)
+        mockkObject(ReverseConnectionService.Companion)
+        every { WebRtcManager.getInstance(context) } returns manager
+        every { ReverseConnectionService.getInstance() } returns null
+        every { manager.isCaptureActive() } returns false
+
+        assertEquals(
+            ApiResponse.Success("prompting_user"),
+            handler.startStream(JSONObject().put("sessionId", "session-no-cap")),
+        )
+
+        verify(exactly = 0) {
+            anyConstructed<Intent>().putExtra(ScreenCaptureActivity.EXTRA_MAX_WIDTH, any<Int>())
+        }
+        verify(exactly = 0) {
+            anyConstructed<Intent>().putExtra(ScreenCaptureActivity.EXTRA_MAX_HEIGHT, any<Int>())
+        }
+    }
+
+    @Test
     fun connectWebRtc_withoutActiveCapture_fallsBackToStartStream() {
         val stateRepo = mockk<StateRepository>(relaxed = true)
         val context = mockk<Context>(relaxed = true)

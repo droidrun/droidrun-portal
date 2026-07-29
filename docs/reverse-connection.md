@@ -129,7 +129,7 @@ Streaming commands are only supported over reverse connection.
 ### Server → device
 
 - `stream/start`
-  - Params: `width`, `height`, `fps`, `sessionId`, `waitForOffer`, `iceServers`
+  - Params: `width`, `height`, `maxWidth`, `maxHeight`, `fps`, `sessionId`, `waitForOffer`, `iceServers`
 - `stream/stop`
 - `webrtc/answer` (for device-generated offers)
   - Params: `sdp`
@@ -139,6 +139,19 @@ Streaming commands are only supported over reverse connection.
   - Params: `candidate`, `sdpMid`, `sdpMLineIndex`, `sessionId`
 
 `iceServers` is an array of objects with `urls` and optional `username`/`credential`.
+
+`width`/`height` request an absolute capture size (legacy behavior, unchanged).
+`maxWidth`/`maxHeight` request a bounding box instead: the device aspect-fits its
+own screen into that box (no upscaling), like scrcpy's `--max-size`. They are an
+atomic pair — both must be present and positive, otherwise the pair is ignored.
+When present, `maxWidth`/`maxHeight` take precedence over `width`/`height`. If the
+fit can't be computed (display read failure or the fit falls outside the
+supported capture bounds), the cap is treated as absent and the device falls
+back to its default auto-sized capture — which may be larger than the
+requested box. `webrtc/connect` and `webrtc/rtcConfiguration` accept the same
+`width`/`height`/`maxWidth`/`maxHeight` params. Because the device may adjust the
+requested size, consumers must read the actual frame dimensions from the decoder
+rather than assuming the requested size was honored exactly.
 
 ### Device → server
 
