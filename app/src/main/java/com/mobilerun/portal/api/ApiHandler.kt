@@ -109,23 +109,45 @@ class ApiHandler(
         val width: Int,
         val height: Int,
         val auto: Boolean,
+        val maxWidth: Int? = null,
+        val maxHeight: Int? = null,
     ) {
         fun resolve(context: Context): Pair<Int, Int> =
-            if (auto) {
-                CaptureSizing.deriveAutoCaptureSize(context)
-            } else {
-                Pair(width, height)
+            when {
+                maxWidth != null && maxHeight != null ->
+                    CaptureSizing.deriveCapCaptureSize(context, maxWidth, maxHeight)
+                auto -> CaptureSizing.deriveAutoCaptureSize(context)
+                else -> Pair(width, height)
             }
     }
 
-    private fun selectCaptureSize(params: JSONObject): CaptureSizeSelection =
-        CaptureSizeSelection(
+    /**
+     * A `maxWidth`/`maxHeight` pair activates bounding-box mode and takes
+     * precedence over `width`/`height`. The pair must be fully present and
+     * positive; a partial pair or non-positive value is treated as absent
+     * and falls through to the legacy explicit/auto behavior.
+     */
+    private fun selectCaptureSize(params: JSONObject): CaptureSizeSelection {
+        val maxWidth = params.optInt("maxWidth", 0)
+        val maxHeight = params.optInt("maxHeight", 0)
+        if (maxWidth > 0 && maxHeight > 0) {
+            return CaptureSizeSelection(
+                width = CaptureSizing.DEFAULT_CAPTURE_WIDTH,
+                height = CaptureSizing.DEFAULT_CAPTURE_HEIGHT,
+                auto = false,
+                maxWidth = maxWidth,
+                maxHeight = maxHeight,
+            )
+        }
+
+        return CaptureSizeSelection(
             width = params.optInt("width", CaptureSizing.DEFAULT_CAPTURE_WIDTH)
                 .coerceIn(CaptureSizing.CAPTURE_WIDTH_MIN, CaptureSizing.CAPTURE_WIDTH_MAX),
             height = params.optInt("height", CaptureSizing.DEFAULT_CAPTURE_HEIGHT)
                 .coerceIn(CaptureSizing.CAPTURE_HEIGHT_MIN, CaptureSizing.CAPTURE_HEIGHT_MAX),
             auto = !params.has("width") && !params.has("height"),
         )
+    }
 
     private fun getAvailableInternalBytes(): Long? {
         return try {
@@ -1991,6 +2013,12 @@ class ApiHandler(
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
                 putExtra(ScreenCaptureActivity.EXTRA_MODE, ScreenCaptureActivity.MODE_STREAM)
                 putExtra(ScreenCaptureActivity.EXTRA_AUTO_CAPTURE_SIZE, captureSize.auto)
+                captureSize.maxWidth?.let {
+                    putExtra(ScreenCaptureActivity.EXTRA_MAX_WIDTH, it)
+                }
+                captureSize.maxHeight?.let {
+                    putExtra(ScreenCaptureActivity.EXTRA_MAX_HEIGHT, it)
+                }
                 putExtra(ScreenCaptureService.EXTRA_WIDTH, captureSize.width)
                 putExtra(ScreenCaptureService.EXTRA_HEIGHT, captureSize.height)
                 putExtra(ScreenCaptureService.EXTRA_FPS, fps)

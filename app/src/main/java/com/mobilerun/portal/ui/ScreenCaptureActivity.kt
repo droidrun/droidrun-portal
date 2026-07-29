@@ -26,6 +26,8 @@ class ScreenCaptureActivity : Activity() {
 
         const val EXTRA_MODE = "mode"
         const val EXTRA_AUTO_CAPTURE_SIZE = "auto_capture_size"
+        const val EXTRA_MAX_WIDTH = "max_width"
+        const val EXTRA_MAX_HEIGHT = "max_height"
         const val MODE_STREAM = "stream"
         const val MODE_SCREENSHOT = "screenshot"
     }
@@ -50,7 +52,13 @@ class ScreenCaptureActivity : Activity() {
                     .onPermissionResult(resultCode, data)
             } else if (resultCode == Activity.RESULT_OK && data != null) {
                 val (captureWidth, captureHeight) =
-                    if (intent.getBooleanExtra(EXTRA_AUTO_CAPTURE_SIZE, false)) {
+                    if (intent.hasExtra(EXTRA_MAX_WIDTH) && intent.hasExtra(EXTRA_MAX_HEIGHT)) {
+                        CaptureSizing.deriveCapCaptureSize(
+                            this,
+                            intent.getIntExtra(EXTRA_MAX_WIDTH, 0),
+                            intent.getIntExtra(EXTRA_MAX_HEIGHT, 0),
+                        )
+                    } else if (intent.getBooleanExtra(EXTRA_AUTO_CAPTURE_SIZE, false)) {
                         CaptureSizing.deriveAutoCaptureSize(this)
                     } else {
                         Pair(
