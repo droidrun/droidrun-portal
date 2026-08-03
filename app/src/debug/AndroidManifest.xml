@@ -3,6 +3,10 @@
 
     <application>
         <activity
+            android:name=".core.PopupWindowFixtureActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <activity
             android:name=".core.UnboundedRangeFixtureActivity"
             android:exported="false"
             android:theme="@android:style/Theme.Material.Light.NoActionBar" />

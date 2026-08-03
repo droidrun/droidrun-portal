@@ -1,12 +1,31 @@
 package com.mobilerun.portal.service
 
 import android.graphics.Rect
+import android.view.accessibility.AccessibilityNodeInfo
+import io.mockk.every
+import io.mockk.mockk
+import io.mockk.verify
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MobilerunAccessibilityServiceTest {
+
+    @Test
+    fun recycleAccessibilityRoots_continuesAfterFailure() {
+        val failingRoot = mockk<AccessibilityNodeInfo>()
+        val laterRoot = mockk<AccessibilityNodeInfo>()
+        every { failingRoot.recycle() } throws RuntimeException("stale root")
+        every { laterRoot.recycle() } returns Unit
+
+        MobilerunAccessibilityService.recycleAccessibilityRoots(
+            listOf(failingRoot, laterRoot),
+        )
+
+        verify(exactly = 1) { failingRoot.recycle() }
+        verify(exactly = 1) { laterRoot.recycle() }
+    }
 
     @Test
     fun updateScreenBounds_overwritesStalePortraitBoundsAfterLandscapeRotation() {

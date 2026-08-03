@@ -23,6 +23,7 @@ import com.mobilerun.portal.model.ElementNode
 import com.mobilerun.portal.model.PhoneState
 import com.mobilerun.portal.api.ApiHandler
 import com.mobilerun.portal.core.AccessibilityTraversalGuard
+import com.mobilerun.portal.core.AccessibilityRootResolver
 import com.mobilerun.portal.core.StateRepository
 import com.mobilerun.portal.config.ConfigManager
 import com.mobilerun.portal.input.MobilerunKeyboardIME
@@ -103,6 +104,20 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
             bounds.right = safeWidth
             bounds.bottom = safeHeight
             return changed
+        }
+
+        internal fun recycleAccessibilityRoots(roots: Iterable<AccessibilityNodeInfo>) {
+            roots.forEach { root ->
+                try {
+                    root.recycle()
+                } catch (e: RuntimeException) {
+                    try {
+                        Log.e(TAG, "Unable to recycle accessibility root: ${e.message}", e)
+                    } catch (_: RuntimeException) {
+                        // android.util.Log is unavailable in local JVM tests.
+                    }
+                }
+            }
         }
 
         fun getInstance(): MobilerunAccessibilityService? = instance
@@ -663,7 +678,7 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
         val indexCounter = IndexCounter(1)
         val screenBoundsSnapshot = refreshScreenBounds()
 
-        val rootCandidates = collectRootCandidates()
+        val rootCandidates = AccessibilityRootResolver.resolve(this)
         if (rootCandidates.isEmpty()) {
             synchronized(visibleElements) {
                 if (shouldReuseVisibleElementsSnapshot(
@@ -689,11 +704,18 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
         }
 
         try {
-            for ((rootNode, layer) in rootCandidates) {
-                collectVisibleElements(rootNode, layer, null, elements, indexCounter, screenBoundsSnapshot)
+            for (candidate in rootCandidates) {
+                collectVisibleElements(
+                    candidate.root,
+                    candidate.layer,
+                    null,
+                    elements,
+                    indexCounter,
+                    screenBoundsSnapshot,
+                )
             }
         } finally {
-            rootCandidates.forEach { (node, _) -> node.recycle() }
+            recycleAccessibilityRoots(rootCandidates.map { candidate -> candidate.root })
         }
 
         synchronized(visibleElements) {
@@ -707,62 +729,6 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
         }
 
         return elements
-    }
-
-    private fun collectRootCandidates(): List<Pair<AccessibilityNodeInfo, Int>> {
-        val activeRoot = try {
-            rootInActiveWindow
-        } catch (e: RuntimeException) {
-            Log.e(TAG, "Unable to read active accessibility root: ${e.message}", e)
-            null
-        }
-        activeRoot?.let { return listOf(it to 0) }
-
-        val windows = try {
-            windows
-        } catch (e: RuntimeException) {
-            Log.e(TAG, "Unable to read accessibility windows: ${e.message}", e)
-            null
-        } ?: return emptyList()
-        val out = mutableListOf<Pair<AccessibilityNodeInfo, Int>>()
-        try {
-            windows.sortedWith(
-                compareBy<AccessibilityWindowInfo> { fallbackWindowTypePriority(it) }
-                    .thenByDescending { it.layer }
-            )
-                .filter { isUserFacingWindow(it) }
-                .forEach { window ->
-                    val root = try {
-                        window.root
-                    } catch (e: RuntimeException) {
-                        Log.e(
-                            TAG,
-                            "Unable to read accessibility window root layer=${window.layer}: ${e.message}",
-                            e,
-                        )
-                        null
-                    }
-                    if (root != null) {
-                        out.add(root to window.layer)
-                    }
-                }
-        } finally {
-            windows.forEach { it.recycle() }
-        }
-        return out
-    }
-
-    private fun isUserFacingWindow(window: AccessibilityWindowInfo): Boolean {
-        return window.type == AccessibilityWindowInfo.TYPE_APPLICATION ||
-                window.type == AccessibilityWindowInfo.TYPE_SYSTEM
-    }
-
-    private fun fallbackWindowTypePriority(window: AccessibilityWindowInfo): Int {
-        return when (window.type) {
-            AccessibilityWindowInfo.TYPE_APPLICATION -> 0
-            AccessibilityWindowInfo.TYPE_SYSTEM -> 1
-            else -> 2
-        }
     }
 
     private fun collectVisibleElements(
