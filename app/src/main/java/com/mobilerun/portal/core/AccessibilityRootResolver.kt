@@ -33,10 +33,16 @@ internal object AccessibilityRootResolver {
 
         try {
             val descriptors = windows.mapNotNull(::describeWindow)
-            val activeLayer = descriptors
-                .firstOrNull { activeWindowId != UNDEFINED_WINDOW_ID && it.id == activeWindowId }
-                ?.layer
-                ?: 0
+            val activeLayer = if (activeRoot != null) {
+                descriptors
+                    .singleOrNull {
+                        activeWindowId != UNDEFINED_WINDOW_ID && it.id == activeWindowId
+                    }
+                    ?.layer
+                    ?: return listOf(RootCandidate(activeRoot, activeWindowId, 0))
+            } else {
+                0
+            }
             val candidates = mutableListOf<RootCandidate>()
             val knownWindowIds = mutableSetOf<Int>()
 
@@ -51,7 +57,8 @@ internal object AccessibilityRootResolver {
                 .asSequence()
                 .filter { descriptor ->
                     if (activeRoot != null) {
-                        descriptor.type == AccessibilityWindowInfo.TYPE_APPLICATION
+                        descriptor.type == AccessibilityWindowInfo.TYPE_APPLICATION &&
+                            descriptor.layer > activeLayer
                     } else {
                         descriptor.type == AccessibilityWindowInfo.TYPE_APPLICATION ||
                             descriptor.type == AccessibilityWindowInfo.TYPE_SYSTEM

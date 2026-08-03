@@ -93,6 +93,50 @@ class StateRepositoryHeadlessTest {
     }
 
     @Test
+    fun fullTreeWithFocusableActivePopupExcludesLowerLayerActivityRoot() {
+        val service = mockk<MobilerunAccessibilityService>()
+        val activityRoot = root(windowId = 10)
+        val popupRoot = root(windowId = 20)
+        val activityWindow = window(
+            id = 10,
+            layer = 1,
+            type = AccessibilityWindowInfo.TYPE_APPLICATION,
+            root = activityRoot,
+        )
+        val popupWindow = window(
+            id = 20,
+            layer = 5,
+            type = AccessibilityWindowInfo.TYPE_APPLICATION,
+            root = popupRoot,
+        )
+        val popup = tree("focusable-popup")
+
+        every { service.rootInActiveWindow } returns popupRoot
+        every { service.windows } returns listOf(activityWindow, popupWindow)
+
+        mockkObject(AccessibilityTreeBuilder)
+        try {
+            every {
+                AccessibilityTreeBuilder.buildFullAccessibilityTreeJson(popupRoot, null)
+            } returns popup
+
+            val result = StateRepository(service).getFullTree(filter = false)
+
+            assertSame(popup, result)
+            verify(exactly = 1) {
+                AccessibilityTreeBuilder.buildFullAccessibilityTreeJson(popupRoot, null)
+            }
+            verify(exactly = 0) {
+                AccessibilityTreeBuilder.buildFullAccessibilityTreeJson(activityRoot, any())
+            }
+            verify(exactly = 0) { activityWindow.root }
+            verify(exactly = 0) { activityRoot.recycle() }
+        } finally {
+            unmockkObject(AccessibilityTreeBuilder)
+        }
+    }
+
+    @Test
     fun fullTreePromotesFirstUnfilteredExtraAndAppendsLaterRoots() {
         val service = mockk<MobilerunAccessibilityService>()
         val activeRoot = root(windowId = 1)
