@@ -204,6 +204,31 @@ class AccessibilityRootResolverTest {
     }
 
     @Test
+    fun differentValidWindowIdsSharingOneRootHandleAreReturnedAndRecycledOnce() {
+        val service = mockk<MobilerunAccessibilityService>()
+        val sharedRoot = root()
+        val higherWindow = window(id = 2, layer = 8, root = sharedRoot)
+        val lowerWindow = window(id = 3, layer = 7, root = sharedRoot)
+
+        every { service.rootInActiveWindow } returns null
+        every { service.windows } returns listOf(lowerWindow, higherWindow)
+
+        val candidates = AccessibilityRootResolver.resolve(service)
+
+        assertEquals(listOf(2), candidates.map { it.windowId })
+        assertSame(sharedRoot, candidates.single().root)
+        verify(exactly = 1) { higherWindow.root }
+        verify(exactly = 1) { lowerWindow.root }
+        verify(exactly = 0) { sharedRoot.recycle() }
+
+        candidates.single().root.recycle()
+
+        verify(exactly = 1) { sharedRoot.recycle() }
+        verify(exactly = 1) { higherWindow.recycle() }
+        verify(exactly = 1) { lowerWindow.recycle() }
+    }
+
+    @Test
     fun failingWindowIsSkippedWithoutPreventingLaterCandidatesOrRecycling() {
         val service = mockk<MobilerunAccessibilityService>()
         val failingWindow = window(id = 8, layer = 9, root = null)

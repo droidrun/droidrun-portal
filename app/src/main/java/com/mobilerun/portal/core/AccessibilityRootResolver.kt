@@ -87,9 +87,10 @@ internal object AccessibilityRootResolver {
                 }
 
                 val duplicateRootIndex = candidates.indexOfFirst { candidate ->
-                    (windowId == UNDEFINED_WINDOW_ID ||
-                        candidate.windowId == UNDEFINED_WINDOW_ID) &&
-                        candidate.root == root
+                    candidate.root === root ||
+                        ((windowId == UNDEFINED_WINDOW_ID ||
+                            candidate.windowId == UNDEFINED_WINDOW_ID) &&
+                            candidate.root == root)
                 }
                 if (duplicateRootIndex >= 0) {
                     val existing = candidates[duplicateRootIndex]
