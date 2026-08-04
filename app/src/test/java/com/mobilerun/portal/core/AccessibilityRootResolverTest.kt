@@ -1,0 +1,293 @@
+package com.mobilerun.portal.core
+
+import android.view.accessibility.AccessibilityNodeInfo
+import android.view.accessibility.AccessibilityWindowInfo
+import com.mobilerun.portal.service.MobilerunAccessibilityService
+import io.mockk.every
+import io.mockk.just
+import io.mockk.mockk
+import io.mockk.runs
+import io.mockk.verify
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertSame
+import org.junit.Test
+
+class AccessibilityRootResolverTest {
+    @Test
+    fun activeRootStaysFirstAndOnlyHigherApplicationExtrasUseDeterministicOrder() {
+        val service = mockk<MobilerunAccessibilityService>()
+        val activeRoot = root(windowId = 10)
+        val popupHighId3 = root()
+        val popupHighId2 = root()
+        val popupLow = root()
+        val sameLayerRoot = root()
+        val obscuredActivityRoot = root()
+        val activeWindow = window(id = 10, layer = 4, root = activeRoot)
+        val highId3Window = window(id = 3, layer = 8, root = popupHighId3)
+        val highId2Window = window(id = 2, layer = 8, root = popupHighId2)
+        val lowWindow = window(id = 4, layer = 5, root = popupLow)
+        val sameLayerWindow = window(id = 6, layer = 4, root = sameLayerRoot)
+        val obscuredActivityWindow = window(id = 5, layer = 3, root = obscuredActivityRoot)
+        val passiveSystemWindow = window(
+            id = 99,
+            layer = 20,
+            type = AccessibilityWindowInfo.TYPE_SYSTEM,
+            root = root(),
+        )
+
+        every { service.rootInActiveWindow } returns activeRoot
+        every { service.windows } returns listOf(
+            lowWindow,
+            passiveSystemWindow,
+            highId3Window,
+            activeWindow,
+            sameLayerWindow,
+            obscuredActivityWindow,
+            highId2Window,
+        )
+
+        val candidates = AccessibilityRootResolver.resolve(service)
+
+        assertEquals(listOf(10, 2, 3, 4), candidates.map { it.windowId })
+        assertEquals(listOf(4, 8, 8, 5), candidates.map { it.layer })
+        assertSame(activeRoot, candidates[0].root)
+        assertSame(popupHighId2, candidates[1].root)
+        assertSame(popupHighId3, candidates[2].root)
+        assertSame(popupLow, candidates[3].root)
+        verify(exactly = 0) { activeWindow.root }
+        verify(exactly = 0) { sameLayerWindow.root }
+        verify(exactly = 0) { obscuredActivityWindow.root }
+        verify(exactly = 0) { passiveSystemWindow.root }
+        listOf(
+            activeWindow,
+            highId3Window,
+            highId2Window,
+            lowWindow,
+            sameLayerWindow,
+            obscuredActivityWindow,
+            passiveSystemWindow,
+        ).forEach { verify(exactly = 1) { it.recycle() } }
+        candidates.forEach { candidate -> verify(exactly = 0) { candidate.root.recycle() } }
+    }
+
+    @Test
+    fun focusableActivePopupExcludesLowerLayerActivityRoot() {
+        val service = mockk<MobilerunAccessibilityService>()
+        val popupRoot = root(windowId = 20)
+        val activityRoot = root(windowId = 10)
+        val popupWindow = window(id = 20, layer = 8, root = popupRoot)
+        val activityWindow = window(id = 10, layer = 1, root = activityRoot)
+
+        every { service.rootInActiveWindow } returns popupRoot
+        every { service.windows } returns listOf(activityWindow, popupWindow)
+
+        val candidates = AccessibilityRootResolver.resolve(service)
+
+        assertEquals(listOf(20), candidates.map { it.windowId })
+        assertEquals(listOf(8), candidates.map { it.layer })
+        assertSame(popupRoot, candidates.single().root)
+        verify(exactly = 0) { popupWindow.root }
+        verify(exactly = 0) { activityWindow.root }
+        verify(exactly = 1) { popupWindow.recycle() }
+        verify(exactly = 1) { activityWindow.recycle() }
+        verify(exactly = 0) { popupRoot.recycle() }
+        verify(exactly = 0) { activityRoot.recycle() }
+    }
+
+    @Test
+    fun missingActiveRootUsesApplicationWindowsBeforeSystemWindows() {
+        val service = mockk<MobilerunAccessibilityService>()
+        val highAppRoot = root()
+        val lowAppRoot = root()
+        val systemRoot = root()
+        val emptyAppWindow = window(id = 9, layer = 20, root = null)
+        val highAppWindow = window(id = 7, layer = 10, root = highAppRoot)
+        val lowAppWindow = window(id = 5, layer = 1, root = lowAppRoot)
+        val systemWindow = window(
+            id = 1,
+            layer = 99,
+            type = AccessibilityWindowInfo.TYPE_SYSTEM,
+            root = systemRoot,
+        )
+
+        every { service.rootInActiveWindow } returns null
+        every { service.windows } returns listOf(systemWindow, lowAppWindow, emptyAppWindow, highAppWindow)
+
+        val candidates = AccessibilityRootResolver.resolve(service)
+
+        assertEquals(listOf(7, 5, 1), candidates.map { it.windowId })
+        assertEquals(listOf(10, 1, 99), candidates.map { it.layer })
+        assertSame(highAppRoot, candidates[0].root)
+        assertSame(lowAppRoot, candidates[1].root)
+        assertSame(systemRoot, candidates[2].root)
+        listOf(emptyAppWindow, highAppWindow, lowAppWindow, systemWindow).forEach {
+            verify(exactly = 1) { it.recycle() }
+        }
+    }
+
+    @Test
+    fun missingActiveWindowDescriptorReturnsOnlyActiveRoot() {
+        val service = mockk<MobilerunAccessibilityService>()
+        val activeRoot = root(windowId = 10)
+        val otherRoot = root(windowId = 20)
+        val otherWindow = window(id = 20, layer = 7, root = otherRoot)
+
+        every { service.rootInActiveWindow } returns activeRoot
+        every { service.windows } returns listOf(otherWindow)
+
+        val candidates = AccessibilityRootResolver.resolve(service)
+
+        assertEquals(listOf(10), candidates.map { it.windowId })
+        assertEquals(listOf(0), candidates.map { it.layer })
+        assertSame(activeRoot, candidates.single().root)
+        verify(exactly = 0) { otherWindow.root }
+        verify(exactly = 1) { otherWindow.recycle() }
+        verify(exactly = 0) { activeRoot.recycle() }
+        verify(exactly = 0) { otherRoot.recycle() }
+    }
+
+    @Test
+    fun undefinedActiveWindowIdReturnsOnlyActiveRoot() {
+        val service = mockk<MobilerunAccessibilityService>()
+        val activeRoot = root(windowId = -1)
+        val extraRoot = root(windowId = 20)
+        val extraWindow = window(id = 20, layer = 7, root = extraRoot)
+
+        every { service.rootInActiveWindow } returns activeRoot
+        every { service.windows } returns listOf(extraWindow)
+
+        val candidates = AccessibilityRootResolver.resolve(service)
+
+        assertEquals(listOf(-1), candidates.map { it.windowId })
+        assertEquals(listOf(0), candidates.map { it.layer })
+        assertSame(activeRoot, candidates.single().root)
+        verify(exactly = 0) { extraWindow.root }
+        verify(exactly = 1) { extraWindow.recycle() }
+        verify(exactly = 0) { activeRoot.recycle() }
+        verify(exactly = 0) { extraRoot.recycle() }
+    }
+
+    @Test
+    fun noActiveRootDeduplicatesWindowIdsAndUndefinedRootIdentity() {
+        val service = mockk<MobilerunAccessibilityService>()
+        val undefinedRoot = root(windowId = -1)
+        val validRoot = root()
+        val duplicateValidRoot = root()
+        val undefinedWindow = window(id = -1, layer = 7, root = undefinedRoot)
+        val duplicateUndefinedWindow = window(id = -1, layer = 6, root = undefinedRoot)
+        val validWindow = window(id = 5, layer = 5, root = validRoot)
+        val duplicateValidWindow = window(id = 5, layer = 4, root = duplicateValidRoot)
+
+        every { service.rootInActiveWindow } returns null
+        every { service.windows } returns listOf(
+            duplicateValidWindow,
+            validWindow,
+            duplicateUndefinedWindow,
+            undefinedWindow,
+        )
+
+        val candidates = AccessibilityRootResolver.resolve(service)
+
+        assertEquals(listOf(-1, 5), candidates.map { it.windowId })
+        assertEquals(listOf(7, 5), candidates.map { it.layer })
+        assertSame(undefinedRoot, candidates[0].root)
+        assertSame(validRoot, candidates[1].root)
+        verify(exactly = 1) { duplicateUndefinedWindow.root }
+        verify(exactly = 0) { duplicateValidWindow.root }
+        candidates.forEach { candidate -> verify(exactly = 0) { candidate.root.recycle() } }
+        listOf(
+            undefinedWindow,
+            duplicateUndefinedWindow,
+            validWindow,
+            duplicateValidWindow,
+        ).forEach { verify(exactly = 1) { it.recycle() } }
+    }
+
+    @Test
+    fun differentValidWindowIdsSharingOneRootHandleAreReturnedAndRecycledOnce() {
+        val service = mockk<MobilerunAccessibilityService>()
+        val sharedRoot = root()
+        val higherWindow = window(id = 2, layer = 8, root = sharedRoot)
+        val lowerWindow = window(id = 3, layer = 7, root = sharedRoot)
+
+        every { service.rootInActiveWindow } returns null
+        every { service.windows } returns listOf(lowerWindow, higherWindow)
+
+        val candidates = AccessibilityRootResolver.resolve(service)
+
+        assertEquals(listOf(2), candidates.map { it.windowId })
+        assertSame(sharedRoot, candidates.single().root)
+        verify(exactly = 1) { higherWindow.root }
+        verify(exactly = 1) { lowerWindow.root }
+        verify(exactly = 0) { sharedRoot.recycle() }
+
+        candidates.single().root.recycle()
+
+        verify(exactly = 1) { sharedRoot.recycle() }
+        verify(exactly = 1) { higherWindow.recycle() }
+        verify(exactly = 1) { lowerWindow.recycle() }
+    }
+
+    @Test
+    fun failingWindowIsSkippedWithoutPreventingLaterCandidatesOrRecycling() {
+        val service = mockk<MobilerunAccessibilityService>()
+        val failingWindow = window(id = 8, layer = 9, root = null)
+        val malformedWindow = mockk<AccessibilityWindowInfo>()
+        val goodRoot = root()
+        val goodWindow = window(id = 7, layer = 1, root = goodRoot)
+
+        every { service.rootInActiveWindow } returns null
+        every { service.windows } returns listOf(failingWindow, malformedWindow, goodWindow)
+        every { failingWindow.root } throws RuntimeException("root unavailable")
+        every { malformedWindow.id } throws RuntimeException("window unavailable")
+        every { malformedWindow.recycle() } just runs
+
+        val candidates = AccessibilityRootResolver.resolve(service)
+
+        assertEquals(listOf(7), candidates.map { it.windowId })
+        assertSame(goodRoot, candidates.single().root)
+        verify(exactly = 1) { failingWindow.recycle() }
+        verify(exactly = 1) { malformedWindow.recycle() }
+        verify(exactly = 1) { goodWindow.recycle() }
+    }
+
+    @Test
+    fun unavailableWindowListKeepsActiveRootWithDefaultLayer() {
+        val service = mockk<MobilerunAccessibilityService>()
+        val activeRoot = root(windowId = 12)
+
+        every { service.rootInActiveWindow } returns activeRoot
+        every { service.windows } throws RuntimeException("windows unavailable")
+
+        val candidate = AccessibilityRootResolver.resolve(service).single()
+
+        assertSame(activeRoot, candidate.root)
+        assertEquals(12, candidate.windowId)
+        assertEquals(0, candidate.layer)
+        verify(exactly = 0) { activeRoot.recycle() }
+    }
+
+    private fun root(windowId: Int? = null): AccessibilityNodeInfo {
+        return mockk<AccessibilityNodeInfo>().also { node ->
+            if (windowId != null) {
+                every { node.windowId } returns windowId
+            }
+            every { node.recycle() } just runs
+        }
+    }
+
+    private fun window(
+        id: Int,
+        layer: Int,
+        type: Int = AccessibilityWindowInfo.TYPE_APPLICATION,
+        root: AccessibilityNodeInfo?,
+    ): AccessibilityWindowInfo {
+        return mockk<AccessibilityWindowInfo>().also { window ->
+            every { window.id } returns id
+            every { window.layer } returns layer
+            every { window.type } returns type
+            every { window.root } returns root
+            every { window.recycle() } just runs
+        }
+    }
+}

@@ -3,10 +3,10 @@ package com.mobilerun.portal.core
 import android.graphics.Rect
 import android.util.Log
 import android.view.accessibility.AccessibilityNodeInfo
-import android.view.accessibility.AccessibilityWindowInfo
 import com.mobilerun.portal.service.MobilerunAccessibilityService
 import com.mobilerun.portal.model.ElementNode
 import com.mobilerun.portal.model.PhoneState
+import org.json.JSONArray
 import org.json.JSONObject
 
 class StateRepository(private val service: MobilerunAccessibilityService?) {
@@ -28,70 +28,64 @@ class StateRepository(private val service: MobilerunAccessibilityService?) {
      */
     fun hasActiveRoot(): Boolean {
         val svc = service ?: return false
-        val root = getActiveRoot(svc) ?: pickFallbackRoot(svc) ?: return false
-        root.recycle()
-        return true
+        val candidates = AccessibilityRootResolver.resolve(svc)
+        try {
+            return candidates.isNotEmpty()
+        } finally {
+            recycleRoots(candidates.map { it.root })
+        }
     }
 
     fun getFullTree(filter: Boolean): JSONObject? {
         val svc = service ?: return null
-        val root = getActiveRoot(svc) ?: pickFallbackRoot(svc) ?: return null
-        val bounds = if (filter) svc.getScreenBounds() else null
-        return AccessibilityTreeBuilder.buildFullAccessibilityTreeJson(root, bounds)
-    }
-
-    private fun getActiveRoot(svc: MobilerunAccessibilityService): AccessibilityNodeInfo? {
+        val candidates = AccessibilityRootResolver.resolve(svc)
+        var consumedCount = 0
         return try {
-            svc.rootInActiveWindow
-        } catch (e: RuntimeException) {
-            Log.e(TAG, "Unable to read active accessibility root: ${e.message}", e)
-            null
-        }
-    }
+            val bounds = if (filter) svc.getScreenBounds() else null
+            var primaryTree: JSONObject? = null
 
-    private fun pickFallbackRoot(svc: MobilerunAccessibilityService): AccessibilityNodeInfo? {
-        val windows = try {
-            svc.windows
-        } catch (e: RuntimeException) {
-            Log.e(TAG, "Unable to read accessibility windows: ${e.message}", e)
-            null
-        } ?: return null
+            for (candidate in candidates) {
+                // AccessibilityTreeBuilder owns and recycles every root passed to it,
+                // including when building fails. Mark the current candidate consumed
+                // before invoking it so cleanup only recycles untouched roots.
+                consumedCount++
+                val tree = AccessibilityTreeBuilder.buildFullAccessibilityTreeJson(
+                    candidate.root,
+                    bounds,
+                ) ?: continue
 
-        return try {
-            windows.sortedWith(
-                compareBy<AccessibilityWindowInfo> { fallbackWindowTypePriority(it) }
-                    .thenByDescending { it.layer }
-            )
-                .asSequence()
-                .filter { isUserFacingWindow(it) }
-                .mapNotNull { window ->
-                    try {
-                        window.root
-                    } catch (e: RuntimeException) {
-                        Log.e(
-                            TAG,
-                            "Unable to read accessibility window root layer=${window.layer}: ${e.message}",
-                            e,
-                        )
-                        null
-                    }
+                val primary = primaryTree
+                if (primary == null) {
+                    primaryTree = tree
+                } else {
+                    appendAdditionalRoot(primary, tree)
                 }
-                .firstOrNull()
+            }
+
+            primaryTree
         } finally {
-            windows.forEach { it.recycle() }
+            recycleRoots(candidates.drop(consumedCount).map { it.root })
         }
     }
 
-    private fun isUserFacingWindow(window: AccessibilityWindowInfo): Boolean {
-        return window.type == AccessibilityWindowInfo.TYPE_APPLICATION ||
-                window.type == AccessibilityWindowInfo.TYPE_SYSTEM
+    private fun appendAdditionalRoot(primary: JSONObject, additionalRoot: JSONObject) {
+        val children = primary.optJSONArray("children") ?: JSONArray().also {
+            primary.put("children", it)
+        }
+        children.put(additionalRoot)
     }
 
-    private fun fallbackWindowTypePriority(window: AccessibilityWindowInfo): Int {
-        return when (window.type) {
-            AccessibilityWindowInfo.TYPE_APPLICATION -> 0
-            AccessibilityWindowInfo.TYPE_SYSTEM -> 1
-            else -> 2
+    private fun recycleRoots(roots: Iterable<AccessibilityNodeInfo>) {
+        roots.forEach { root ->
+            try {
+                root.recycle()
+            } catch (e: RuntimeException) {
+                try {
+                    Log.e(TAG, "Unable to recycle accessibility root: ${e.message}", e)
+                } catch (_: RuntimeException) {
+                    // android.util.Log is unavailable in local JVM tests.
+                }
+            }
         }
     }
 
