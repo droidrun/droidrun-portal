@@ -76,7 +76,13 @@ object TriggerEditorSupport {
                 showCooldown = false,
             )
 
-            else -> Visibility()
+            // Sources that use the editor defaults on purpose.
+            TriggerSource.BATTERY_LOW,
+            TriggerSource.BATTERY_OKAY,
+            TriggerSource.POWER_CONNECTED,
+            TriggerSource.POWER_DISCONNECTED,
+            TriggerSource.USER_PRESENT,
+            -> Visibility()
         }
     }
 
@@ -143,7 +149,12 @@ object TriggerEditorSupport {
         )
     }
 
-    fun isNotificationSource(source: TriggerSource): Boolean {
+    /**
+     * True for sources that need the notification-listener permission.
+     * Distinct from [TriggerRuntime.shouldDebounce]: removed notifications
+     * need access too, but are never debounced.
+     */
+    fun requiresNotificationAccess(source: TriggerSource): Boolean {
         return source == TriggerSource.NOTIFICATION_POSTED ||
             source == TriggerSource.NOTIFICATION_REMOVED
     }

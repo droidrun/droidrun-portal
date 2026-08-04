@@ -1,9 +1,11 @@
 package com.mobilerun.portal.triggers
 
+import com.mobilerun.portal.events.model.EventType
 import com.mobilerun.portal.taskprompt.PortalTaskSettings
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.json.JSONObject
@@ -248,6 +250,155 @@ class TriggerCoreTest {
         assertEquals(expected.keys, TriggerSource.entries.toSet())
         expected.forEach { (source, description) ->
             assertEquals(description, TriggerUiSupport.sourceDescription(source))
+        }
+    }
+
+    @Test
+    fun `every trigger source has an intended visibility and cooldown decision`() {
+        val defaults = TriggerEditorSupport.Visibility()
+        val expected = mapOf(
+            TriggerSource.TIME_DELAY to TriggerEditorSupport.Visibility(
+                showDelay = true,
+                showCooldown = false,
+                showRunLimit = false,
+            ),
+            TriggerSource.TIME_ABSOLUTE to TriggerEditorSupport.Visibility(
+                showAbsoluteTime = true,
+                showCooldown = false,
+                showRunLimit = false,
+            ),
+            TriggerSource.TIME_DAILY to TriggerEditorSupport.Visibility(
+                showRecurringTime = true,
+                showCooldown = false,
+            ),
+            TriggerSource.TIME_WEEKLY to TriggerEditorSupport.Visibility(
+                showRecurringTime = true,
+                showCooldown = false,
+            ),
+            TriggerSource.NOTIFICATION_POSTED to TriggerEditorSupport.Visibility(
+                showMatchMode = true,
+                showPackageName = true,
+                showTitleFilter = true,
+                showTextFilter = true,
+            ),
+            TriggerSource.NOTIFICATION_REMOVED to TriggerEditorSupport.Visibility(
+                showMatchMode = true,
+                showPackageName = true,
+                showTitleFilter = true,
+                showTextFilter = true,
+            ),
+            TriggerSource.APP_ENTERED to TriggerEditorSupport.Visibility(
+                showMatchMode = true,
+                showPackageName = true,
+            ),
+            TriggerSource.APP_EXITED to TriggerEditorSupport.Visibility(
+                showMatchMode = true,
+                showPackageName = true,
+            ),
+            TriggerSource.BATTERY_LEVEL_CHANGED to TriggerEditorSupport.Visibility(
+                showThreshold = true,
+            ),
+            TriggerSource.NETWORK_CONNECTED to TriggerEditorSupport.Visibility(
+                showNetworkType = true,
+            ),
+            TriggerSource.NETWORK_TYPE_CHANGED to TriggerEditorSupport.Visibility(
+                showNetworkType = true,
+            ),
+            TriggerSource.SMS_RECEIVED to TriggerEditorSupport.Visibility(
+                showMatchMode = true,
+                showPhoneNumber = true,
+                showMessageFilter = true,
+            ),
+            // Intended-defaults allow-list: these sources deliberately use
+            // the plain editor defaults.
+            TriggerSource.BATTERY_LOW to defaults,
+            TriggerSource.BATTERY_OKAY to defaults,
+            TriggerSource.POWER_CONNECTED to defaults,
+            TriggerSource.POWER_DISCONNECTED to defaults,
+            TriggerSource.USER_PRESENT to defaults,
+        )
+
+        assertEquals(expected.keys, TriggerSource.entries.toSet())
+        expected.forEach { (source, visibility) ->
+            assertEquals(source.name, visibility, TriggerEditorSupport.visibilityFor(source))
+            val capabilities = TriggerEditorSupport.capabilitiesFor(source)
+            assertEquals(source.name, visibility.showCooldown, capabilities.supportsCooldown)
+            assertEquals(source.name, visibility.showRunLimit, capabilities.supportsRunLimit)
+            assertEquals(
+                source.name,
+                if (visibility.showCooldown) 60L else 0L,
+                TriggerEditorSupport.defaultCooldownSecondsFor(source).toLong(),
+            )
+        }
+    }
+
+    @Test
+    fun `portal event mapping decides every event type`() {
+        val expected = mapOf(
+            EventType.NOTIFICATION_POSTED to TriggerSource.NOTIFICATION_POSTED,
+            EventType.NOTIFICATION_REMOVED to TriggerSource.NOTIFICATION_REMOVED,
+            EventType.APP_ENTERED to TriggerSource.APP_ENTERED,
+            EventType.APP_EXITED to TriggerSource.APP_EXITED,
+            EventType.BATTERY_LOW to TriggerSource.BATTERY_LOW,
+            EventType.BATTERY_OKAY to TriggerSource.BATTERY_OKAY,
+            EventType.BATTERY_LEVEL_CHANGED to TriggerSource.BATTERY_LEVEL_CHANGED,
+            EventType.POWER_CONNECTED to TriggerSource.POWER_CONNECTED,
+            EventType.POWER_DISCONNECTED to TriggerSource.POWER_DISCONNECTED,
+            EventType.USER_PRESENT to TriggerSource.USER_PRESENT,
+            EventType.NETWORK_CONNECTED to TriggerSource.NETWORK_CONNECTED,
+            EventType.NETWORK_TYPE_CHANGED to TriggerSource.NETWORK_TYPE_CHANGED,
+            EventType.SMS_RECEIVED to TriggerSource.SMS_RECEIVED,
+        )
+        val intentionallyUnmapped = setOf(
+            EventType.NOTIFICATION,
+            EventType.PING,
+            EventType.PONG,
+            EventType.UNKNOWN,
+        )
+
+        assertEquals(expected.keys, EventType.entries.toSet() - intentionallyUnmapped)
+        expected.forEach { (type, source) ->
+            assertEquals(type.name, source, TriggerRuntime.triggerSourceFor(type))
+        }
+        intentionallyUnmapped.forEach { type ->
+            assertNull(type.name, TriggerRuntime.triggerSourceFor(type))
+        }
+    }
+
+    @Test
+    fun `every trigger source has a notification access and debounce decision`() {
+        // Pair(requiresNotificationAccess, shouldDebounce) per source.
+        val expected = mapOf(
+            TriggerSource.TIME_DELAY to Pair(false, false),
+            TriggerSource.TIME_ABSOLUTE to Pair(false, false),
+            TriggerSource.TIME_DAILY to Pair(false, false),
+            TriggerSource.TIME_WEEKLY to Pair(false, false),
+            TriggerSource.NOTIFICATION_POSTED to Pair(true, true),
+            // Removed notifications need listener access but carry no
+            // message text, so they are never debounced.
+            TriggerSource.NOTIFICATION_REMOVED to Pair(true, false),
+            TriggerSource.APP_ENTERED to Pair(false, false),
+            TriggerSource.APP_EXITED to Pair(false, false),
+            TriggerSource.BATTERY_LOW to Pair(false, false),
+            TriggerSource.BATTERY_OKAY to Pair(false, false),
+            TriggerSource.BATTERY_LEVEL_CHANGED to Pair(false, false),
+            TriggerSource.POWER_CONNECTED to Pair(false, false),
+            TriggerSource.POWER_DISCONNECTED to Pair(false, false),
+            TriggerSource.USER_PRESENT to Pair(false, false),
+            TriggerSource.NETWORK_CONNECTED to Pair(false, false),
+            TriggerSource.NETWORK_TYPE_CHANGED to Pair(false, false),
+            TriggerSource.SMS_RECEIVED to Pair(false, false),
+        )
+
+        assertEquals(expected.keys, TriggerSource.entries.toSet())
+        expected.forEach { (source, decision) ->
+            val (needsAccess, debounced) = decision
+            assertEquals(
+                source.name,
+                needsAccess,
+                TriggerEditorSupport.requiresNotificationAccess(source),
+            )
+            assertEquals(source.name, debounced, TriggerRuntime.shouldDebounce(source))
         }
     }
 
