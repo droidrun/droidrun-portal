@@ -159,23 +159,36 @@ object TriggerRuntime {
         evaluateRule(rule, buildTestSignal(rule), isTestRun = true)
     }
 
+    /**
+     * Exhaustive on purpose: a new [EventType] must get an explicit decision
+     * here — otherwise the API catalogue (and, via its paired [TriggerSource],
+     * the UI picker) would advertise a trigger that never fires.
+     */
+    internal fun triggerSourceFor(type: EventType): TriggerSource? = when (type) {
+        EventType.NOTIFICATION_POSTED -> TriggerSource.NOTIFICATION_POSTED
+        EventType.NOTIFICATION_REMOVED -> TriggerSource.NOTIFICATION_REMOVED
+        EventType.APP_ENTERED -> TriggerSource.APP_ENTERED
+        EventType.APP_EXITED -> TriggerSource.APP_EXITED
+        EventType.BATTERY_LOW -> TriggerSource.BATTERY_LOW
+        EventType.BATTERY_OKAY -> TriggerSource.BATTERY_OKAY
+        EventType.BATTERY_LEVEL_CHANGED -> TriggerSource.BATTERY_LEVEL_CHANGED
+        EventType.POWER_CONNECTED -> TriggerSource.POWER_CONNECTED
+        EventType.POWER_DISCONNECTED -> TriggerSource.POWER_DISCONNECTED
+        EventType.USER_PRESENT -> TriggerSource.USER_PRESENT
+        EventType.NETWORK_CONNECTED -> TriggerSource.NETWORK_CONNECTED
+        EventType.NETWORK_TYPE_CHANGED -> TriggerSource.NETWORK_TYPE_CHANGED
+        EventType.SMS_RECEIVED -> TriggerSource.SMS_RECEIVED
+        // Protocol/legacy members that never fire triggers.
+        EventType.NOTIFICATION,
+        EventType.PING,
+        EventType.PONG,
+        EventType.UNKNOWN,
+        -> null
+    }
+
     private fun handlePortalEvent(event: PortalEvent) {
-        val signal = when (event.type) {
-            EventType.NOTIFICATION_POSTED -> portalEventToSignal(TriggerSource.NOTIFICATION_POSTED, event)
-            EventType.NOTIFICATION_REMOVED -> portalEventToSignal(TriggerSource.NOTIFICATION_REMOVED, event)
-            EventType.APP_ENTERED -> portalEventToSignal(TriggerSource.APP_ENTERED, event)
-            EventType.APP_EXITED -> portalEventToSignal(TriggerSource.APP_EXITED, event)
-            EventType.BATTERY_LOW -> portalEventToSignal(TriggerSource.BATTERY_LOW, event)
-            EventType.BATTERY_OKAY -> portalEventToSignal(TriggerSource.BATTERY_OKAY, event)
-            EventType.BATTERY_LEVEL_CHANGED -> portalEventToSignal(TriggerSource.BATTERY_LEVEL_CHANGED, event)
-            EventType.POWER_CONNECTED -> portalEventToSignal(TriggerSource.POWER_CONNECTED, event)
-            EventType.POWER_DISCONNECTED -> portalEventToSignal(TriggerSource.POWER_DISCONNECTED, event)
-            EventType.USER_PRESENT -> portalEventToSignal(TriggerSource.USER_PRESENT, event)
-            EventType.NETWORK_CONNECTED -> portalEventToSignal(TriggerSource.NETWORK_CONNECTED, event)
-            EventType.NETWORK_TYPE_CHANGED -> portalEventToSignal(TriggerSource.NETWORK_TYPE_CHANGED, event)
-            EventType.SMS_RECEIVED -> portalEventToSignal(TriggerSource.SMS_RECEIVED, event)
-            else -> null
-        } ?: return
+        val source = triggerSourceFor(event.type) ?: return
+        val signal = portalEventToSignal(source, event) ?: return
 
         val nowMs = System.currentTimeMillis()
         repository.listRules()
@@ -185,7 +198,7 @@ object TriggerRuntime {
             .filterNot { isCoolingDown(it, nowMs) }
             .filter { TriggerMatcher.matches(it, signal) }
             .forEach { rule ->
-                if (isNotificationSource(signal.source)) {
+                if (shouldDebounce(signal.source)) {
                     logRun(
                         rule = rule,
                         disposition = TriggerRunDisposition.DEBOUNCED,
@@ -199,7 +212,13 @@ object TriggerRuntime {
             }
     }
 
-    private fun isNotificationSource(source: TriggerSource): Boolean =
+    /**
+     * Only posted notifications are debounced: the buffer batches message
+     * title/text per sender, which removed notifications don't carry — those
+     * evaluate immediately. Not the same predicate as
+     * [TriggerEditorSupport.requiresNotificationAccess].
+     */
+    internal fun shouldDebounce(source: TriggerSource): Boolean =
         source == TriggerSource.NOTIFICATION_POSTED
 
     private fun evaluateRule(rule: TriggerRule, signal: TriggerSignal, isTestRun: Boolean) {

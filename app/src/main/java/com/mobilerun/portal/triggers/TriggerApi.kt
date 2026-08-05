@@ -176,7 +176,7 @@ class TriggerApi(
 
         var ruleToSave = validRule
         if (ruleToSave.enabled &&
-            TriggerEditorSupport.isNotificationSource(ruleToSave.source) &&
+            TriggerEditorSupport.requiresNotificationAccess(ruleToSave.source) &&
             !environmentStatusProvider.get(appContext).notificationAccessEnabled
         ) {
             ruleToSave = ruleToSave.copy(enabled = false)
@@ -209,7 +209,7 @@ class TriggerApi(
             "Trigger rule not found: $ruleId",
         )
         if (enabled &&
-            TriggerEditorSupport.isNotificationSource(existingRule.source) &&
+            TriggerEditorSupport.requiresNotificationAccess(existingRule.source) &&
             !environmentStatusProvider.get(appContext).notificationAccessEnabled
         ) {
             return TriggerApiResult.Error(
@@ -230,7 +230,7 @@ class TriggerApi(
         val rule = operations.getRule(ruleId) ?: return TriggerApiResult.Error(
             "Trigger rule not found: $ruleId",
         )
-        if (TriggerEditorSupport.isNotificationSource(rule.source) &&
+        if (TriggerEditorSupport.requiresNotificationAccess(rule.source) &&
             !environmentStatusProvider.get(appContext).notificationAccessEnabled
         ) {
             return TriggerApiResult.Error(

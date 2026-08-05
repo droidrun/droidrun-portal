@@ -779,7 +779,7 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
         var rule = buildRuleOrShowErrors() ?: return null
 
         val needsNotificationAccess = rule.enabled &&
-            TriggerEditorSupport.isNotificationSource(rule.source) &&
+            TriggerEditorSupport.requiresNotificationAccess(rule.source) &&
             !TriggerEditorSupport.isNotificationAccessEnabled(this)
 
         if (needsNotificationAccess) {
@@ -825,7 +825,7 @@ class TriggerRuleEditorActivity : AppCompatActivity() {
 
     private fun testRule() {
         val savedRule = saveRule(finishAfterSave = false, showToast = false) ?: return
-        if (TriggerEditorSupport.isNotificationSource(savedRule.source) &&
+        if (TriggerEditorSupport.requiresNotificationAccess(savedRule.source) &&
             !TriggerEditorSupport.isNotificationAccessEnabled(this)
         ) {
             Toast.makeText(this, "Cannot test: notification listener access is not granted", Toast.LENGTH_SHORT).show()

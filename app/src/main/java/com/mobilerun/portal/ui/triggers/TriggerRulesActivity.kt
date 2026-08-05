@@ -141,7 +141,7 @@ class TriggerRulesActivity : AppCompatActivity() {
         ruleAdapter = RuleAdapter(
             onToggle = { rule, enabled ->
                 if (enabled &&
-                    TriggerEditorSupport.isNotificationSource(rule.source) &&
+                    TriggerEditorSupport.requiresNotificationAccess(rule.source) &&
                     !TriggerEditorSupport.isNotificationAccessEnabled(this)
                 ) {
                     showNotificationAccessWarning(rule.id)
@@ -275,7 +275,7 @@ class TriggerRulesActivity : AppCompatActivity() {
         if (isNotificationAccessEnabled()) return
         var changed = false
         for (rule in TriggerRuntime.listRules()) {
-            if (rule.enabled && TriggerEditorSupport.isNotificationSource(rule.source)) {
+            if (rule.enabled && TriggerEditorSupport.requiresNotificationAccess(rule.source)) {
                 TriggerRuntime.setRuleEnabled(rule.id, false)
                 changed = true
             }
