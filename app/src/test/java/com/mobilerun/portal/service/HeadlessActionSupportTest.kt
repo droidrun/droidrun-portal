@@ -34,6 +34,7 @@ class HeadlessActionSupportTest {
         assertFalse(HeadlessActionSupport.isAllowed("tap"))
         assertFalse(HeadlessActionSupport.isAllowed("packages"))
         assertFalse(HeadlessActionSupport.isAllowed("state"))
+        assertFalse(HeadlessActionSupport.isAllowed("app/deep-link"))
     }
 }
 

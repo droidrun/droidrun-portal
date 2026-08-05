@@ -1,8 +1,10 @@
 package com.mobilerun.portal.api
 
 import android.accessibilityservice.AccessibilityService
+import android.app.ActivityOptions
 import android.app.ActivityManager
 import android.Manifest
+import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.pm.ApplicationInfo
@@ -741,6 +743,44 @@ class ApiHandler(
         } catch (e: Exception) {
             Log.e("ApiHandler", "Error starting app", e)
             ApiResponse.Error("Error starting app: ${e.message}")
+        }
+    }
+
+    fun openDeepLink(
+        displayId: Int,
+        packageName: String?,
+        action: String?,
+        deepLink: String,
+    ): ApiResponse {
+        if (!stateRepo.hasAccessibilityService) {
+            return ApiResponse.Error(APP_LAUNCH_REQUIRES_ACCESSIBILITY)
+        }
+        if (deepLink.isBlank() || deepLink.trim() == "null") {
+            return ApiResponse.Error("Missing required param: 'deepLink'")
+        }
+        if (displayId < 0) {
+            return ApiResponse.Error("Invalid displayId: must be >= 0")
+        }
+
+        return try {
+            val intent = Intent().apply {
+                this.action = action?.takeIf { it.isNotBlank() } ?: Intent.ACTION_VIEW
+                data = Uri.parse(deepLink)
+                packageName?.takeIf { it.isNotBlank() }?.let(::setPackage)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            val options = ActivityOptions.makeBasic()
+            options.setLaunchDisplayId(displayId)
+            context.startActivity(intent, options.toBundle())
+            ApiResponse.Success("Deep link opened")
+        } catch (_: ActivityNotFoundException) {
+            ApiResponse.Error("No activity found to handle deep link")
+        } catch (_: SecurityException) {
+            ApiResponse.Error("Deep link launch not permitted")
+        } catch (_: IllegalArgumentException) {
+            ApiResponse.Error("Invalid deep link launch")
+        } catch (_: Exception) {
+            ApiResponse.Error("Failed to open deep link")
         }
     }
 

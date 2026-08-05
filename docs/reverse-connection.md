@@ -102,6 +102,7 @@ Notes:
 Reverse connection supports the same app commands as local WebSocket:
 
 - `app` with optional `stopBeforeLaunch` (default `false`)
+- `app/deep-link` with required `deepLink`, optional `package`, optional `action`, and `displayId` (default `0`)
 - `app/stop` to request a best-effort stop
 
 Example:
@@ -117,6 +118,24 @@ Example:
 ```json
 {
   "id": "2",
+  "method": "app/deep-link",
+  "params": {
+    "displayId": 0,
+    "package": "com.example.app",
+    "action": "android.intent.action.VIEW",
+    "deepLink": "myapp://path"
+  }
+}
+```
+
+Blank `package` leaves resolution unpinned, and `packageName` is accepted as a direct-RPC
+compatibility alias. Blank `action` defaults to `android.intent.action.VIEW`. Arbitrary custom
+schemes are passed to Android's resolver. Deep-link request and response payloads are redacted
+from reverse-connection logs because URIs can contain credentials.
+
+```json
+{
+  "id": "3",
   "method": "app/stop",
   "params": { "package": "com.example.app" }
 }

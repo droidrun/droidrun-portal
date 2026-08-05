@@ -68,6 +68,7 @@ Response format:
 | `swipe` | `startX`, `startY`, `endX`, `endY`, `duration` | Duration in ms (optional) |
 | `global` | `action` | Accessibility global action ID |
 | `app` | `package`, `activity`, `stopBeforeLaunch` | `activity` optional; `stopBeforeLaunch` defaults to `false` |
+| `app/deep-link` | `deepLink`, `displayId`, `package`, `action` | Opens an implicit URI intent; `displayId` defaults to `0`, `action` defaults to `android.intent.action.VIEW`, and `package` is optional (`packageName` is also accepted) |
 | `app/stop` | `package` | Best-effort stop (non-privileged app) |
 | `keyboard/input` | `base64_text`, `clear` | `clear` defaults to `true` |
 | `keyboard/clear` | - | Clears focused input |
@@ -158,6 +159,17 @@ curl -X POST \
   -H "Content-Type: application/x-www-form-urlencoded" \
   -d "x=200&y=400" \
   http://localhost:8080/tap
+```
+
+Deep links are authenticated and require Accessibility, like `app` launches. Android resolves
+the URI and any optional package pin; custom schemes are supported.
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  --data-urlencode "deepLink=myapp://path" \
+  --data-urlencode "displayId=0" \
+  http://localhost:8080/app/deep-link
 ```
 
 ## ContentProvider (ADB)

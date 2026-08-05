@@ -111,6 +111,32 @@ class ActionDispatcher(
                 apiHandler.startApp(pkg, finalActivity)
             }
 
+            "app/deep-link" -> {
+                val deepLink =
+                    if (params.has("deepLink") && !params.isNull("deepLink")) {
+                        params.optString("deepLink", "")
+                    } else {
+                        ""
+                    }
+                if (deepLink.isBlank() || deepLink.trim() == "null") {
+                    return ApiResponse.Error("Missing required param: 'deepLink'")
+                }
+
+                val displayId = params.optInt("displayId", 0)
+                if (displayId < 0) {
+                    return ApiResponse.Error("Invalid displayId: must be >= 0")
+                }
+
+                val packageName =
+                    if (hasCanonicalPackage(params)) {
+                        optionalString(params, "package")
+                    } else {
+                        optionalString(params, "packageName")
+                    }
+                val intentAction = optionalString(params, "action")
+                apiHandler.openDeepLink(displayId, packageName, intentAction, deepLink)
+            }
+
             "app/stop" -> {
                 val pkg = params.optString("package", "").ifEmpty {
                     params.optString("packageName", "")
@@ -488,5 +514,17 @@ class ActionDispatcher(
             is TriggerApiResult.Error -> ApiResponse.Error(result.message)
             is TriggerApiResult.Success -> onSuccess(result.value)
         }
+    }
+
+    private fun optionalString(params: JSONObject, key: String): String? {
+        if (!params.has(key) || params.isNull(key)) return null
+        return params.optString(key, "").trim().takeUnless {
+            it.isEmpty() || it == "null"
+        }
+    }
+
+    private fun hasCanonicalPackage(params: JSONObject): Boolean {
+        if (!params.has("package") || params.isNull("package")) return false
+        return params.optString("package", "").trim() != "null"
     }
 }

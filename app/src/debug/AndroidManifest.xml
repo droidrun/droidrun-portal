@@ -3,6 +3,32 @@
 
     <application>
         <activity
+            android:name=".core.DeepLinkFixtureActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data
+                    android:host="deep-link-fixture"
+                    android:scheme="${applicationId}" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="${applicationId}.action.DEEP_LINK_FIXTURE" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data
+                    android:host="deep-link-fixture"
+                    android:scheme="${applicationId}" />
+            </intent-filter>
+        </activity>
+        <activity
             android:name=".core.PopupWindowFixtureActivity"
             android:exported="false"
             android:theme="@android:style/Theme.Material.Light.NoActionBar" />

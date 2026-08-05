@@ -1,10 +1,14 @@
 package com.mobilerun.portal.api
 
+import android.app.ActivityOptions
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Bundle
 import android.view.KeyEvent
 import android.util.Base64
 import com.mobilerun.portal.core.StateRepository
@@ -33,6 +37,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class ApiHandlerTest {
@@ -450,6 +455,124 @@ class ApiHandlerTest {
         verify(exactly = 1) { anyConstructed<Intent>().addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
         verify(exactly = 1) { context.startActivity(any()) }
         verify(exactly = 0) { packageManager.getLaunchIntentForPackage(any()) }
+    }
+
+    @Test
+    fun openDeepLink_requiresAccessibility() {
+        val context = mockk<Context>(relaxed = true)
+        val handler =
+            createHandler(
+                stateRepo = StateRepository(service = null),
+                ime = null,
+                context = context,
+            )
+
+        assertEquals(
+            ApiResponse.Error("App launch requires Accessibility service"),
+            handler.openDeepLink(0, null, null, "example://private-token"),
+        )
+
+        verify(exactly = 0) { context.startActivity(any<Intent>(), any<Bundle>()) }
+    }
+
+    @Test
+    fun openDeepLink_rejectsBlankLinkAndNegativeDisplayBeforeLaunch() {
+        val stateRepo = mockk<StateRepository>(relaxed = true)
+        val context = mockk<Context>(relaxed = true)
+        every { stateRepo.hasAccessibilityService } returns true
+        val handler = createHandler(stateRepo = stateRepo, ime = null, context = context)
+
+        assertEquals(
+            ApiResponse.Error("Missing required param: 'deepLink'"),
+            handler.openDeepLink(0, null, null, "  "),
+        )
+        assertEquals(
+            ApiResponse.Error("Missing required param: 'deepLink'"),
+            handler.openDeepLink(0, null, null, "null"),
+        )
+        assertEquals(
+            ApiResponse.Error("Invalid displayId: must be >= 0"),
+            handler.openDeepLink(-1, null, null, "example://path"),
+        )
+        verify(exactly = 0) { context.startActivity(any<Intent>(), any<Bundle>()) }
+    }
+
+    @Test
+    fun openDeepLink_defaultsToViewAndForwardsDataFlagsAndDisplay() {
+        val stateRepo = mockk<StateRepository>(relaxed = true)
+        val context = mockk<Context>(relaxed = true)
+        every { stateRepo.hasAccessibilityService } returns true
+        val mocks = prepareDeepLinkLaunchMocks("example://path", displayId = 0)
+        val handler = createHandler(stateRepo = stateRepo, ime = null, context = context)
+
+        assertEquals(
+            ApiResponse.Success("Deep link opened"),
+            handler.openDeepLink(0, null, null, "example://path"),
+        )
+
+        verify(exactly = 1) { anyConstructed<Intent>().setAction(Intent.ACTION_VIEW) }
+        verify(exactly = 1) { anyConstructed<Intent>().setData(mocks.uri) }
+        verify(exactly = 0) { anyConstructed<Intent>().setPackage(any()) }
+        verify(exactly = 1) {
+            anyConstructed<Intent>().addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        verify(exactly = 1) { mocks.options.setLaunchDisplayId(0) }
+        verify(exactly = 1) { context.startActivity(any<Intent>(), mocks.bundle) }
+    }
+
+    @Test
+    fun openDeepLink_forwardsCustomActionPackageAndDisplay() {
+        val stateRepo = mockk<StateRepository>(relaxed = true)
+        val context = mockk<Context>(relaxed = true)
+        every { stateRepo.hasAccessibilityService } returns true
+        val mocks = prepareDeepLinkLaunchMocks("example://path", displayId = 4)
+        val handler = createHandler(stateRepo = stateRepo, ime = null, context = context)
+
+        assertEquals(
+            ApiResponse.Success("Deep link opened"),
+            handler.openDeepLink(4, "com.example", "com.example.OPEN", "example://path"),
+        )
+
+        verify(exactly = 1) { anyConstructed<Intent>().setAction("com.example.OPEN") }
+        verify(exactly = 1) { anyConstructed<Intent>().setData(mocks.uri) }
+        verify(exactly = 1) { anyConstructed<Intent>().setPackage("com.example") }
+        verify(exactly = 1) {
+            anyConstructed<Intent>().addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        verify(exactly = 1) { mocks.options.setLaunchDisplayId(4) }
+        verify(exactly = 1) { context.startActivity(any<Intent>(), mocks.bundle) }
+    }
+
+    @Test
+    fun openDeepLink_returnsStableErrorWhenNoHandlerExists() {
+        assertDeepLinkStartFailure(
+            ActivityNotFoundException("secret://must-not-leak"),
+            "No activity found to handle deep link",
+        )
+    }
+
+    @Test
+    fun openDeepLink_returnsStableErrorWhenLaunchIsNotPermitted() {
+        assertDeepLinkStartFailure(
+            SecurityException("secret://must-not-leak"),
+            "Deep link launch not permitted",
+        )
+    }
+
+    @Test
+    fun openDeepLink_returnsStableErrorForInvalidLaunch() {
+        assertDeepLinkStartFailure(
+            IllegalArgumentException("secret://must-not-leak"),
+            "Invalid deep link launch",
+        )
+    }
+
+    @Test
+    fun openDeepLink_returnsStableErrorForUnexpectedFailure() {
+        assertDeepLinkStartFailure(
+            IllegalStateException("secret://must-not-leak"),
+            "Failed to open deep link",
+        )
     }
 
     @Test
@@ -1253,5 +1376,49 @@ class ApiHandlerTest {
             appVersionProvider = { "test-version" },
             context = context,
         )
+    }
+
+    private data class DeepLinkLaunchMocks(
+        val uri: Uri,
+        val options: ActivityOptions,
+        val bundle: Bundle,
+    )
+
+    private fun prepareDeepLinkLaunchMocks(
+        deepLink: String,
+        displayId: Int,
+    ): DeepLinkLaunchMocks {
+        mockkConstructor(Intent::class)
+        mockkStatic(Uri::class)
+        mockkStatic(ActivityOptions::class)
+
+        val uri = mockk<Uri>()
+        val options = mockk<ActivityOptions>()
+        val bundle = mockk<Bundle>()
+        every { Uri.parse(deepLink) } returns uri
+        every { anyConstructed<Intent>().setAction(any()) } returns mockk(relaxed = true)
+        every { anyConstructed<Intent>().setData(uri) } returns mockk(relaxed = true)
+        every { anyConstructed<Intent>().setPackage(any()) } returns mockk(relaxed = true)
+        every {
+            anyConstructed<Intent>().addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        } returns mockk(relaxed = true)
+        every { ActivityOptions.makeBasic() } returns options
+        every { options.setLaunchDisplayId(displayId) } returns options
+        every { options.toBundle() } returns bundle
+        return DeepLinkLaunchMocks(uri, options, bundle)
+    }
+
+    private fun assertDeepLinkStartFailure(error: Exception, expectedMessage: String) {
+        val stateRepo = mockk<StateRepository>(relaxed = true)
+        val context = mockk<Context>(relaxed = true)
+        every { stateRepo.hasAccessibilityService } returns true
+        val mocks = prepareDeepLinkLaunchMocks("secret://must-not-leak", displayId = 0)
+        every { context.startActivity(any<Intent>(), mocks.bundle) } throws error
+        val handler = createHandler(stateRepo = stateRepo, ime = null, context = context)
+
+        val response = handler.openDeepLink(0, null, null, "secret://must-not-leak")
+
+        assertEquals(ApiResponse.Error(expectedMessage), response)
+        assertFalse((response as ApiResponse.Error).message.contains("secret://"))
     }
 }
