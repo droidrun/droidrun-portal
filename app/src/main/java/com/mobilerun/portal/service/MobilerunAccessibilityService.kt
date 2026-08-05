@@ -39,13 +39,10 @@ import java.io.ByteArrayOutputStream
 import java.util.concurrent.CompletableFuture
 import com.mobilerun.portal.events.EventHub
 import com.mobilerun.portal.events.PortalWebSocketServer
-import com.mobilerun.portal.events.model.EventType
-import com.mobilerun.portal.events.model.PortalEvent
 import com.mobilerun.portal.keepalive.KeepAliveController
 import com.mobilerun.portal.keepalive.KeepAliveRecoveryActivity
 import com.mobilerun.portal.triggers.TriggerRuntime
 import androidx.core.app.NotificationCompat
-import org.json.JSONObject
 import java.util.Collections
 import java.util.IdentityHashMap
 
@@ -227,6 +224,8 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
     private var lastUpdateTime = 0L
     private var currentPackageName: String = ""
     private var currentActivityName: String = ""
+    private val foregroundApplicationTransitionTracker =
+        ForegroundApplicationTransitionTracker(EventHub::emit)
     private val visibleElements = mutableListOf<ElementNode>()
     private var visibleElementsSnapshotTimeMs = 0L
     private var visibleElementsSnapshotPackageName = ""
@@ -313,7 +312,6 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val eventPackage = event?.packageName?.toString() ?: ""
         val eventClassName = event?.className?.toString() ?: ""
-        val previousPackage = currentPackageName
 
         // Detect package changes
         if (eventPackage.isNotEmpty() && eventPackage != currentPackageName && currentPackageName.isNotEmpty()) {
@@ -322,35 +320,16 @@ class MobilerunAccessibilityService : AccessibilityService(), ConfigManager.Conf
 
         if (eventPackage.isNotEmpty()) {
             currentPackageName = eventPackage
-            if (previousPackage.isNotEmpty() && previousPackage != eventPackage) {
-                EventHub.emit(
-                    PortalEvent(
-                        type = EventType.APP_EXITED,
-                        payload = JSONObject().apply {
-                            put("package", previousPackage)
-                            put("next_package", eventPackage)
-                        }
-                    )
-                )
-            }
-            if (previousPackage != eventPackage) {
-                EventHub.emit(
-                    PortalEvent(
-                        type = EventType.APP_ENTERED,
-                        payload = JSONObject().apply {
-                            put("package", eventPackage)
-                            if (previousPackage.isNotEmpty()) {
-                                put("previous_package", previousPackage)
-                            }
-                        }
-                    )
-                )
-            }
         }
+
+        val foregroundApplication = ForegroundApplicationWindowResolver.resolve(event) { windows }
+        foregroundApplicationTransitionTracker.advance(foregroundApplication?.packageName)
 
         // Capture activity name from TYPE_WINDOW_STATE_CHANGED events
         // These events typically indicate navigation to a new activity/screen
-        if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+        if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
+            foregroundApplication != null
+        ) {
             if (eventClassName.isNotEmpty() && !eventClassName.startsWith("android.")) {
                 // Filter out Android system dialogs and only keep app activities
                 currentActivityName = eventClassName
