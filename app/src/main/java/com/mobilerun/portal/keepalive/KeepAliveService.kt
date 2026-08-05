@@ -37,6 +37,10 @@ class KeepAliveService : Service(), ConfigManager.ConfigChangeListener {
 
         fun isRunning(): Boolean = instance != null
 
+        fun requestStopIfRunning() {
+            instance?.requestStopAfterLatestStart()
+        }
+
         fun notifyRecoveryResult(
             context: Context,
             recoveryToken: Long,
@@ -91,29 +95,32 @@ class KeepAliveService : Service(), ConfigManager.ConfigChangeListener {
     private var receiverRegistered = false
     private var recoveryInFlight = false
     private var activeRecoveryToken: Long? = null
+    private var latestStartId = 0
 
     override fun onCreate() {
         super.onCreate()
+        createNotificationChannel()
+        startForeground(NOTIFICATION_ID, createNotification())
         instance = this
         val configManager = ConfigManager.getInstance(this)
         configManager.addListener(this)
         restorePersistedRecoveryHandoffState(configManager)
-        createNotificationChannel()
         registerScreenStateReceiver()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        latestStartId = startId
         val configManager = ConfigManager.getInstance(applicationContext)
         if (intent?.action == ACTION_STOP) {
             KeepAliveController.disable(applicationContext)
+            requestStopAfterLatestStart()
             return START_NOT_STICKY
         }
         if (!configManager.keepScreenAwakeEnabled) {
-            stopSelf()
+            requestStopAfterLatestStart()
             return START_NOT_STICKY
         }
 
-        startForeground(NOTIFICATION_ID, createNotification())
         ensureSteadyWakeLock()
         schedulePoll()
         evaluateDeviceState(intent?.action ?: ACTION_RECONCILE)
@@ -134,6 +141,7 @@ class KeepAliveService : Service(), ConfigManager.ConfigChangeListener {
         releaseWakeLocks()
         recoveryInFlight = false
         activeRecoveryToken = null
+        latestStartId = 0
         instance = null
         super.onDestroy()
     }
@@ -152,7 +160,19 @@ class KeepAliveService : Service(), ConfigManager.ConfigChangeListener {
         if (!enabled) {
             recoveryInFlight = false
             activeRecoveryToken = null
-            stopSelf()
+            requestStopAfterLatestStart()
+        }
+    }
+
+    private fun requestStopAfterLatestStart() {
+        mainHandler.post {
+            if (ConfigManager.getInstance(applicationContext).keepScreenAwakeEnabled) {
+                return@post
+            }
+            val deliveredStartId = latestStartId
+            if (deliveredStartId != 0) {
+                stopSelfResult(deliveredStartId)
+            }
         }
     }
 
@@ -165,7 +185,7 @@ class KeepAliveService : Service(), ConfigManager.ConfigChangeListener {
         val appContext = applicationContext
         val status = KeepAliveController.getStatus(appContext)
         if (!status.enabled) {
-            stopSelf()
+            requestStopAfterLatestStart()
             return
         }
 
