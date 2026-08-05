@@ -36,6 +36,12 @@ import java.net.URI
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
+internal fun shouldRedactReverseRequestPayload(normalizedMethod: String): Boolean =
+    normalizedMethod == "clipboard/set" || normalizedMethod == "app/deep-link"
+
+internal fun shouldRedactReverseResponsePayload(normalizedMethod: String): Boolean =
+    normalizedMethod == "clipboard/get" || normalizedMethod == "app/deep-link"
+
 class ReverseConnectionService : Service() {
 
     companion object {
@@ -599,6 +605,7 @@ class ReverseConnectionService : Service() {
         if (message == null) return
 
         var id: Any? = null
+        var methodForResponseLogging: String? = null
 
         try {
             // Check if the message is a valid JSON before parsing
@@ -615,9 +622,10 @@ class ReverseConnectionService : Service() {
             val method = json.optString("method", "")
             val normalizedMethod =
                 method.removePrefix("/action/").removePrefix("action.").removePrefix("/")
+            methodForResponseLogging = normalizedMethod
 
-            if (normalizedMethod == "clipboard/set") {
-                Log.d(TAG, "Received message: clipboard/set (id=$id, params=<redacted>)")
+            if (shouldRedactReverseRequestPayload(normalizedMethod)) {
+                Log.d(TAG, "Received message: $normalizedMethod (id=$id, params=<redacted>)")
             } else {
                 val logMsg = if (message.length > 200) message.take(200) + "..." else message
                 Log.d(TAG, "Received message: $logMsg")
@@ -637,7 +645,7 @@ class ReverseConnectionService : Service() {
             val params = json.optJSONObject("params") ?: JSONObject()
 
             // Truncate params log to avoid spamming with large SDP/ICE payloads
-            val paramsLog = if (normalizedMethod == "clipboard/set") {
+            val paramsLog = if (shouldRedactReverseRequestPayload(normalizedMethod)) {
                 "<redacted>"
             } else {
                 params.toString().let { if (it.length > 100) it.take(100) + "..." else it }
@@ -649,7 +657,7 @@ class ReverseConnectionService : Service() {
                 val error =
                     "Accessibility Service not ready. Only stream/*, webrtc/*, screen/keepAwake/*, global, and triggers/* are available."
                 Log.e(TAG, error)
-                sendErrorResponse(client, id, error)
+                sendErrorResponse(client, id, error, normalizedMethod)
                 return
             }
 
@@ -676,7 +684,12 @@ class ReverseConnectionService : Service() {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error processing message", e)
-            sendErrorResponse(client, id, e.message ?: "unknown exception")
+            sendErrorResponse(
+                client,
+                id,
+                e.message ?: "unknown exception",
+                methodForResponseLogging,
+            )
         }
     }
 
@@ -706,7 +719,12 @@ class ReverseConnectionService : Service() {
         } catch (e: Exception) {
             val elapsedMs = SystemClock.elapsedRealtime() - dispatchStartedAtMs
             Log.e(TAG, "Failed $method (id=$requestId, elapsedMs=$elapsedMs)", e)
-            sendErrorResponse(client, requestId, e.message ?: "unknown exception")
+            sendErrorResponse(
+                client,
+                requestId,
+                e.message ?: "unknown exception",
+                normalizedMethod,
+            )
         }
     }
 
@@ -723,8 +741,11 @@ class ReverseConnectionService : Service() {
         try {
             val payload = response.toJson(requestId)
             client.send(payload)
-            if (normalizedMethod == "clipboard/get") {
-                Log.d(TAG, "Sent response for clipboard/get (id=$requestId, payload=<redacted>)")
+            if (
+                normalizedMethod != null &&
+                shouldRedactReverseResponsePayload(normalizedMethod)
+            ) {
+                Log.d(TAG, "Sent response for $normalizedMethod (id=$requestId, payload=<redacted>)")
             } else {
                 val logPayload = if (payload.length > 200) payload.take(200) + "..." else payload
                 Log.d(TAG, "Sent response: $logPayload")
@@ -734,9 +755,14 @@ class ReverseConnectionService : Service() {
         }
     }
 
-    private fun sendErrorResponse(client: WebSocketClient, requestId: Any?, message: String) {
+    private fun sendErrorResponse(
+        client: WebSocketClient,
+        requestId: Any?,
+        message: String,
+        normalizedMethod: String? = null,
+    ) {
         if (requestId == null) return
-        sendResponse(client, ApiResponse.Error(message), requestId)
+        sendResponse(client, ApiResponse.Error(message), requestId, normalizedMethod)
     }
 
     private fun buildHeadlessActionDispatcher(): ActionDispatcher {

@@ -75,6 +75,145 @@ class ActionDispatcherTest {
     }
 
     @Test
+    fun dispatch_deepLink_routesExplicitParams() {
+        val apiHandler = mockk<ApiHandler>()
+        every {
+            apiHandler.openDeepLink(
+                3,
+                "com.example",
+                "com.example.OPEN",
+                "example://account/token",
+            )
+        } returns ApiResponse.Success("Deep link opened")
+
+        val response =
+            ActionDispatcher(apiHandler).dispatch(
+                "app/deep-link",
+                JSONObject().apply {
+                    put("displayId", 3)
+                    put("package", "com.example")
+                    put("action", "com.example.OPEN")
+                    put("deepLink", "example://account/token")
+                },
+            )
+
+        assertEquals(ApiResponse.Success("Deep link opened"), response)
+        verify(exactly = 1) {
+            apiHandler.openDeepLink(
+                3,
+                "com.example",
+                "com.example.OPEN",
+                "example://account/token",
+            )
+        }
+    }
+
+    @Test
+    fun dispatch_deepLink_defaultsDisplayAndOptionalParams() {
+        val apiHandler = mockk<ApiHandler>()
+        every {
+            apiHandler.openDeepLink(0, null, null, "example://path")
+        } returns ApiResponse.Success("Deep link opened")
+
+        val response =
+            ActionDispatcher(apiHandler).dispatch(
+                "app/deep-link",
+                JSONObject().put("deepLink", "example://path"),
+            )
+
+        assertEquals(ApiResponse.Success("Deep link opened"), response)
+        verify(exactly = 1) {
+            apiHandler.openDeepLink(0, null, null, "example://path")
+        }
+    }
+
+    @Test
+    fun dispatch_deepLink_acceptsPackageNameAliasWhenCanonicalPackageIsAbsent() {
+        val apiHandler = mockk<ApiHandler>()
+        every {
+            apiHandler.openDeepLink(0, "com.example", null, "example://path")
+        } returns ApiResponse.Success("Deep link opened")
+
+        val response =
+            ActionDispatcher(apiHandler).dispatch(
+                "app/deep-link",
+                JSONObject().apply {
+                    put("packageName", "com.example")
+                    put("action", JSONObject.NULL)
+                    put("deepLink", "example://path")
+                },
+            )
+
+        assertEquals(ApiResponse.Success("Deep link opened"), response)
+        verify(exactly = 1) {
+            apiHandler.openDeepLink(0, "com.example", null, "example://path")
+        }
+    }
+
+    @Test
+    fun dispatch_deepLink_blankCanonicalPackageKeepsLaunchUnpinned() {
+        val apiHandler = mockk<ApiHandler>()
+        every {
+            apiHandler.openDeepLink(0, null, null, "example://path")
+        } returns ApiResponse.Success("Deep link opened")
+
+        val response =
+            ActionDispatcher(apiHandler).dispatch(
+                "app/deep-link",
+                JSONObject().apply {
+                    put("package", " ")
+                    put("packageName", "com.example")
+                    put("deepLink", "example://path")
+                },
+            )
+
+        assertEquals(ApiResponse.Success("Deep link opened"), response)
+        verify(exactly = 1) {
+            apiHandler.openDeepLink(0, null, null, "example://path")
+        }
+    }
+
+    @Test
+    fun dispatch_deepLink_rejectsMissingOrBlankLinkAndNegativeDisplay() {
+        val apiHandler = mockk<ApiHandler>(relaxed = true)
+        val dispatcher = ActionDispatcher(apiHandler)
+
+        assertEquals(
+            ApiResponse.Error("Missing required param: 'deepLink'"),
+            dispatcher.dispatch("app/deep-link", JSONObject()),
+        )
+        assertEquals(
+            ApiResponse.Error("Missing required param: 'deepLink'"),
+            dispatcher.dispatch(
+                "app/deep-link",
+                JSONObject().put("deepLink", "  "),
+            ),
+        )
+        assertEquals(
+            ApiResponse.Error("Missing required param: 'deepLink'"),
+            dispatcher.dispatch(
+                "app/deep-link",
+                JSONObject().put("deepLink", JSONObject.NULL),
+            ),
+        )
+        assertEquals(
+            ApiResponse.Error("Missing required param: 'deepLink'"),
+            dispatcher.dispatch(
+                "app/deep-link",
+                JSONObject().put("deepLink", "null"),
+            ),
+        )
+        assertEquals(
+            ApiResponse.Error("Invalid displayId: must be >= 0"),
+            dispatcher.dispatch(
+                "app/deep-link",
+                JSONObject().put("deepLink", "example://path").put("displayId", -1),
+            ),
+        )
+        verify(exactly = 0) { apiHandler.openDeepLink(any(), any(), any(), any()) }
+    }
+
+    @Test
     fun dispatch_input_defaultsClearToTrue_andSupportsAliases() {
         val apiHandler = mockk<ApiHandler>()
         every { apiHandler.keyboardInput("SGVsbG8=", true) } returns ApiResponse.Success("ok")
