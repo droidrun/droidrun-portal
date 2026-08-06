@@ -32,8 +32,7 @@ object KeepAliveServiceRuntime {
         }
     }
 
-    fun stop(context: Context) {
-        val appContext = context.applicationContext
-        appContext.stopService(Intent(appContext, KeepAliveService::class.java))
+    fun stop(@Suppress("UNUSED_PARAMETER") context: Context) {
+        KeepAliveService.requestStopIfRunning()
     }
 }
