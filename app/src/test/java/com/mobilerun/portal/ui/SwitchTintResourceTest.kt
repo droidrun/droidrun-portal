@@ -1,6 +1,5 @@
 package com.mobilerun.portal.ui
 
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -28,11 +27,17 @@ class SwitchTintResourceTest {
         assertTrue(track.contains("android:color=\"@color/mobilerun_primary\""))
         assertTrue(track.contains("android:color=\"@color/text_gray_light\""))
 
-        val checkedColor = colorValue("mobilerun_primary")
-        val uncheckedColor = colorValue("text_gray_light")
-        assertEquals("#0D9373", checkedColor)
-        assertEquals("#AAAAAA", uncheckedColor)
-        assertNotEquals(checkedColor, uncheckedColor)
+        val checkedColor = resolvedColor("mobilerun_primary")
+        val uncheckedColor = resolvedColor("text_gray_light")
+        assertNotEquals("Checked and unchecked colors must differ in day mode", checkedColor, uncheckedColor)
+
+        val checkedNightColor = resolvedColor("mobilerun_primary", "values-night")
+        val uncheckedNightColor = resolvedColor("text_gray_light", "values-night")
+        assertNotEquals(
+            "Checked and unchecked colors must differ in night mode",
+            checkedNightColor,
+            uncheckedNightColor,
+        )
     }
 
     @Test
@@ -46,12 +51,51 @@ class SwitchTintResourceTest {
 
     private fun resource(path: String): File = File(resDir, path)
 
-    private fun colorValue(name: String): String {
-        val colors = resource("values/colors.xml").readText()
-        val regex = Regex("""<color\s+name="$name">([^<]+)</color>""")
-        return requireNotNull(regex.find(colors)) {
-            "Missing color resource: $name"
-        }.groupValues[1].uppercase()
+    private fun resolvedColor(name: String, qualifier: String = "values"): String {
+        val baseColors = colorValues("values/colors.xml")
+        val qualifiedColors = if (qualifier == "values") {
+            emptyMap()
+        } else {
+            colorValues("$qualifier/colors.xml")
+        }
+        val resolving = linkedSetOf<String>()
+
+        fun resolve(resourceName: String): String {
+            check(resourceName !in resolving) {
+                "Color resource cycle: ${(resolving.toList() + resourceName).joinToString(" -> ")}"
+            }
+            resolving += resourceName
+            val value = qualifiedColors[resourceName] ?: baseColors[resourceName]
+            requireNotNull(value) { "Missing color resource: $resourceName" }
+
+            return if (value.startsWith("@color/")) {
+                resolve(value.removePrefix("@color/"))
+            } else {
+                canonicalColor(value)
+            }
+        }
+
+        return resolve(name)
+    }
+
+    private fun colorValues(path: String): Map<String, String> {
+        val regex = Regex("""<color\s+name="([^"]+)">([^<]+)</color>""")
+        return regex.findAll(resource(path).readText()).associate { match ->
+            match.groupValues[1] to match.groupValues[2].trim()
+        }
+    }
+
+    private fun canonicalColor(value: String): String {
+        val hex = value.removePrefix("#")
+        require(hex.matches(Regex("[0-9A-Fa-f]+"))) { "Unsupported color value: $value" }
+        val argb = when (hex.length) {
+            3 -> "FF" + hex.map { "$it$it" }.joinToString("")
+            4 -> hex.map { "$it$it" }.joinToString("")
+            6 -> "FF$hex"
+            8 -> hex
+            else -> error("Unsupported color value: $value")
+        }
+        return "#${argb.uppercase()}"
     }
 
     private fun locateResDir(): File {
