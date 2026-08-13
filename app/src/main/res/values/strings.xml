@@ -230,7 +230,7 @@
     <!-- Connection States -->
     <string name="connection_failed_title">Connection Failed</string>
     <string name="error_unauthorized">Unauthorized \u2014 check your API key</string>
-    <string name="error_limit_exceeded">Device limit exceeded</string>
+    <string name="error_limit_exceeded">Your plan or available device slots don’t allow this device to connect. Update the plan or free a slot, then retry.</string>
     <string name="error_bad_request_actionable">Saved Mobilerun credentials may belong to a different account. Sign in again or update the connection.</string>
     <string name="error_bad_request">Bad request \u2014 check token and headers</string>
     <string name="error_unknown">An unknown error occurred</string>

@@ -12,6 +12,11 @@ import com.mobilerun.portal.taskprompt.PortalTaskSettings
 import com.mobilerun.portal.taskprompt.PortalTaskTracking
 import com.mobilerun.portal.taskprompt.TaskPromptSettingsConstraints
 
+internal data class ReverseJoinHttp402Snapshot(
+    val blocked: Boolean,
+    val explicitlyDisconnected: Boolean,
+)
+
 /**
  * Centralized configuration manager for Mobilerun Portal
  * Handles SharedPreferences operations and provides a clean API for configuration management
@@ -36,6 +41,10 @@ class ConfigManager private constructor(private val context: Context) {
         private const val KEY_REVERSE_CONNECTION_TOKEN = "reverse_connection_token"
         private const val KEY_REVERSE_CONNECTION_ENABLED = "reverse_connection_enabled"
         private const val KEY_REVERSE_CONNECTION_SERVICE_KEY = "reverse_connection_service_key"
+        private const val KEY_REVERSE_JOIN_BLOCKED_BY_HTTP_402 =
+            "reverse_join_blocked_by_http_402"
+        private const val KEY_REVERSE_JOIN_DISCONNECTED_WHILE_HTTP_402_BLOCKED =
+            "reverse_join_disconnected_while_http_402_blocked"
         private const val KEY_PRODUCTION_MODE = "production_mode"
         private const val KEY_DEV_MODE_ENABLED = "dev_mode_enabled"
         private const val KEY_INSTALL_AUTO_ACCEPT_ENABLED = "install_auto_accept_enabled"
@@ -110,6 +119,8 @@ class ConfigManager private constructor(private val context: Context) {
 
     private val devicePrefs: SharedPreferences =
         context.getSharedPreferences(DEVICE_PREFS_NAME, Context.MODE_PRIVATE)
+
+    private val reverseJoinHttp402Lock = Any()
 
     private val secretsPrefs: SharedPreferences =
         context.getSharedPreferences(SECRET_PREFS_NAME, Context.MODE_PRIVATE)
@@ -222,7 +233,16 @@ class ConfigManager private constructor(private val context: Context) {
             return if (stored.isNullOrBlank()) DEFAULT_REVERSE_CONNECTION_URL else stored
         }
         set(value) {
+            val currentEffectiveUrl = normalizeReverseConnectionUrlForStorage(
+                reverseConnectionUrlOrDefault,
+            )
+            val newEffectiveUrl = normalizeReverseConnectionUrlForStorage(
+                value.ifBlank { DEFAULT_REVERSE_CONNECTION_URL },
+            )
             sharedPrefs.edit { putString(KEY_REVERSE_CONNECTION_URL, value) }
+            if (newEffectiveUrl != currentEffectiveUrl) {
+                reverseJoinBlockedByHttp402 = false
+            }
         }
 
     val reverseConnectionUrlOrDefault: String
@@ -243,11 +263,16 @@ class ConfigManager private constructor(private val context: Context) {
             secretsPrefs.getString(KEY_REVERSE_CONNECTION_TOKEN, ""),
         ) ?: ""
         set(value) {
+            val normalizedValue = CloudTokenNormalizer.normalize(value).orEmpty()
+            val changed = normalizedValue != reverseConnectionToken
             secretsPrefs.edit {
                 putString(
                     KEY_REVERSE_CONNECTION_TOKEN,
-                    CloudTokenNormalizer.normalize(value).orEmpty(),
+                    normalizedValue,
                 )
+            }
+            if (changed) {
+                reverseJoinBlockedByHttp402 = false
             }
         }
 
@@ -255,7 +280,11 @@ class ConfigManager private constructor(private val context: Context) {
     var reverseConnectionServiceKey: String
         get() = secretsPrefs.getString(KEY_REVERSE_CONNECTION_SERVICE_KEY, "") ?: ""
         set(value) {
+            val changed = value != reverseConnectionServiceKey
             secretsPrefs.edit { putString(KEY_REVERSE_CONNECTION_SERVICE_KEY, value) }
+            if (changed) {
+                reverseJoinBlockedByHttp402 = false
+            }
         }
 
     var productionMode: Boolean
@@ -314,6 +343,58 @@ class ConfigManager private constructor(private val context: Context) {
         }
 
     var reverseConnectionEnabled: Boolean = false
+
+    /**
+     * Stored with the device identity so the block survives process restarts but is excluded from
+     * backup and device transfer. Writes are synchronous because reconnect callbacks can race the
+     * WebSocket close callback that records an HTTP 402.
+     */
+    var reverseJoinBlockedByHttp402: Boolean
+        get() = reverseJoinHttp402Snapshot().blocked
+        set(value) {
+            synchronized(reverseJoinHttp402Lock) {
+                val previous = readReverseJoinHttp402SnapshotLocked()
+                devicePrefs.edit(commit = true) {
+                    putBoolean(KEY_REVERSE_JOIN_BLOCKED_BY_HTTP_402, value)
+                    if (!value || !previous.blocked) {
+                        remove(KEY_REVERSE_JOIN_DISCONNECTED_WHILE_HTTP_402_BLOCKED)
+                    }
+                }
+            }
+        }
+
+    val reverseJoinDisconnectedWhileHttp402Blocked: Boolean
+        get() = reverseJoinHttp402Snapshot().explicitlyDisconnected
+
+    internal fun reverseJoinHttp402Snapshot(): ReverseJoinHttp402Snapshot {
+        return synchronized(reverseJoinHttp402Lock) {
+            readReverseJoinHttp402SnapshotLocked()
+        }
+    }
+
+    fun markReverseJoinExplicitlyDisconnected() {
+        synchronized(reverseJoinHttp402Lock) {
+            val snapshot = readReverseJoinHttp402SnapshotLocked()
+            devicePrefs.edit(commit = true) {
+                if (snapshot.blocked) {
+                    putBoolean(KEY_REVERSE_JOIN_DISCONNECTED_WHILE_HTTP_402_BLOCKED, true)
+                } else {
+                    remove(KEY_REVERSE_JOIN_DISCONNECTED_WHILE_HTTP_402_BLOCKED)
+                }
+            }
+        }
+    }
+
+    private fun readReverseJoinHttp402SnapshotLocked(): ReverseJoinHttp402Snapshot {
+        val blocked = devicePrefs.getBoolean(KEY_REVERSE_JOIN_BLOCKED_BY_HTTP_402, false)
+        return ReverseJoinHttp402Snapshot(
+            blocked = blocked,
+            explicitlyDisconnected = blocked && devicePrefs.getBoolean(
+                KEY_REVERSE_JOIN_DISCONNECTED_WHILE_HTTP_402_BLOCKED,
+                false,
+            ),
+        )
+    }
 
     var forceLoginOnNextConnect: Boolean
         get() = sharedPrefs.getBoolean("force_login_on_next_connect", false)

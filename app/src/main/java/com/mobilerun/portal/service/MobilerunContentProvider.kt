@@ -239,8 +239,10 @@ internal fun handleCloudConnectInsert(
         readProviderStringValue(contentValues, key, "MobilerunContentProvider")
     },
     beforeEnable: () -> Unit = {},
-    startReverseConnectionService: (Context, Intent) -> Unit = { context, intent ->
-        context.startForegroundService(intent)
+    startReverseConnectionService: (Context, String) -> Unit = { context, action ->
+        context.startForegroundService(
+            Intent(action, null, context, ReverseConnectionService::class.java),
+        )
     },
 ): ApiResponse {
     val appContext = providerContext?.applicationContext
@@ -265,13 +267,7 @@ internal fun handleCloudConnectInsert(
         configManager.forceLoginOnNextConnect = false
         beforeEnable()
         configManager.reverseConnectionEnabled = true
-        val serviceIntent = Intent(
-            ReverseConnectionService.ACTION_RECONNECT,
-            null,
-            appContext,
-            ReverseConnectionService::class.java,
-        )
-        startReverseConnectionService(appContext, serviceIntent)
+        startReverseConnectionService(appContext, ReverseConnectionService.ACTION_RECONNECT)
         ApiResponse.Success("Cloud connection requested")
     } catch (e: Exception) {
         ApiResponse.Error("Could not start cloud connection: ${e.message}")
@@ -283,8 +279,13 @@ internal fun buildCloudStatusResponse(
     connectionStateProvider: () -> ConnectionState = { ConnectionStateManager.getState() },
 ): ApiResponse {
     val activeTask = configManager.activePortalTask
+    val http402Snapshot = configManager.reverseJoinHttp402Snapshot()
+    val connectionState = http402BlockedPresentationState(
+        blocked = http402Snapshot.blocked,
+        explicitlyDisconnected = http402Snapshot.explicitlyDisconnected,
+    ) ?: connectionStateProvider()
     val json = JSONObject().apply {
-        put("connectionState", connectionStateProvider().name)
+        put("connectionState", connectionState.name)
         put("tokenPresent", configManager.reverseConnectionToken.trim().isNotEmpty())
         put("deviceId", configManager.deviceID)
         put("reverseConnectionUrl", configManager.reverseConnectionUrlOrDefault)
@@ -396,12 +397,15 @@ internal fun handleReverseConnectionConfigInsert(
     readStringValue: (ContentValues?, String) -> String? = { contentValues, key ->
         readProviderStringValue(contentValues, key, "MobilerunContentProvider")
     },
-    startReverseConnectionService: (Context, Intent) -> Unit = { context, intent ->
-        context.startForegroundService(intent)
+    startReverseConnectionService: (Context, String) -> Unit = { context, action ->
+        context.startForegroundService(
+            Intent(action, null, context, ReverseConnectionService::class.java),
+        )
     },
     stopReverseConnectionService: (Context, Intent) -> Unit = { context, intent ->
         context.stopService(intent)
     },
+    publishConnectionState: (ConnectionState) -> Unit = ConnectionStateManager::setState,
 ): ApiResponse {
     return try {
         val url = readStringValue(values, "url")
@@ -410,36 +414,53 @@ internal fun handleReverseConnectionConfigInsert(
         val enabled = values?.getAsBoolean("enabled")
 
         var message = "Updated reverse connection config:"
+        var connectionConfigChanged = false
 
         if (url != null) {
+            val effectiveUrl = url.ifBlank { configManager.defaultReverseConnectionUrl }
+            connectionConfigChanged =
+                connectionConfigChanged || effectiveUrl != configManager.reverseConnectionUrlOrDefault
             configManager.reverseConnectionUrl = url
             message += " url=$url"
         }
         if (token != null) {
+            val normalizedToken = CloudTokenNormalizer.normalize(token).orEmpty()
+            connectionConfigChanged =
+                connectionConfigChanged || normalizedToken != configManager.reverseConnectionToken
             configManager.reverseConnectionToken = token
             message += " token=***"
         }
         if (serviceKey != null) {
+            connectionConfigChanged =
+                connectionConfigChanged || serviceKey != configManager.reverseConnectionServiceKey
             configManager.reverseConnectionServiceKey = serviceKey
             message += " service_key=***"
         }
         if (enabled != null) {
             configManager.reverseConnectionEnabled = enabled
             message += " enabled=$enabled"
+        }
 
+        val shouldReconnect = enabled == true ||
+            (enabled == null && connectionConfigChanged && configManager.reverseConnectionEnabled)
+        if (shouldReconnect || enabled == false) {
             val appContext = providerContext?.applicationContext
                 ?: throw IllegalStateException("context unavailable")
-            if (enabled) {
-                val serviceIntent = Intent(
-                    ReverseConnectionService.ACTION_RECONNECT,
-                    null,
+            if (shouldReconnect) {
+                startReverseConnectionService(
                     appContext,
-                    ReverseConnectionService::class.java,
+                    ReverseConnectionService.ACTION_RECONNECT,
                 )
-                startReverseConnectionService(appContext, serviceIntent)
             } else {
                 val serviceIntent = Intent(appContext, ReverseConnectionService::class.java)
-                stopReverseConnectionService(appContext, serviceIntent)
+                performExplicitReverseConnectionDisconnect(
+                    markExplicitlyDisconnected =
+                        configManager::markReverseJoinExplicitlyDisconnected,
+                    publishDisconnected = publishConnectionState,
+                    dispatchDisconnect = {
+                        stopReverseConnectionService(appContext, serviceIntent)
+                    },
+                )
             }
         }
 
