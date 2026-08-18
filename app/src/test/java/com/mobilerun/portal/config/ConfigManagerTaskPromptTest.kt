@@ -301,6 +301,105 @@ class ConfigManagerTaskPromptTest {
     }
 
     @Test
+    fun reverseJoinBlockedByHttp402_persistsInBackupExcludedDeviceStore() {
+        val configManager = ConfigManager.getInstance(context)
+
+        assertFalse(configManager.reverseJoinBlockedByHttp402)
+
+        configManager.reverseJoinBlockedByHttp402 = true
+        clearSingleton()
+
+        assertTrue(ConfigManager.getInstance(context).reverseJoinBlockedByHttp402)
+        assertEquals(true, deviceStore["reverse_join_blocked_by_http_402"])
+        assertFalse(sharedStore.containsKey("reverse_join_blocked_by_http_402"))
+        assertFalse(secretsStore.containsKey("reverse_join_blocked_by_http_402"))
+    }
+
+    @Test
+    fun explicitDisconnectPreservesHttp402BlockAndDisconnectedPresentationAcrossRestart() {
+        val configManager = ConfigManager.getInstance(context)
+        configManager.reverseJoinBlockedByHttp402 = true
+
+        configManager.markReverseJoinExplicitlyDisconnected()
+
+        assertEquals(
+            ReverseJoinHttp402Snapshot(
+                blocked = true,
+                explicitlyDisconnected = true,
+            ),
+            configManager.reverseJoinHttp402Snapshot(),
+        )
+        assertEquals(
+            true,
+            deviceStore["reverse_join_disconnected_while_http_402_blocked"],
+        )
+
+        clearSingleton()
+        val restored = ConfigManager.getInstance(context)
+
+        assertEquals(
+            ReverseJoinHttp402Snapshot(
+                blocked = true,
+                explicitlyDisconnected = true,
+            ),
+            restored.reverseJoinHttp402Snapshot(),
+        )
+
+        // A late duplicate close from the same blocked attempt must not undo an explicit disconnect.
+        restored.reverseJoinBlockedByHttp402 = true
+        assertEquals(
+            ReverseJoinHttp402Snapshot(
+                blocked = true,
+                explicitlyDisconnected = true,
+            ),
+            restored.reverseJoinHttp402Snapshot(),
+        )
+
+        // A future explicit reconnect clears both persisted values before its one-shot attempt.
+        restored.reverseJoinBlockedByHttp402 = false
+        assertEquals(
+            ReverseJoinHttp402Snapshot(
+                blocked = false,
+                explicitlyDisconnected = false,
+            ),
+            restored.reverseJoinHttp402Snapshot(),
+        )
+    }
+
+    @Test
+    fun unchangedConnectionConfigDoesNotClearHttp402Block() {
+        val configManager = ConfigManager.getInstance(context)
+        configManager.reverseConnectionToken = "token"
+        configManager.reverseConnectionServiceKey = "service-key"
+        configManager.reverseJoinBlockedByHttp402 = true
+
+        configManager.reverseConnectionUrl = configManager.defaultReverseConnectionUrl
+        configManager.reverseConnectionToken = " token "
+        configManager.reverseConnectionServiceKey = "service-key"
+
+        assertTrue(configManager.reverseJoinBlockedByHttp402)
+    }
+
+    @Test
+    fun changedEndpointOrCredentialsClearHttp402BlockWhileConnectionIsDisabled() {
+        val configManager = ConfigManager.getInstance(context)
+        assertFalse(configManager.reverseConnectionEnabled)
+
+        configManager.reverseJoinBlockedByHttp402 = true
+        configManager.reverseConnectionUrl =
+            "wss://example.test/v1/providers/personal/join"
+        assertFalse(configManager.reverseJoinBlockedByHttp402)
+
+        configManager.reverseJoinBlockedByHttp402 = true
+        configManager.reverseConnectionToken = "new-token"
+        assertFalse(configManager.reverseJoinBlockedByHttp402)
+
+        configManager.reverseJoinBlockedByHttp402 = true
+        configManager.reverseConnectionServiceKey = "new-service-key"
+        assertFalse(configManager.reverseJoinBlockedByHttp402)
+    }
+
+    @Test
     fun clearCloudCredentials_preservesLocalApiToken() {
         sharedStore["overlay_visible"] = false
         sharedStore["socket_server_enabled"] = true
@@ -309,6 +408,7 @@ class ConfigManagerTaskPromptTest {
         secretsStore["auth_token"] = "auth-123"
         secretsStore["reverse_connection_token"] = "reverse-123"
         secretsStore["reverse_connection_service_key"] = "service-123"
+        deviceStore["reverse_join_blocked_by_http_402"] = true
 
         ConfigManager.getInstance(context).clearCloudCredentials()
 
@@ -332,6 +432,7 @@ class ConfigManagerTaskPromptTest {
         sharedStore["reverse_connection_enabled"] = true
         sharedStore["production_mode"] = true
         deviceStore["device_id"] = "device-123"
+        deviceStore["reverse_join_blocked_by_http_402"] = true
         secretsStore["auth_token"] = "auth-123"
         secretsStore["reverse_connection_token"] = "reverse-123"
         secretsStore["reverse_connection_service_key"] = "service-123"
@@ -348,6 +449,7 @@ class ConfigManagerTaskPromptTest {
         assertFalse(configManager.websocketEnabled)
         assertEquals(8081, configManager.websocketPort)
         assertFalse(configManager.reverseConnectionEnabled)
+        assertFalse(configManager.reverseJoinBlockedByHttp402)
         assertFalse(configManager.productionMode)
     }
 

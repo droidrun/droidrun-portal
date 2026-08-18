@@ -2,6 +2,7 @@ package com.mobilerun.portal.ui
 
 import com.mobilerun.portal.config.ConfigManager
 import com.mobilerun.portal.service.MobilerunAccessibilityService
+import com.mobilerun.portal.service.performExplicitReverseConnectionDisconnect
 import com.mobilerun.portal.state.ConnectionState
 import com.mobilerun.portal.state.ConnectionStateManager
 import com.mobilerun.portal.service.ReverseConnectionService
@@ -1466,15 +1467,18 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
     }
 
     private fun disconnectService() {
-        ConfigManager.getInstance(this).reverseConnectionEnabled = false
+        val configManager = ConfigManager.getInstance(this)
+        configManager.reverseConnectionEnabled = false
 
         val serviceIntent =
             Intent(this, ReverseConnectionService::class.java).apply {
                 action = ReverseConnectionService.ACTION_DISCONNECT
             }
-        startService(serviceIntent)
-
-        ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
+        performExplicitReverseConnectionDisconnect(
+            markExplicitlyDisconnected = configManager::markReverseJoinExplicitlyDisconnected,
+            publishDisconnected = ConnectionStateManager::setState,
+            dispatchDisconnect = { startService(serviceIntent) },
+        )
     }
 
     private fun showSignOutConfirmation() {
@@ -1521,6 +1525,7 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
         val configManager = ConfigManager.getInstance(this)
         if (forceFreshLogin) {
             configManager.reverseConnectionToken = ""
+            configManager.reverseJoinBlockedByHttp402 = false
             configManager.reverseConnectionEnabled = false
             configManager.forceLoginOnNextConnect = true
             refreshCreditsBalance(force = true)
@@ -1529,12 +1534,13 @@ class MainActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener {
     }
 
     private fun restartReverseConnectionService() {
-        val serviceIntent = Intent(this, ReverseConnectionService::class.java)
-        stopService(serviceIntent)
-
-        Handler(Looper.getMainLooper()).postDelayed({
-            startForegroundService(serviceIntent)
-        }, 150)
+        val serviceIntent = Intent(
+            ReverseConnectionService.ACTION_RECONNECT,
+            null,
+            this,
+            ReverseConnectionService::class.java,
+        )
+        startForegroundService(serviceIntent)
     }
 
     private fun applyConnectionDialogWidth(dialog: AlertDialog) {

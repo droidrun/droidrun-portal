@@ -5,6 +5,7 @@ import android.content.Context
 import android.util.Log
 import com.mobilerun.portal.api.ApiResponse
 import com.mobilerun.portal.config.ConfigManager
+import com.mobilerun.portal.config.ReverseJoinHttp402Snapshot
 import com.mobilerun.portal.keepalive.KeepAliveController
 import com.mobilerun.portal.keepalive.KeepAliveStartupException
 import com.mobilerun.portal.state.ConnectionState
@@ -439,6 +440,7 @@ class MobilerunContentProviderTest {
         val configManager = mockk<ConfigManager>(relaxed = true)
         val defaultUrl = "wss://api.mobilerun.ai/v1/providers/personal/join"
         val started = AtomicBoolean(false)
+        var startedAction: String? = null
 
         every { configManager.defaultReverseConnectionUrl } returns defaultUrl
 
@@ -452,13 +454,15 @@ class MobilerunContentProviderTest {
                     else -> null
                 }
             },
-            startReverseConnectionService = { _, _ ->
+            startReverseConnectionService = { _, action ->
                 started.set(true)
+                startedAction = action
             },
         )
 
         assertEquals(ApiResponse.Success("Cloud connection requested"), result)
         assertTrue(started.get())
+        assertEquals(ReverseConnectionService.ACTION_RECONNECT, startedAction)
         verifySequence {
             configManager.defaultReverseConnectionUrl
             configManager.reverseConnectionUrl = defaultUrl
@@ -571,6 +575,118 @@ class MobilerunContentProviderTest {
     }
 
     @Test
+    fun handleReverseConnectionConfigInsert_enableUsesExplicitReconnectAction() {
+        val context = mockk<Context>(relaxed = true)
+        val values = mockk<ContentValues>()
+        val configManager = mockk<ConfigManager>(relaxed = true)
+        var startedAction: String? = null
+
+        every { values.getAsBoolean("enabled") } returns true
+
+        val result = handleReverseConnectionConfigInsert(
+            providerContext = context,
+            configManager = configManager,
+            values = values,
+            readStringValue = { _, _ -> null },
+            startReverseConnectionService = { _, action -> startedAction = action },
+        )
+
+        assertEquals(
+            ApiResponse.Success("Updated reverse connection config: enabled=true"),
+            result,
+        )
+        assertEquals(ReverseConnectionService.ACTION_RECONNECT, startedAction)
+    }
+
+    @Test
+    fun handleReverseConnectionConfigInsert_changedConfigReconnectsWhenEnabled() {
+        val context = mockk<Context>(relaxed = true)
+        val values = mockk<ContentValues>()
+        val configManager = mockk<ConfigManager>(relaxed = true)
+        var startedAction: String? = null
+
+        every { values.getAsBoolean("enabled") } returns null
+        every { configManager.reverseConnectionUrlOrDefault } returns
+            "wss://old.example/v1/providers/personal/join"
+        every { configManager.reverseConnectionEnabled } returns true
+
+        val result = handleReverseConnectionConfigInsert(
+            providerContext = context,
+            configManager = configManager,
+            values = values,
+            readStringValue = { _, key ->
+                if (key == "url") "wss://new.example/v1/providers/personal/join" else null
+            },
+            startReverseConnectionService = { _, action -> startedAction = action },
+        )
+
+        assertTrue(result is ApiResponse.Success)
+        assertEquals(ReverseConnectionService.ACTION_RECONNECT, startedAction)
+    }
+
+    @Test
+    fun handleReverseConnectionConfigInsert_unchangedConfigDoesNotReconnect() {
+        val context = mockk<Context>(relaxed = true)
+        val values = mockk<ContentValues>()
+        val configManager = mockk<ConfigManager>(relaxed = true)
+        val defaultUrl = "wss://api.mobilerun.ai/v1/providers/personal/join"
+        var startCount = 0
+
+        every { values.getAsBoolean("enabled") } returns null
+        every { configManager.defaultReverseConnectionUrl } returns defaultUrl
+        every { configManager.reverseConnectionUrlOrDefault } returns defaultUrl
+        every { configManager.reverseConnectionToken } returns "token"
+        every { configManager.reverseConnectionEnabled } returns true
+
+        val result = handleReverseConnectionConfigInsert(
+            providerContext = context,
+            configManager = configManager,
+            values = values,
+            readStringValue = { _, key ->
+                when (key) {
+                    "url" -> ""
+                    "token" -> "token"
+                    else -> null
+                }
+            },
+            startReverseConnectionService = { _, _ -> startCount += 1 },
+        )
+
+        assertTrue(result is ApiResponse.Success)
+        assertEquals(0, startCount)
+    }
+
+    @Test
+    fun handleReverseConnectionConfigInsert_disableRetainsBlockAndPublishesDisconnected() {
+        val context = mockk<Context>(relaxed = true)
+        val values = mockk<ContentValues>()
+        val configManager = mockk<ConfigManager>(relaxed = true)
+        var publishedState: ConnectionState? = null
+        var stopCount = 0
+
+        every { values.getAsBoolean("enabled") } returns false
+        every { configManager.reverseJoinBlockedByHttp402 } returns true
+
+        val result = handleReverseConnectionConfigInsert(
+            providerContext = context,
+            configManager = configManager,
+            values = values,
+            readStringValue = { _, _ -> null },
+            stopReverseConnectionService = { _, _ -> stopCount += 1 },
+            publishConnectionState = { publishedState = it },
+        )
+
+        assertEquals(
+            ApiResponse.Success("Updated reverse connection config: enabled=false"),
+            result,
+        )
+        assertEquals(ConnectionState.DISCONNECTED, publishedState)
+        assertEquals(1, stopCount)
+        verify(exactly = 1) { configManager.markReverseJoinExplicitlyDisconnected() }
+        verify(exactly = 0) { configManager.reverseJoinBlockedByHttp402 = false }
+    }
+
+    @Test
     fun buildCloudStatusResponse_reportsStateAndRedactsToken() {
         val configManager = mockk<ConfigManager>()
         every { configManager.reverseConnectionToken } returns "super-secret"
@@ -578,6 +694,11 @@ class MobilerunContentProviderTest {
         every { configManager.reverseConnectionUrlOrDefault } returns
             "wss://api.mobilerun.ai/v1/providers/personal/join"
         every { configManager.activePortalTask } returns null
+        every { configManager.reverseJoinHttp402Snapshot() } returns
+            ReverseJoinHttp402Snapshot(
+                blocked = false,
+                explicitlyDisconnected = false,
+            )
 
         val result = buildCloudStatusResponse(
             configManager = configManager,
@@ -590,6 +711,55 @@ class MobilerunContentProviderTest {
         assertTrue(json.getBoolean("tokenPresent"))
         assertEquals("device-123", json.getString("deviceId"))
         assertFalse(json.toString().contains("super-secret"))
+    }
+
+    @Test
+    fun buildCloudStatusResponse_reportsPersistedHttp402BlockAsLimitExceeded() {
+        val configManager = mockk<ConfigManager>()
+        every { configManager.reverseConnectionToken } returns "super-secret"
+        every { configManager.deviceID } returns "device-123"
+        every { configManager.reverseConnectionUrlOrDefault } returns
+            "wss://api.mobilerun.ai/v1/providers/personal/join"
+        every { configManager.activePortalTask } returns null
+        every { configManager.reverseJoinHttp402Snapshot() } returns
+            ReverseJoinHttp402Snapshot(
+                blocked = true,
+                explicitlyDisconnected = false,
+            )
+
+        val result = buildCloudStatusResponse(
+            configManager = configManager,
+            connectionStateProvider = { ConnectionState.DISCONNECTED },
+        )
+
+        assertTrue(result is ApiResponse.RawObject)
+        val json = (result as ApiResponse.RawObject).json
+        assertEquals("LIMIT_EXCEEDED", json.getString("connectionState"))
+    }
+
+    @Test
+    fun buildCloudStatusResponse_reportsExplicitDisconnectWhileRetainingHttp402Block() {
+        val configManager = mockk<ConfigManager>()
+        every { configManager.reverseConnectionToken } returns "super-secret"
+        every { configManager.deviceID } returns "device-123"
+        every { configManager.reverseConnectionUrlOrDefault } returns
+            "wss://api.mobilerun.ai/v1/providers/personal/join"
+        every { configManager.activePortalTask } returns null
+        every { configManager.reverseJoinHttp402Snapshot() } returns
+            ReverseJoinHttp402Snapshot(
+                blocked = true,
+                explicitlyDisconnected = true,
+            )
+
+        val result = buildCloudStatusResponse(
+            configManager = configManager,
+            connectionStateProvider = { ConnectionState.LIMIT_EXCEEDED },
+        )
+
+        assertTrue(result is ApiResponse.RawObject)
+        val json = (result as ApiResponse.RawObject).json
+        assertEquals("DISCONNECTED", json.getString("connectionState"))
+        assertTrue(configManager.reverseJoinHttp402Snapshot().blocked)
     }
 
     @Test

@@ -60,20 +60,6 @@ class ReverseConnectionService : Service() {
 
         fun getInstance(): ReverseConnectionService? = instance
 
-        /**
-         * Returns true if the WS close reason indicates a terminal error
-         * where we should tear down media and NOT auto-reconnect.
-         */
-        internal fun isTerminalClose(reason: String?): Boolean {
-            if (reason == null) return false
-            return reason.contains("Unauthorized", ignoreCase = true) ||
-                    reason.contains("Forbidden", ignoreCase = true) ||
-                    reason.contains("Bad Request", ignoreCase = true) ||
-                    reason.startsWith("401") ||
-                    reason.startsWith("403") ||
-                    reason.startsWith("400")
-        }
-
         /** Returns true if reconnection attempts have exceeded the give-up timeout. */
         internal fun shouldGiveUpReconnecting(reconnectStartedAtMs: Long, nowMs: Long): Boolean {
             if (reconnectStartedAtMs <= 0L) return false
@@ -91,6 +77,7 @@ class ReverseConnectionService : Service() {
 
     private val binder = LocalBinder()
     private lateinit var configManager: ConfigManager
+    private lateinit var retryController: ReverseConnectionRetryController
     private val actionDispatcherCache =
         ServiceInstanceCache<MobilerunAccessibilityService, ActionDispatcher>()
     private var headlessActionDispatcher: ActionDispatcher? = null
@@ -120,6 +107,13 @@ class ReverseConnectionService : Service() {
         super.onCreate()
         instance = this
         configManager = ConfigManager.getInstance(this)
+        retryController = ReverseConnectionRetryController(
+            readHttp402Snapshot = configManager::reverseJoinHttp402Snapshot,
+            setHttp402Blocked = { blocked ->
+                configManager.reverseJoinBlockedByHttp402 = blocked
+            },
+            markExplicitlyDisconnected = configManager::markReverseJoinExplicitlyDisconnected,
+        )
         EventHub.init(configManager)
         reverseDeviceEventRelay = ReverseDeviceEventRelay(::currentReverseEventSender)
         reverseDeviceEventRelay.start()
@@ -139,13 +133,23 @@ class ReverseConnectionService : Service() {
         }
         Log.d(TAG, "onStartCommand: Ensuring foreground...")
         ensureForeground()
-        if (intent?.action == ACTION_RECONNECT) {
+        val explicitReconnect = intent?.action == ACTION_RECONNECT
+        if (explicitReconnect) {
             Log.i(TAG, "onStartCommand: Reconnect requested with latest cloud config")
             isServiceRunning.set(true)
-            isReconnecting.set(false)
-            webSocketGeneration.clearReconnect()
-            reconnectStartedAtMs = 0L
-            handler.removeCallbacksAndMessages(null)
+            cancelPendingReconnects()
+        }
+        when (val startDecision = retryController.onStart(explicitReconnect)) {
+            is ReverseConnectionStartDecision.RestoreHttp402Block -> {
+                Log.i(TAG, "onStartCommand: HTTP 402 block is active; skipping automatic connect")
+                isServiceRunning.set(true)
+                restoreHttp402BlockedState(startDecision.state)
+                return START_STICKY
+            }
+
+            ReverseConnectionStartDecision.Connect -> Unit
+        }
+        if (explicitReconnect) {
             connectToHost()
             return START_STICKY
         }
@@ -175,7 +179,10 @@ class ReverseConnectionService : Service() {
         disconnect()
         actionDispatcherCache.clear()
         headlessActionDispatcher = null
-        ConnectionStateManager.setState(ConnectionState.DISCONNECTED)
+        ConnectionStateManager.setState(
+            retryController.blockedPresentationStateOrNull()
+                ?: ConnectionState.DISCONNECTED,
+        )
         try {
             signalingExecutor.shutdownNow()
         } catch (_: Exception) {
@@ -270,6 +277,11 @@ class ReverseConnectionService : Service() {
             Log.w(TAG, "connectToHost: Service not running, aborting")
             return
         }
+        retryController.blockedPresentationStateOrNull()?.let { blockedState ->
+            Log.i(TAG, "connectToHost: HTTP 402 block is active; skipping automatic connect")
+            restoreHttp402BlockedState(blockedState)
+            return
+        }
 
         val hostUrl = configManager.reverseConnectionUrlOrDefault
         if (hostUrl.isBlank()) {
@@ -294,6 +306,7 @@ class ReverseConnectionService : Service() {
                         TAG,
                         "onOpen: Connected to Host: $hostUrl, status=${handshakedata?.httpStatus}, message=${handshakedata?.httpStatusMessage}"
                     )
+                    retryController.onConnected()
                     reconnectStartedAtMs = 0L
                     ConnectionStateManager.setState(ConnectionState.CONNECTED)
                     showReverseConnectionToastIfEnoughTimeIsPassed()
@@ -314,25 +327,24 @@ class ReverseConnectionService : Service() {
                     Log.w(TAG, "Disconnected from Host: code=$code reason=$reason remote=$remote")
                     logNetworkState("onClose")
 
-                    if (isTerminalClose(reason)) {
-                        // Cancel any reconnect scheduled by onError (which fires before onClose)
-                        isReconnecting.set(false)
-                        handler.removeCallbacksAndMessages(null)
-                        val r = reason
-                            ?: return // isTerminalClose(null) is false, so reason is non-null here
-                        val state = when {
-                            r.contains("401") || r.contains("Unauthorized") ->
-                                ConnectionState.UNAUTHORIZED
-
-                            r.contains("403") || r.contains("Forbidden") ->
-                                ConnectionState.LIMIT_EXCEEDED
-
-                            else -> ConnectionState.BAD_REQUEST
+                    when (val decision = retryController.onClose(reason, ::cancelPendingReconnects)) {
+                        is ReverseConnectionRetryDecision.Stop -> {
+                            val state = if (decision.blockAutomaticRetries) {
+                                retryController.blockedPresentationStateOrNull()
+                                    ?: decision.state
+                            } else {
+                                decision.state
+                            }
+                            Log.w(
+                                TAG,
+                                "onClose: Terminal error ($state), tearing down media",
+                            )
+                            ConnectionStateManager.setState(state)
+                            handleWsDisconnected()
+                            return
                         }
-                        Log.w(TAG, "onClose: Terminal error ($state), tearing down media")
-                        ConnectionStateManager.setState(state)
-                        handleWsDisconnected()
-                        return
+
+                        ReverseConnectionRetryDecision.Retry -> Unit
                     }
 
                     // Transient disconnect: preserve media pipeline, just reconnect WS
@@ -370,6 +382,11 @@ class ReverseConnectionService : Service() {
     private var reconnectStartedAtMs = 0L
 
     private fun scheduleReconnect(connectionGeneration: Long = webSocketGeneration.current()) {
+        retryController.blockedPresentationStateOrNull()?.let { blockedState ->
+            Log.i(TAG, "Ignoring reconnect request while HTTP 402 block is active")
+            restoreHttp402BlockedState(blockedState)
+            return
+        }
         if (!webSocketGeneration.isCurrent(connectionGeneration)) {
             Log.d(TAG, "Ignoring stale reconnect request for generation $connectionGeneration")
             return
@@ -396,6 +413,12 @@ class ReverseConnectionService : Service() {
         ConnectionStateManager.setState(ConnectionState.RECONNECTING)
         Log.d(TAG, "Scheduling reconnect in ${RECONNECT_DELAY_MS}ms")
         handler.postDelayed({
+            retryController.blockedPresentationStateOrNull()?.let { blockedState ->
+                Log.i(TAG, "Skipping delayed reconnect while HTTP 402 block is active")
+                clearQueuedReconnectIfOwnedBy(connectionGeneration)
+                ConnectionStateManager.setState(blockedState)
+                return@postDelayed
+            }
             if (!webSocketGeneration.isCurrent(connectionGeneration)) {
                 Log.d(TAG, "Ignoring stale delayed reconnect for generation $connectionGeneration")
                 clearQueuedReconnectIfOwnedBy(connectionGeneration)
@@ -425,6 +448,18 @@ class ReverseConnectionService : Service() {
         }
     }
 
+    private fun cancelPendingReconnects() {
+        isReconnecting.set(false)
+        webSocketGeneration.clearReconnect()
+        reconnectStartedAtMs = 0L
+        handler.removeCallbacksAndMessages(null)
+    }
+
+    private fun restoreHttp402BlockedState(state: ConnectionState) {
+        cancelPendingReconnects()
+        ConnectionStateManager.setState(state)
+    }
+
     private fun closeWebSocket(): Long {
         val connectionGeneration = webSocketGeneration.advance()
         try {
@@ -448,6 +483,7 @@ class ReverseConnectionService : Service() {
 
     private fun disconnectByUser() {
         configManager.reverseConnectionEnabled = false
+        retryController.onExplicitDisconnect()
         isServiceRunning.set(false)
         isReconnecting.set(false)
         webSocketGeneration.clearReconnect()

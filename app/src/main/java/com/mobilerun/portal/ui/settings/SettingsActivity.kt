@@ -25,6 +25,7 @@ import com.mobilerun.portal.events.model.EventType
 import com.mobilerun.portal.keepalive.KeepAliveController
 import com.mobilerun.portal.service.MobilerunNotificationListener
 import com.mobilerun.portal.service.ReverseConnectionService
+import com.mobilerun.portal.service.performExplicitReverseConnectionDisconnect
 import com.mobilerun.portal.state.ConnectionState
 import com.mobilerun.portal.state.ConnectionStateManager
 import com.mobilerun.portal.taskprompt.PortalBalanceRepository
@@ -235,19 +236,35 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
                 binding.inputReverseToken.error = null
                 configManager.reverseConnectionUrl = url
                 configManager.reverseConnectionToken = token
+                intent.action = ReverseConnectionService.ACTION_RECONNECT
                 startForegroundService(intent)
             } else {
                 intent.action = ReverseConnectionService.ACTION_DISCONNECT
-                startService(intent)
+                performExplicitReverseConnectionDisconnect(
+                    markExplicitlyDisconnected =
+                        configManager::markReverseJoinExplicitlyDisconnected,
+                    publishDisconnected = ConnectionStateManager::setState,
+                    dispatchDisconnect = { startService(intent) },
+                )
             }
             refreshCreditsBalance(force = true)
         }
 
         binding.inputReverseUrl.setOnEditorActionListener { v, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_DONE || actionId == EditorInfo.IME_ACTION_NEXT) {
-                configManager.reverseConnectionUrl = v.text.toString().trim()
+                val url = v.text.toString().trim()
+                val shouldReconnect =
+                    ReverseConnectionSettingsPolicy.shouldReconnectAfterInputPersistence(
+                        enabled = configManager.reverseConnectionEnabled,
+                        currentEffectiveUrl = configManager.reverseConnectionUrlOrDefault,
+                        currentToken = configManager.reverseConnectionToken,
+                        candidateUrl = url,
+                        candidateToken = configManager.reverseConnectionToken,
+                        defaultUrl = configManager.defaultReverseConnectionUrl,
+                    )
+                configManager.reverseConnectionUrl = url
                 if (actionId == EditorInfo.IME_ACTION_DONE) binding.inputReverseUrl.clearFocus()
-                restartServiceIfEnabled()
+                if (shouldReconnect) restartServiceIfEnabled()
                 refreshCreditsBalance(force = true)
                 true
             } else {
@@ -259,9 +276,18 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
             if (actionId == EditorInfo.IME_ACTION_DONE) {
                 val token = sanitizeToken(v.text?.toString())
                 binding.inputReverseToken.error = null
+                val shouldReconnect =
+                    ReverseConnectionSettingsPolicy.shouldReconnectAfterInputPersistence(
+                        enabled = configManager.reverseConnectionEnabled,
+                        currentEffectiveUrl = configManager.reverseConnectionUrlOrDefault,
+                        currentToken = configManager.reverseConnectionToken,
+                        candidateUrl = configManager.reverseConnectionUrlOrDefault,
+                        candidateToken = token,
+                        defaultUrl = configManager.defaultReverseConnectionUrl,
+                    )
                 configManager.reverseConnectionToken = token
                 binding.inputReverseToken.clearFocus()
-                restartServiceIfEnabled()
+                if (shouldReconnect) restartServiceIfEnabled()
                 refreshCreditsBalance(force = true)
                 true
             } else {
@@ -614,10 +640,11 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
     private fun restartServiceIfEnabled() {
         if (configManager.reverseConnectionEnabled) {
             val intent = Intent(
+                ReverseConnectionService.ACTION_RECONNECT,
+                null,
                 this,
                 ReverseConnectionService::class.java,
             )
-            stopService(intent)
             startForegroundService(intent)
         }
     }
@@ -627,9 +654,20 @@ class SettingsActivity : AppCompatActivity(), ConfigManager.ConfigChangeListener
     }
 
     private fun persistReverseConnectionInputs() {
-        configManager.reverseConnectionUrl = binding.inputReverseUrl.text?.toString()?.trim() ?: ""
-        configManager.reverseConnectionToken =
-            sanitizeToken(binding.inputReverseToken.text?.toString())
+        val url = binding.inputReverseUrl.text?.toString()?.trim() ?: ""
+        val token = sanitizeToken(binding.inputReverseToken.text?.toString())
+        val shouldReconnect =
+            ReverseConnectionSettingsPolicy.shouldReconnectAfterInputPersistence(
+                enabled = configManager.reverseConnectionEnabled,
+                currentEffectiveUrl = configManager.reverseConnectionUrlOrDefault,
+                currentToken = configManager.reverseConnectionToken,
+                candidateUrl = url,
+                candidateToken = token,
+                defaultUrl = configManager.defaultReverseConnectionUrl,
+            )
+        configManager.reverseConnectionUrl = url
+        configManager.reverseConnectionToken = token
+        if (shouldReconnect) restartServiceIfEnabled()
     }
 
     private fun currentCreditsToken(): String {
