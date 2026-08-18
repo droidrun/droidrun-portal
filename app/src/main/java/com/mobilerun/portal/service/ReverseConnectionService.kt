@@ -329,7 +329,7 @@ class ReverseConnectionService : Service() {
 
                     when (val decision = retryController.onClose(reason, ::cancelPendingReconnects)) {
                         is ReverseConnectionRetryDecision.Stop -> {
-                            val state = if (decision.blockAutomaticRetries) {
+                            val state = if (decision.persistHttp402Block) {
                                 retryController.blockedPresentationStateOrNull()
                                     ?: decision.state
                             } else {
