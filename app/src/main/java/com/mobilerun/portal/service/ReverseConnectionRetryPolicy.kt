@@ -8,7 +8,7 @@ internal sealed interface ReverseConnectionRetryDecision {
 
     data class Stop(
         val state: ConnectionState,
-        val blockAutomaticRetries: Boolean = false,
+        val persistHttp402Block: Boolean = false,
     ) : ReverseConnectionRetryDecision
 }
 
@@ -81,7 +81,7 @@ internal class ReverseConnectionRetryController(
     ): ReverseConnectionRetryDecision {
         val decision = ReverseConnectionRetryPolicy.decisionForClose(reason)
         if (decision is ReverseConnectionRetryDecision.Stop) {
-            if (decision.blockAutomaticRetries) {
+            if (decision.persistHttp402Block) {
                 // Persist before cancellation so any concurrently delivered callback sees the block.
                 setHttp402Blocked(true)
             }
@@ -104,7 +104,7 @@ internal object ReverseConnectionRetryPolicy {
         return when (extractHttpStatus(reason)) {
             400 -> stop(ConnectionState.BAD_REQUEST)
             401 -> stop(ConnectionState.UNAUTHORIZED)
-            402 -> stop(ConnectionState.LIMIT_EXCEEDED, blockAutomaticRetries = true)
+            402 -> stop(ConnectionState.LIMIT_EXCEEDED, persistHttp402Block = true)
             403 -> stop(ConnectionState.LIMIT_EXCEEDED)
             null -> decisionForLegacyReason(reason)
             else -> ReverseConnectionRetryDecision.Retry
@@ -133,8 +133,8 @@ internal object ReverseConnectionRetryPolicy {
 
     private fun stop(
         state: ConnectionState,
-        blockAutomaticRetries: Boolean = false,
+        persistHttp402Block: Boolean = false,
     ): ReverseConnectionRetryDecision.Stop {
-        return ReverseConnectionRetryDecision.Stop(state, blockAutomaticRetries)
+        return ReverseConnectionRetryDecision.Stop(state, persistHttp402Block)
     }
 }

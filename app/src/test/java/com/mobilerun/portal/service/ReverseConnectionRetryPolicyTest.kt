@@ -10,25 +10,25 @@ import org.junit.Test
 
 class ReverseConnectionRetryPolicyTest {
     @Test
-    fun javaWebSocketHttp402_stopsAndBlocksAutomaticRetries() {
+    fun javaWebSocketHttp402_stopsAndPersistsHttp402Block() {
         val reason =
             "Invalid status code received: 402 Status line: HTTP/1.1 402 Payment Required"
 
         assertEquals(
             ReverseConnectionRetryDecision.Stop(
                 state = ConnectionState.LIMIT_EXCEEDED,
-                blockAutomaticRetries = true,
+                persistHttp402Block = true,
             ),
             ReverseConnectionRetryPolicy.decisionForClose(reason),
         )
     }
 
     @Test
-    fun legacyLeadingHttp402_stopsAndBlocksAutomaticRetries() {
+    fun legacyLeadingHttp402_stopsAndPersistsHttp402Block() {
         assertEquals(
             ReverseConnectionRetryDecision.Stop(
                 state = ConnectionState.LIMIT_EXCEEDED,
-                blockAutomaticRetries = true,
+                persistHttp402Block = true,
             ),
             ReverseConnectionRetryPolicy.decisionForClose("402 Payment Required"),
         )
@@ -47,7 +47,10 @@ class ReverseConnectionRetryPolicyTest {
             ReverseConnectionRetryPolicy.decisionForClose("401 Unauthorized"),
         )
         assertEquals(
-            ReverseConnectionRetryDecision.Stop(ConnectionState.LIMIT_EXCEEDED),
+            ReverseConnectionRetryDecision.Stop(
+                state = ConnectionState.LIMIT_EXCEEDED,
+                persistHttp402Block = false,
+            ),
             ReverseConnectionRetryPolicy.decisionForClose("403 Forbidden"),
         )
     }
@@ -129,7 +132,7 @@ class ReverseConnectionRetryPolicyTest {
         assertEquals(
             ReverseConnectionRetryDecision.Stop(
                 state = ConnectionState.LIMIT_EXCEEDED,
-                blockAutomaticRetries = true,
+                persistHttp402Block = true,
             ),
             decision,
         )
