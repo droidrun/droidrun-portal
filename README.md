@@ -244,6 +244,18 @@ For error responses:
 }
 ```
 
+## Spectator phone (Build Remote Agent)
+
+Portal remains the Android control surface for Mobilerun. For a **spectator** phone on a **desktop coding-agent host**, pair [Build Remote Agent](https://grokbuildremote.com/) via `gbr-agent` (`gbr/1`). That is not a Portal replacement. See [docs/gbr.md](docs/gbr.md).
+
+```bash
+curl -fsSL https://grokbuildremote.com/install.sh | bash
+gbr-agent version && gbr-agent pair && gbr-agent run
+curl -sS http://127.0.0.1:8788/health
+```
+
+Attach only `http://127.0.0.1:8788` or stdio `gbr-mcp`. Never commit mailbox keys. Independent product — not affiliated with xAI or SpaceX.
+
 ## 🔧 Technical Details
 - Minimum Android API level: 26 (Android 8.0) for the core compatibility tier
 - File operations (`files/*`) require Android 11 or newer in the current build
